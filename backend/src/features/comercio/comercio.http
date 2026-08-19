@@ -1,0 +1,51 @@
+### Variables
+@baseUrl = http://localhost:4000/api
+@authToken = eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6Ijk0OTU3Y2JhLTJkNjctNDg4ZS05ZGExLTA1OTQ2M2RjM2M2NiIsImVtYWlsIjoiZmVkZXJpY29AbWFpbC5jb20iLCJyb2wiOiJBRE1JTklTVFJBRE9SIiwiaWF0IjoxNzg3MDg0OTkwLCJleHAiOjE3ODcwODc5OTB9.LUhl4DDSMTFQJeCez7j9Xb2-iuA0XpaOsnzwBbTU5mQ
+
+### 1. Login Administrador (para obtener token)
+# @name login
+POST {{baseUrl}}/administradores/login
+Content-Type: application/json
+
+{
+  "email": "federico@mail.com",
+  "password": "123456"
+}
+
+### 2. Crear Comercio junto a su Licencia (Requiere Token)
+POST {{baseUrl}}/comercios
+Content-Type: application/json
+Authorization: Bearer {{authToken}}
+
+{
+  "nombre": "Restaurante La Fontana",
+  "licencia": {
+    "clave": "LIC-LF-2026-PREMIUM-KEY",
+    "max_activaciones": 5,
+    "estado": "activa"
+  }
+}
+
+### 3. Listar todos los Comercios con sus Licencias
+GET {{baseUrl}}/comercios
+Authorization: Bearer {{authToken}}
+
+### 4. Obtener Comercio por ID
+GET {{baseUrl}}/comercios/a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d
+Authorization: Bearer {{authToken}}
+
+### 5. Actualizar Comercio
+PUT {{baseUrl}}/comercios/a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d
+Content-Type: application/json
+Authorization: Bearer {{authToken}}
+
+{
+  "nombre": "Comercio Central POS Actualizado"
+}
+
+### 6. Eliminar Comercio (borra en cascada sus licencias)
+DELETE {{baseUrl}}/comercios/a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d
+Authorization: Bearer {{authToken}}
+
+### 7. Prueba sin Token (Error 401)
+GET {{baseUrl}}/comercios

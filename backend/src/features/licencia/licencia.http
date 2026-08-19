@@ -1,0 +1,26 @@
+### Variables
+@baseUrl = http://localhost:4000/api/licencias
+
+### 1. Activar Licencia Exitosa (Clave del seed)
+POST {{baseUrl}}/activar
+Content-Type: application/json
+
+{
+  "clave": "LIC-2026-POS-DEMO-KEY"
+}
+
+### 2. Activar Licencia Inexistente (Error 404)
+POST {{baseUrl}}/activar
+Content-Type: application/json
+
+{
+  "clave": "LICENCIA-INEXISTENTE-12345"
+}
+
+### 3. Clave vacía o inválida (Error 400 - Zod)
+POST {{baseUrl}}/activar
+Content-Type: application/json
+
+{
+  "clave": ""
+}

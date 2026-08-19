@@ -1,0 +1,38 @@
+### Variables
+@baseUrl = http://localhost:4000/api/administradores
+
+### 1. Login Exitoso (Usuario del Seed)
+POST {{baseUrl}}/login
+Content-Type: application/json
+
+{
+  "email": "federico@mail.com",
+  "password": "123456"
+}
+
+### 2. Login con formato de email inválido (Error 400 - Zod)
+POST {{baseUrl}}/login
+Content-Type: application/json
+
+{
+  "email": "correo-no-valido",
+  "password": "password123"
+}
+
+### 3. Login con contraseña vacía (Error 400 - Zod)
+POST {{baseUrl}}/login
+Content-Type: application/json
+
+{
+  "email": "federico@mail.com",
+  "password": ""
+}
+
+### 4. Login con credenciales incorrectas (Error 401)
+POST {{baseUrl}}/login
+Content-Type: application/json
+
+{
+  "email": "inexistente@example.com",
+  "password": "wrongpassword"
+}

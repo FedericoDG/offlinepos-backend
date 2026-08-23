@@ -9,6 +9,7 @@ export const CreateComercioConLicenciaDTO = z.object({
             .string({ message: 'La clave de licencia debe ser una cadena de texto' })
             .trim()
             .min(6, 'La clave de licencia debe tener al menos 6 caracteres'),
+        rol: z.enum(['SERVIDOR', 'CLIENTE']).default('SERVIDOR'),
         max_activaciones: z
             .number({ message: 'max_activaciones debe ser un número entero' })
             .int()

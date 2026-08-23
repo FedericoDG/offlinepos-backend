@@ -1,26 +1,98 @@
 ### Variables
 @baseUrl = http://localhost:4000/api/licencias
+@adminEmail = federico@mail.com
+@adminPassword = 123456
+@comercioId = a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d
 
-### 1. Activar Licencia Exitosa (Clave del seed)
-POST {{baseUrl}}/activar
+### 0. Login de administrador (token para emitir)
+# @name login
+POST http://localhost:4000/api/administradores/login
 Content-Type: application/json
 
 {
-  "clave": "LIC-2026-POS-DEMO-KEY"
+  "email": "{{adminEmail}}",
+  "password": "{{adminPassword}}"
 }
 
-### 2. Activar Licencia Inexistente (Error 404)
-POST {{baseUrl}}/activar
+### 1. Emitir licencia SERVIDOR (clave autogenerada)
+# @no-cookie-jar
+POST {{baseUrl}}
+Authorization: Bearer {{login.response.body.token}}
 Content-Type: application/json
 
 {
-  "clave": "LICENCIA-INEXISTENTE-12345"
+  "comercio_id": "{{comercioId}}",
+  "rol": "SERVIDOR",
+  "max_activaciones": 1
 }
 
-### 3. Clave vacía o inválida (Error 400 - Zod)
+### 2. Emitir licencia CLIENTE (clave autogenerada)
+# @no-cookie-jar
+POST {{baseUrl}}
+Authorization: Bearer {{login.response.body.token}}
+Content-Type: application/json
+
+{
+  "comercio_id": "{{comercioId}}",
+  "rol": "CLIENTE",
+  "max_activaciones": 2
+}
+
+### 3. Emitir licencia CLIENTE con clave propia
+# @no-cookie-jar
+POST {{baseUrl}}
+Authorization: Bearer {{login.response.body.token}}
+Content-Type: application/json
+
+{
+  "comercio_id": "{{comercioId}}",
+  "rol": "CLIENTE",
+  "clave": "LIC-2026-FIJO-KIOSCO-01",
+  "max_activaciones": 1
+}
+
+### 4. Emitir licencia sin token (Error 401)
+# @no-cookie-jar
+POST {{baseUrl}}
+Content-Type: application/json
+
+{
+  "comercio_id": "{{comercioId}}",
+  "rol": "CLIENTE"
+}
+
+### 5. Activar Licencia Servidor Exitosa (clave del seed)
 POST {{baseUrl}}/activar
 Content-Type: application/json
 
 {
-  "clave": ""
+  "clave": "LIC-2026-POS-DEMO-KEY",
+  "instalacion_id": "equipo-servidor-1"
+}
+
+### 6. Activar Licencia Cliente Exitosa (clave del seed)
+POST {{baseUrl}}/activar
+Content-Type: application/json
+
+{
+  "clave": "LIC-2026-CLI-DEMO-KEY",
+  "instalacion_id": "equipo-cliente-1"
+}
+
+### 7. Activar Licencia Inexistente (Error 404)
+POST {{baseUrl}}/activar
+Content-Type: application/json
+
+{
+  "clave": "LICENCIA-INEXISTENTE-12345",
+  "instalacion_id": "x"
+}
+
+### 8. Clave vacía o inválida (Error 400 - Zod)
+POST {{baseUrl}}/activar
+Content-Type: application/json
+
+{
+  "clave": "",
+  "instalacion_id": "x"
 }

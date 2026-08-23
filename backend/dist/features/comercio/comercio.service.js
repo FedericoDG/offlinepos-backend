@@ -10,6 +10,7 @@ export class ComercioService {
                     licencias: {
                         create: {
                             clave_hash: claveCifrada,
+                            rol: data.licencia.rol,
                             max_activaciones: data.licencia.max_activaciones,
                             estado: data.licencia.estado,
                         },
@@ -20,6 +21,7 @@ export class ComercioService {
                         select: {
                             id: true,
                             clave_hash: true,
+                            rol: true,
                             estado: true,
                             max_activaciones: true,
                             activado_en: true,
@@ -55,6 +57,7 @@ export class ComercioService {
                     select: {
                         id: true,
                         clave_hash: true,
+                        rol: true,
                         estado: true,
                         max_activaciones: true,
                         activado_en: true,
@@ -90,6 +93,7 @@ export class ComercioService {
                     select: {
                         id: true,
                         clave_hash: true,
+                        rol: true,
                         estado: true,
                         max_activaciones: true,
                         activado_en: true,
@@ -129,6 +133,7 @@ export class ComercioService {
                     select: {
                         id: true,
                         clave_hash: true,
+                        rol: true,
                         estado: true,
                         max_activaciones: true,
                         activado_en: true,

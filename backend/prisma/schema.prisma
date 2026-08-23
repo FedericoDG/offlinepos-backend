@@ -33,11 +33,17 @@ model Comercio {
   updatedAt DateTime @updatedAt
 }
 
+enum RolLicencia {
+  SERVIDOR
+  CLIENTE
+}
+
 model Licencia {
   id               String       @id @default(uuid())
   comercio_id      String
   comercio         Comercio     @relation(fields: [comercio_id], references: [id], onDelete: Cascade)
   clave_hash       String
+  rol              RolLicencia  @default(SERVIDOR)
   estado           String       @default("activa")
   activado_en      DateTime?
   max_activaciones Int          @default(1)

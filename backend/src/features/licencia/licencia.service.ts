@@ -1,8 +1,102 @@
+import crypto from 'crypto';
 import prisma from '../../config/prisma';
-import { decrypt } from '../../utils/encryption';
-import { ActivarLicenciaDTO, ActivarLicenciaResponseDTO } from './licencia.dtos';
+import { decrypt, encrypt } from '../../utils/encryption';
+import {
+  ActivarLicenciaDTO,
+  ActivarLicenciaResponseDTO,
+  CrearLicenciaDTO,
+  CrearLicenciaResponseDTO,
+} from './licencia.dtos';
+
+const CARACTERES_CLAVE = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
 
 export class LicenciaService {
+  async crear(data: CrearLicenciaDTO): Promise<CrearLicenciaResponseDTO> {
+    const comercio = await prisma.comercio.findUnique({
+      where: { id: data.comercio_id },
+    });
+
+    if (!comercio) {
+      const error: any = new Error('Comercio no encontrado');
+      error.statusCode = 404;
+      throw error;
+    }
+
+    let clave = (data.clave ?? '').trim();
+    if (clave) {
+      if (await this.claveEnUso(clave)) {
+        const error: any = new Error('La clave ya está en uso por otra licencia');
+        error.statusCode = 400;
+        throw error;
+      }
+    } else {
+      clave = await this.generarClaveUnica();
+    }
+
+    const licencia = await prisma.licencia.create({
+      data: {
+        comercio_id: comercio.id,
+        clave_hash: encrypt(clave),
+        rol: data.rol,
+        estado: 'activa',
+        max_activaciones: data.max_activaciones,
+      },
+      include: {
+        comercio: {
+          select: { id: true, nombre: true },
+        },
+      },
+    });
+
+    return {
+      message: 'Licencia emitida correctamente',
+      licencia: {
+        id: licencia.id,
+        clave,
+        rol: licencia.rol as 'SERVIDOR' | 'CLIENTE',
+        estado: licencia.estado,
+        max_activaciones: licencia.max_activaciones,
+        comercio: licencia.comercio,
+      },
+    };
+  }
+
+  private generarClave(): string {
+    const aleatorio = (cantidad: number): string =>
+      Array.from(crypto.randomBytes(cantidad))
+        .map((byte) => CARACTERES_CLAVE[byte % CARACTERES_CLAVE.length])
+        .join('');
+
+    return `LIC-${new Date().getFullYear()}-${aleatorio(4)}-${aleatorio(4)}`;
+  }
+
+  private async claveEnUso(clave: string): Promise<boolean> {
+    const licencias = await prisma.licencia.findMany({ select: { clave_hash: true } });
+
+    for (const licencia of licencias) {
+      try {
+        if (decrypt(licencia.clave_hash) === clave) {
+          return true;
+        }
+      } catch {
+        continue;
+      }
+    }
+
+    return false;
+  }
+
+  private async generarClaveUnica(): Promise<string> {
+    for (let intento = 0; intento < 10; intento++) {
+      const clave = this.generarClave();
+      if (!(await this.claveEnUso(clave))) {
+        return clave;
+      }
+    }
+
+    throw new Error('No se pudo generar una clave única');
+  }
+
   async activar(data: ActivarLicenciaDTO): Promise<ActivarLicenciaResponseDTO> {
     const licencias = await prisma.licencia.findMany({
       include: {
@@ -65,6 +159,7 @@ export class LicenciaService {
         reinstalacion: true,
         licencia: {
           id: licenciaEncontrada.id,
+          rol: licenciaEncontrada.rol,
           estado: licenciaEncontrada.estado,
           activado_en: licenciaEncontrada.activado_en,
           max_activaciones_restantes: licenciaEncontrada.max_activaciones,
@@ -111,6 +206,7 @@ export class LicenciaService {
       reinstalacion: false,
       licencia: {
         id: licenciaActualizada.id,
+        rol: licenciaActualizada.rol,
         estado: licenciaActualizada.estado,
         activado_en: licenciaActualizada.activado_en,
         max_activaciones_restantes: licenciaActualizada.max_activaciones,

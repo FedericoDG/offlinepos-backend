@@ -2,7 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import compression from 'compression';
 import { env } from './config/env';
-import './config/prisma';
+import prisma from './config/prisma';
 import administradorRoutes from './features/administrador/administrador.routes';
 import comercioRoutes from './features/comercio/comercio.routes';
 import licenciaRoutes from './features/licencia/licencia.routes';

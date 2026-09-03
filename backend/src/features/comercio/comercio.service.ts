@@ -4,20 +4,25 @@ import { CreateComercioConLicenciaDTO, UpdateComercioDTO } from './comercio.dtos
 
 export class ComercioService {
   async createConLicencia(data: CreateComercioConLicenciaDTO) {
-    const claveCifrada = encrypt(data.licencia.clave);
+    // Sin bloque `licencia` el comercio nace vacio: es el primer paso del alta
+    // en dos etapas, y las licencias las emite despues la suscripcion segun el
+    // cupo del plan contratado.
+    const licenciaInicial = data.licencia
+      ? {
+          create: {
+            clave_hash: encrypt(data.licencia.clave),
+            rol: data.licencia.rol,
+            max_activaciones: data.licencia.max_activaciones,
+            estado: data.licencia.estado,
+          },
+        }
+      : undefined;
 
     return prisma.$transaction(async (tx) => {
       const comercio = await tx.comercio.create({
         data: {
           nombre: data.nombre,
-          licencias: {
-            create: {
-              clave_hash: claveCifrada,
-              rol: data.licencia.rol,
-              max_activaciones: data.licencia.max_activaciones,
-              estado: data.licencia.estado,
-            },
-          },
+          ...(licenciaInicial && { licencias: licenciaInicial }),
         },
         include: {
           licencias: {

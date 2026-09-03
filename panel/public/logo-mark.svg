@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Binario dev labs">
+  <rect x="1" y="1" width="62" height="62" fill="#0a0a0a" stroke="#3a3a36" stroke-width="2"/>
+  <text x="10" y="46" font-family="'JetBrains Mono', ui-monospace, monospace" font-weight="700" font-size="38" fill="#f2f2ed">B</text>
+  <rect x="44" y="14" width="10" height="10" fill="#3b82f6"/>
+</svg>

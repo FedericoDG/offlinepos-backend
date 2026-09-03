@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import prisma from '../../config/prisma';
 import { decrypt, encrypt } from '../../utils/encryption';
+import { verificarCupoDisponible } from './licencia.provision';
 import {
   ActivarLicenciaDTO,
   ActivarLicenciaResponseDTO,
@@ -21,6 +22,9 @@ export class LicenciaService {
       error.statusCode = 404;
       throw error;
     }
+
+    // El cupo del plan manda: no se emiten licencias que el contrato no cubre.
+    await verificarCupoDisponible(prisma, comercio.id, data.rol);
 
     let clave = (data.clave ?? '').trim();
     if (clave) {

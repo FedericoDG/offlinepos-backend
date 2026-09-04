@@ -27,7 +27,8 @@ model Administrador {
 model Comercio {
   id        String     @id @default(uuid())
   nombre    String
-  licencias Licencia[]
+  licencias     Licencia[]
+  suscripciones Suscripcion[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -64,4 +65,117 @@ model Activacion {
   updatedAt DateTime @updatedAt
 
   @@unique([licencia_id, instalacion_id])
+}
+
+
+// ============================================================================
+// Panel de administracion — Binario Dev Labs
+// Todo lo de abajo es agregado: planes comerciales, la suscripcion que cada
+// comercio tiene contratada y los pagos que la sostienen. Los modelos de
+// arriba (Administrador, Comercio, Licencia, Activacion) no cambian: la
+// licencia sigue siendo la llave tecnica que activa una instalacion, y la
+// suscripcion es el contrato comercial que la habilita a seguir viva.
+// ============================================================================
+
+enum CicloFacturacion {
+  MENSUAL
+  ANUAL
+}
+
+/// Tipo de suscripcion vendible. Arranca con dos filas (BASICO y PRO) que el
+/// panel puede editar, pero es una tabla y no un enum a proposito: cambiar un
+/// precio no puede exigir una migracion.
+model Plan {
+  id             String   @id @default(uuid())
+  codigo         String   @unique
+  nombre         String
+  descripcion    String?
+  precio_mensual Decimal  @db.Decimal(12, 2)
+  precio_anual   Decimal? @db.Decimal(12, 2)
+  moneda         String   @default("ARS")
+  /// Cupo de licencias con rol SERVIDOR que habilita el plan.
+  max_servidores Int      @default(1)
+  /// Cupo de licencias con rol CLIENTE. BASICO = 0, PRO = 2.
+  max_clientes   Int      @default(0)
+  /// Baja logica. Un plan discontinuado deja de ofrecerse pero las
+  /// suscripciones que ya lo tienen contratado siguen funcionando.
+  activo         Boolean  @default(true)
+
+  suscripciones Suscripcion[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+enum EstadoSuscripcion {
+  ACTIVA
+  EN_GRACIA
+  VENCIDA
+  CANCELADA
+}
+
+model Suscripcion {
+  id          String   @id @default(uuid())
+  comercio_id String
+  comercio    Comercio @relation(fields: [comercio_id], references: [id], onDelete: Cascade)
+  plan_id     String
+  /// Restrict: un plan con suscripciones vivas no se puede borrar por error.
+  plan        Plan     @relation(fields: [plan_id], references: [id], onDelete: Restrict)
+
+  estado EstadoSuscripcion @default(ACTIVA)
+  ciclo  CicloFacturacion  @default(MENSUAL)
+
+  /// Se copia del plan al contratar y despues vive por su cuenta: subir la
+  /// lista de precios no debe cambiarle el precio a quien ya firmo.
+  precio_pactado Decimal @db.Decimal(12, 2)
+  moneda         String  @default("ARS")
+
+  inicia_en    DateTime  @default(now())
+  vence_en     DateTime
+  cancelada_en DateTime?
+  nota         String?
+
+  pagos Pago[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([vence_en])
+  @@index([comercio_id])
+  @@index([estado])
+}
+
+enum MetodoPago {
+  EFECTIVO
+  TRANSFERENCIA
+  MERCADO_PAGO
+  TARJETA
+  OTRO
+}
+
+model Pago {
+  id             String      @id @default(uuid())
+  suscripcion_id String
+  suscripcion    Suscripcion @relation(fields: [suscripcion_id], references: [id], onDelete: Cascade)
+
+  monto  Decimal    @db.Decimal(12, 2)
+  moneda String     @default("ARS")
+  metodo MetodoPago @default(TRANSFERENCIA)
+
+  /// Fecha en que entro la plata. Es la que manda en el grafico de ingreso
+  /// mensual: un pago de marzo cobrado en abril suma en abril.
+  pagado_en DateTime @default(now())
+
+  /// Periodo que cubre el pago. Sirve para detectar meses sin cobrar.
+  periodo_desde DateTime
+  periodo_hasta DateTime
+
+  referencia String?
+  nota       String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([pagado_en])
+  @@index([suscripcion_id])
 }

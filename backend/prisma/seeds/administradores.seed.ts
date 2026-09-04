@@ -15,6 +15,12 @@ export async function seedAdministradores(prisma: PrismaClient) {
         password: hashedPassword,
         rol: Rol.ADMINISTRADOR,
       },
+      {
+        id: '939037dc-bce8-441a-99dd-6d404c596a90',
+        email: 'joaquin@mail.com',
+        password: hashedPassword,
+        rol: Rol.ADMINISTRADOR,
+      },
     ],
   });
 

@@ -46,6 +46,7 @@ export async function llamarLLM(
       model: env.LLM_MODEL,
       messages: mensajes,
       temperature: 0.1,
+      enable_thinking: env.LLM_ENABLE_THINKING,
     };
     if (jsonMode) {
       body.response_format = { type: 'json_object' };
@@ -156,6 +157,7 @@ export async function* llamarLLMStream(mensajes: ChatMessage[]): AsyncGenerator<
         stream: true,
         stream_options: { include_usage: true },
         temperature: 0.1,
+        enable_thinking: env.LLM_ENABLE_THINKING,
       }),
       signal: ctrl.signal,
     });

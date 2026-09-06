@@ -73,6 +73,7 @@ export interface Plan {
   moneda: string;
   max_servidores: number;
   max_clientes: number;
+  chat_mensajes_mes: number;
   activo: boolean;
   suscripciones_activas: number;
   createdAt: string;
@@ -190,4 +191,26 @@ export interface Resumen {
   activaciones: number;
   dias_gracia: number;
   generado_en: string;
+}
+
+export interface ChatConsumoDetalle {
+  comercio_id: string;
+  comercio: string;
+  plan: string;
+  mensajes_usados: number;
+  mensajes_limite: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  costo_usd: number;
+}
+
+export interface ChatConsumoResponse {
+  resumen: {
+    total_mensajes: number;
+    total_tokens: number;
+    total_costo_usd: number;
+    comercios_activos: number;
+  };
+  detalle: ChatConsumoDetalle[];
 }

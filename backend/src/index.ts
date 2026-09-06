@@ -11,6 +11,7 @@ import planRoutes from './features/plan/plan.routes';
 import suscripcionRoutes from './features/suscripcion/suscripcion.routes';
 import pagoRoutes from './features/pago/pago.routes';
 import estadisticaRoutes from './features/estadistica/estadistica.routes';
+import chatRoutes from './features/chat/chat.routes';
 
 const app = express();
 
@@ -19,7 +20,12 @@ app.use(cors({
   origin: env.CORS_ORIGIN === '*' ? '*' : env.CORS_ORIGIN.split(','),
   credentials: true,
 }));
-app.use(compression());
+app.use(compression({
+  filter: (req, res) => {
+    if (req.path.includes('/stream')) return false;
+    return compression.filter(req, res);
+  },
+}));
 app.use(express.json());
 
 // Rutas
@@ -32,6 +38,7 @@ app.use('/api/planes', planRoutes);
 app.use('/api/suscripciones', suscripcionRoutes);
 app.use('/api/pagos', pagoRoutes);
 app.use('/api/estadisticas', estadisticaRoutes);
+app.use('/api/chat', chatRoutes);
 
 app.get('/health', async (_req, res) => {
   try {

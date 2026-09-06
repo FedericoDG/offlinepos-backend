@@ -1,0 +1,13 @@
+import { Router } from 'express';
+import { ChatController } from './chat.controller';
+
+const router = Router();
+const chatController = new ChatController();
+
+router.post('/mensajes', (req, res) => chatController.preguntar(req, res));
+router.post('/resultado', (req, res) => chatController.resultado(req, res));
+router.post('/resultado/stream', (req, res) => chatController.resultadoStream(req, res));
+router.post('/reporte', (req, res) => chatController.reporte(req, res));
+router.post('/uso', (req, res) => chatController.uso(req, res));
+
+export default router;

@@ -4,7 +4,14 @@ export const CreateComercioConLicenciaDTO = z.object({
         .string({ message: 'El nombre del comercio debe ser una cadena de texto' })
         .trim()
         .min(2, 'El nombre del comercio debe tener al menos 2 caracteres'),
-    licencia: z.object({
+    /**
+     * Opcional desde que el alta es en dos pasos: primero se crea el comercio y
+     * despues, al contratar el plan, la suscripcion emite las licencias que
+     * corresponden al cupo. Se mantiene aceptado por compatibilidad con quien
+     * quiera crear comercio y licencia de una sola vez.
+     */
+    licencia: z
+        .object({
         clave: z
             .string({ message: 'La clave de licencia debe ser una cadena de texto' })
             .trim()
@@ -16,7 +23,8 @@ export const CreateComercioConLicenciaDTO = z.object({
             .positive('max_activaciones debe ser mayor a 0')
             .default(1),
         estado: z.string().default('activa'),
-    }),
+    })
+        .optional(),
 });
 export const UpdateComercioDTO = z.object({
     nombre: z

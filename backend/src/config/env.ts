@@ -25,6 +25,10 @@ const envSchema = z.object({
     .default('f1a8c9b2e3d4a5b6c7d8e9f0123456789abcdef0123456789abcdef012345678'),
   DATABASE_URL: z.string().min(1, 'DATABASE_URL es obligatorio'),
   CORS_ORIGIN: z.string().default('*'),
+  LLM_BASE_URL: z.string().url('LLM_BASE_URL debe ser una URL válida').default('https://dashscope-intl.aliyuncs.com/compatible-mode/v1'),
+  LLM_API_KEY: z.string().min(1, 'LLM_API_KEY es obligatoria para el chat con IA'),
+  LLM_MODEL: z.string().min(1, 'LLM_MODEL es obligatorio').default('qwen3.7-flash'),
+  CHAT_MENSAJES_MES: z.coerce.number().int().positive().default(500),
 });
 
 const _env = envSchema.safeParse(process.env);

@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { BarChart3, Building2, CreditCard, KeyRound, Layers, Receipt } from 'lucide-react';
+import { BarChart3, Building2, CreditCard, KeyRound, Layers, MessageSquare, Receipt } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const SECCIONES = [
@@ -12,6 +12,7 @@ const SECCIONES = [
   { href: '/suscripciones', etiqueta: 'Suscripciones', icono: CreditCard },
   { href: '/planes', etiqueta: 'Planes', icono: Layers },
   { href: '/pagos', etiqueta: 'Pagos', icono: Receipt },
+  { href: '/chat', etiqueta: 'Consumo Chat', icono: MessageSquare },
 ];
 
 export function Navegacion({ horizontal = false }: { horizontal?: boolean }) {

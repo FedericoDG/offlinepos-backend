@@ -20,6 +20,7 @@ export async function crearPlan(_estado: EstadoAccion, datos: FormData): Promise
       precio_anual: leerNumero(datos, 'precio_anual') ?? null,
       max_servidores: leerNumero(datos, 'max_servidores') ?? 1,
       max_clientes: leerNumero(datos, 'max_clientes') ?? 0,
+      chat_mensajes_mes: leerNumero(datos, 'chat_mensajes_mes') ?? 500,
       activo: datos.get('activo') === 'on',
     })
   );
@@ -39,6 +40,7 @@ export async function actualizarPlan(_estado: EstadoAccion, datos: FormData): Pr
       precio_anual: leerNumero(datos, 'precio_anual') ?? null,
       max_servidores: leerNumero(datos, 'max_servidores') ?? 1,
       max_clientes: leerNumero(datos, 'max_clientes') ?? 0,
+      chat_mensajes_mes: leerNumero(datos, 'chat_mensajes_mes') ?? 500,
       activo: datos.get('activo') === 'on',
     })
   );

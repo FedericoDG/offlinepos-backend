@@ -82,6 +82,17 @@ function CamposPlan({ plan }: { plan?: Plan }) {
         </Field>
       </FieldRow>
 
+      <Field label="Mensajes chat mensuales" htmlFor="chat_mensajes_mes" description="0 = ilimitado. Si no se define plan, usa el default del sistema.">
+        <Input
+          id="chat_mensajes_mes"
+          name="chat_mensajes_mes"
+          type="number"
+          min={0}
+          defaultValue={plan?.chat_mensajes_mes ?? 500}
+          required
+        />
+      </Field>
+
       <div className="flex items-center gap-2.5">
         <Checkbox id="activo" name="activo" defaultChecked={plan?.activo ?? true} />
         <Label htmlFor="activo" className="font-normal">

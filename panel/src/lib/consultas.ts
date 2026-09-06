@@ -1,5 +1,6 @@
 import { api } from './api';
 import type {
+  ChatConsumoResponse,
   Comercio,
   IngresoMensual,
   IngresoPorPlan,
@@ -57,4 +58,7 @@ export const consultas = {
 
   pagos: (filtros: { q?: string; comercio_id?: string; desde?: string; hasta?: string; pagina?: number; limite?: number } = {}) =>
     api.get<PagosPaginados>(`/api/pagos${query({ ...filtros })}`),
+
+  chatConsumo: (periodo?: string) =>
+    api.get<ChatConsumoResponse>(`/api/estadisticas/chat-consumo${periodo ? `?periodo=${periodo}` : ''}`),
 };

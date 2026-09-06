@@ -41,6 +41,12 @@ export const CrearPlanDTO = z.object({
     .min(0, 'max_clientes no puede ser negativo')
     .max(200, 'max_clientes no puede superar 200')
     .default(0),
+  chat_mensajes_mes: z
+    .number({ message: 'chat_mensajes_mes debe ser un número entero' })
+    .int()
+    .min(0, 'chat_mensajes_mes no puede ser negativo')
+    .default(500)
+    .describe('Mensajes mensuales del chat. 0 = ilimitado.'),
   activo: z.boolean().default(true),
 });
 
@@ -61,6 +67,7 @@ export interface PlanDTO {
   moneda: string;
   max_servidores: number;
   max_clientes: number;
+  chat_mensajes_mes: number;
   activo: boolean;
   suscripciones_activas: number;
   createdAt: Date;

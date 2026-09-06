@@ -5,7 +5,7 @@ import { httpError } from '../../utils/api-error';
 import { PreguntarDTO, ResultadoConsultaDTO, ReporteDTO, UsoConsultaDTO, type RespuestaLLM, type ReporteResponseDTO, type UsoDTO } from './chat.dtos';
 import { ESQUEMA_SQLITE, EJEMPLOS_CONSULTAS } from './chat.esquema';
 import { MANUAL_SISTEMA } from './chat.manual';
-import { llamarLLM } from './chat.llm';
+import { llamarLLM, llamarLLMStream } from './chat.llm';
 import { normalizarSQL, validarSQL } from './chat.guarda';
 
 // --- Validacion de licencia (devuelve la licencia encontrada) ---
@@ -149,7 +149,7 @@ async function decrementarMensajes(licenciaId: string): Promise<void> {
   });
 }
 
-export async function acumularTokens(licenciaId: string, tokens: { prompt_tokens: number; completion_tokens: number; total_tokens: number }): Promise<void> {
+export async function acumularTokens(licenciaId: string, tokens: { prompt_tokens: number; completion_tokens: number; total_tokens: number; cached_tokens?: number }): Promise<void> {
   const periodo = periodoActual();
   await prisma.chatConsumo.updateMany({
     where: { licencia_id: licenciaId, periodo },
@@ -157,15 +157,17 @@ export async function acumularTokens(licenciaId: string, tokens: { prompt_tokens
       prompt_tokens: { increment: BigInt(tokens.prompt_tokens) },
       completion_tokens: { increment: BigInt(tokens.completion_tokens) },
       total_tokens: { increment: BigInt(tokens.total_tokens) },
+      cached_tokens: { increment: BigInt(tokens.cached_tokens ?? 0) },
     },
   });
 }
 
 // --- Prompt del sistema ---
 
-function construirPromptSistema(modo: 'json' | 'stream' = 'json'): string {
+function construirPromptSistema(modo: 'json' | 'stream' | 'fase1' = 'json'): string {
   // Parte comun: identidad, estilo, manual, schema
-  const identidad = `Sos el asistente inteligente de un sistema POS para comercios. Tus usuarios son comerciantes sin experiencia tecnica. Ayudalos de forma clara y sencilla.`;
+  const identidad = `Sos Binny, el asistente inteligente de un sistema POS para comercios, creado por Binario Dev Labs. Tus usuarios son comerciantes sin experiencia tecnica. Ayudalos de forma clara y sencilla.
+Si te preguntan quien sos o quienes te hicieron, conta con calidez que sos Binny, el asistente de Binario Dev Labs, desarrollado por Federico y Joaquin. No inventes mas detalles sobre la empresa ni sobre sus desarrolladores.`;
 
   const reglasComunes = `## Reglas
 - Responde siempre en espanol.
@@ -205,6 +207,45 @@ ${manual}
 ${schema}`;
   }
 
+  if (modo === 'fase1') {
+    return `${identidad}
+
+Tu trabajo es responder dos tipos de preguntas:
+
+### Tipo 1: Datos del negocio
+Si el usuario pregunta por numeros, reportes, stock, ventas, clientes, etc., genera una consulta SQL. Tu salida DEBE ser EXCLUSIVAMENTE el centinela y el JSON, sin explicaciones previas ni posteriores:
+@CONSULTA {"tipo":"consulta","id_solicitud":"abc","sql":"SELECT ...","descripcion":"Buscando tus ventas de hoy..."}
+NUNCA escribas texto antes ni despues del centinela + JSON. La descripcion es lo que ve el usuario mientras se ejecuta.
+
+### Tipo 2: Como usar el sistema o conversacion
+Si pregunta como hacer algo (crear producto, importar, abrir caja, anular venta, etc.) o es un saludo, respondé directamente en texto plano. NUNCA generes SQL para esto.
+
+${reglasComunes}
+
+## Reglas SQL
+1. Solo SELECT o WITH (lectura). NUNCA INSERT, UPDATE, DELETE, DROP, ALTER, CREATE.
+2. TODA consulta DEBE incluir un LIMIT (maximo 500), incluso en agregaciones.
+3. Fechas = timestamps Unix INTEGER.
+   - "Hoy": DATE(col, 'unixepoch', 'localtime') = DATE('now', 'localtime').
+   - "Este mes": fecha >= strftime('%s', 'now', 'start of month'). NUNCA uses DATE('now') para "este mes".
+4. Config del sistema se consulta con SQL en tabla "config".
+5. Si tenes muchos resultados, resume la info clave.
+
+## Estilo
+- Descripciones humanas: "Buscando tus ventas de hoy..." en vez de "Ejecutando SELECT".
+
+## Graficos
+Al FINAL de una respuesta de datos (despues del texto explicativo), si los datos se prestan, inclui un bloque:
+\`\`\`chart
+{"tipo":"barra","titulo":"Ventas por dia","categorias":["Lun","Mar","Mie"],"valores":[12000,18500,15000]}
+\`\`\`
+Tipos: "barra", "linea", "torta". Max 12 categorias. Solo si aporta valor.
+
+${manual}
+
+${schema}`;
+  }
+
   // Modo JSON (para /mensajes y /resultado)
   return `${identidad}
 
@@ -221,7 +262,9 @@ ${reglasComunes}
 ## Reglas SQL (no las mostres al usuario)
 1. Solo SELECT o WITH (lectura). NUNCA INSERT, UPDATE, DELETE, DROP, ALTER, CREATE.
 2. TODA consulta DEBE incluir un LIMIT (maximo 500), incluso en agregaciones.
-3. Fechas = timestamps Unix INTEGER. "Hoy": DATE(col, 'unixepoch', 'localtime') = DATE('now', 'localtime').
+3. Fechas = timestamps Unix INTEGER.
+   - "Hoy": DATE(col, 'unixepoch', 'localtime') = DATE('now', 'localtime').
+   - "Este mes": fecha >= strftime('%s', 'now', 'start of month'). NUNCA uses DATE('now') para "este mes".
 4. Config del sistema se consulta con SQL en tabla "config".
 5. Si tenes muchos resultados, resume la info clave.
 
@@ -284,34 +327,65 @@ export class ChatService {
     mensajes.push({ role: 'user', content: data.pregunta });
 
     let respuesta: RespuestaLLM;
-    let tokens = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
+    let tokens: { prompt_tokens: number; completion_tokens: number; total_tokens: number; cached_tokens: number } = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0, cached_tokens: 0 };
 
-    try {
-      const resultado = await llamarLLM(mensajes);
-      respuesta = resultado.respuesta;
-      tokens = resultado.tokens;
-    } catch (error) {
-      // Si falla el LLM, devolver el crédito
-      await decrementarMensajes(lic.id);
-      throw error;
+    const MAX_INTENTOS = 3;
+
+    for (let intento = 0; intento < MAX_INTENTOS; intento++) {
+      try {
+        const resultado = await llamarLLM(mensajes);
+        respuesta = resultado.respuesta;
+        tokens.prompt_tokens += resultado.tokens.prompt_tokens;
+        tokens.completion_tokens += resultado.tokens.completion_tokens;
+        tokens.total_tokens += resultado.tokens.total_tokens;
+        tokens.cached_tokens += resultado.tokens.cached_tokens;
+      } catch (error) {
+        await decrementarMensajes(lic.id);
+        throw error;
+      }
+
+      if (respuesta.tipo === 'respuesta') break;
+
+      // tipo === 'consulta': validar SQL
+      const { sql: sqlNormalizado } = normalizarSQL(respuesta.sql);
+      const validacion = validarSQL(sqlNormalizado);
+
+      if (validacion.valido) {
+        return { ...respuesta, sql: sqlNormalizado, tokens, uso };
+      }
+
+      if (intento < MAX_INTENTOS - 1) {
+        // Agregar al historial para que el LLM intente corregir
+        mensajes.push({
+          role: 'assistant',
+          content: JSON.stringify(respuesta),
+        });
+        mensajes.push({
+          role: 'user',
+          content: `Tu consulta fue rechazada: ${validacion.error}. Regenerá SOLO el JSON {tipo:"consulta", id_solicitud, sql, descripcion} con SQL válido: solo SELECT o WITH, LIMIT ≤ 500, una sola sentencia.`,
+        });
+      }
     }
 
-    // Acumular tokens en DB (siempre)
+    // Si la respuesta final es consulta con SQL inválido: fallback amigable
+    if (respuesta!.tipo === 'consulta') {
+      const { sql: sqlNormalizado } = normalizarSQL(respuesta!.sql);
+      if (!validarSQL(sqlNormalizado).valido) {
+        return {
+          tipo: 'respuesta',
+          texto: 'No pude generar la consulta para eso. ¿Podés reformular la pregunta?',
+          tokens,
+          uso,
+        };
+      }
+    }
+
+    // Acumular tokens en DB
     if (tokens.total_tokens > 0) {
       await acumularTokens(lic.id, tokens);
     }
 
-    if (respuesta.tipo === 'consulta') {
-      const { sql: sqlNormalizado } = normalizarSQL(respuesta.sql);
-      const validacion = validarSQL(sqlNormalizado);
-      if (validacion.valido) {
-        return { ...respuesta, sql: sqlNormalizado, tokens, uso };
-      }
-      // Si sigue inválido (palabra prohibida, multi-statement): pasar al loop
-      // de reintento del cliente. Nunca se ejecuta porque el guard de Rust lo rechaza.
-    }
-
-    return { ...respuesta, tokens, uso };
+    return { ...respuesta!, tokens, uso };
   }
 
   async resultado(data: ResultadoConsultaDTO): Promise<RespuestaLLM> {
@@ -352,10 +426,88 @@ export class ChatService {
     const lic = await validarLicenciaChat(data.clave, data.instalacion_id);
     return obtenerUso(lic.id);
   }
+
+  async *preguntarStream(data: PreguntarDTO): AsyncGenerator<{ type: string; texto?: string; tokens?: any; respuesta?: any; uso?: UsoDTO }> {
+    const lic = await validarLicenciaChat(data.clave, data.instalacion_id);
+
+    const usoCheck = await incrementarMensajes(lic.id);
+    if (!usoCheck) {
+      const limite = await obtenerLimiteChat(lic.id);
+      httpError(
+        `Alcanzaste tu limite mensual de ${limite} consultas del asistente. Se renueva el dia 1 del proximo mes.`,
+        429,
+      );
+    }
+    const uso = usoCheck!;
+
+    const mensajes: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
+      { role: 'system', content: construirPromptSistema('fase1') },
+    ];
+
+    for (const msg of data.historial.slice(-10)) {
+      const rol = msg.rol === 'asistente' ? 'assistant' : msg.rol === 'sistema' ? 'system' : 'user';
+      mensajes.push({ role: rol as 'user' | 'assistant' | 'system', content: msg.contenido });
+    }
+
+    mensajes.push({ role: 'user', content: data.pregunta });
+
+    let tokensFinales: any = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0, cached_tokens: 0 };
+
+    for await (const evento of llamarLLMStream(mensajes, { centinela: '@CONSULTA' })) {
+      if (evento.type === 'chunk' && evento.texto) {
+        yield { type: 'chunk', texto: evento.texto };
+      } else if (evento.type === 'consulta' && evento.respuesta && evento.respuesta.tipo === 'consulta') {
+        const { sql: sqlNormalizado } = normalizarSQL(evento.respuesta.sql);
+        const validacion = validarSQL(sqlNormalizado);
+
+        if (validacion.valido) {
+          yield { type: 'consulta', respuesta: { ...evento.respuesta, sql: sqlNormalizado, tokens: tokensFinales, uso } };
+        } else {
+          // SQL inválido → 1 reintento con llamarLLM (JSON, feedback)
+          try {
+            mensajes.push({
+              role: 'assistant',
+              content: JSON.stringify(evento.respuesta),
+            });
+            mensajes.push({
+              role: 'user',
+              content: `Tu consulta fue rechazada: ${validacion.error}. Regenerá SOLO el JSON {tipo:"consulta", id_solicitud, sql, descripcion} con SQL válido: solo SELECT o WITH, LIMIT ≤ 500, una sola sentencia.`,
+            });
+            const retry = await llamarLLM(mensajes, { jsonMode: true });
+            tokensFinales.prompt_tokens += retry.tokens.prompt_tokens;
+            tokensFinales.completion_tokens += retry.tokens.completion_tokens;
+            tokensFinales.total_tokens += retry.tokens.total_tokens;
+            tokensFinales.cached_tokens += retry.tokens.cached_tokens;
+            if (retry.respuesta.tipo === 'consulta') {
+              const { sql: sqlReintentado } = normalizarSQL(retry.respuesta.sql);
+              if (validarSQL(sqlReintentado).valido) {
+                yield { type: 'consulta', respuesta: { ...retry.respuesta, sql: sqlReintentado, tokens: tokensFinales, uso } };
+              } else {
+                yield { type: 'error', texto: 'No pude generar una consulta válida para eso. ¿Podés reformular la pregunta?' };
+              }
+            } else {
+              yield { type: 'error', texto: 'No pude generar la consulta. ¿Podés reformular la pregunta?' };
+            }
+          } catch {
+            yield { type: 'error', texto: 'No pude generar la consulta. ¿Podés reformular la pregunta?' };
+          }
+        }
+      } else if (evento.type === 'done') {
+        tokensFinales = evento.tokens ?? tokensFinales;
+        yield { type: 'done', tokens: tokensFinales, uso };
+      } else if (evento.type === 'error') {
+        yield { type: 'error', texto: evento.texto };
+      }
+    }
+
+    if (tokensFinales.total_tokens > 0) {
+      await acumularTokens(lic.id, tokensFinales);
+    }
+  }
 }
 
 function construirPromptReporte(): string {
-  return `Sos el asistente inteligente de un sistema POS para comercios. Tus usuarios son comerciantes sin experiencia tecnica.
+  return `Sos Binny, el asistente de Binario Dev Labs. Tus usuarios son comerciantes sin experiencia tecnica.
 
 Tu tarea es generar un resumen diario breve y amigable a partir de datos estadisticos del negocio. Explica los numeros como si le hablaras a un comerciante sin experiencia con computadoras.
 

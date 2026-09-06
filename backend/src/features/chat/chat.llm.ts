@@ -14,6 +14,7 @@ interface LLMUsage {
   prompt_tokens?: number;
   completion_tokens?: number;
   total_tokens?: number;
+  prompt_tokens_details?: { cached_tokens?: number };
 }
 
 interface LLMResponse {
@@ -25,9 +26,14 @@ export interface TokensUsados {
   prompt_tokens: number;
   completion_tokens: number;
   total_tokens: number;
+  cached_tokens: number;
 }
 
 let controlador: AbortController | null = null;
+
+const TIMEOUT_LLAMADA_MS = 60_000;   // 60s total para llamarLLM (JSON completo)
+const TIMEOUT_CONEXION_MS = 30_000;  // 30s para que el proveedor responda headers
+const TIMEOUT_STALL_MS = 30_000;     // 30s sin datos → abortar stream
 
 export async function llamarLLM(
   mensajes: ChatMessage[],
@@ -59,7 +65,7 @@ export async function llamarLLM(
         Authorization: `Bearer ${env.LLM_API_KEY}`,
       },
       body: JSON.stringify(body),
-      signal: ctrl.signal,
+      signal: AbortSignal.any([ctrl.signal, AbortSignal.timeout(TIMEOUT_LLAMADA_MS)]),
     });
 
     if (!respuesta.ok) {
@@ -104,10 +110,11 @@ export async function llamarLLM(
       prompt_tokens: data.usage?.prompt_tokens ?? 0,
       completion_tokens: data.usage?.completion_tokens ?? 0,
       total_tokens: data.usage?.total_tokens ?? 0,
+      cached_tokens: data.usage?.prompt_tokens_details?.cached_tokens ?? 0,
     };
 
     console.log(
-      `[LLM] Tokens — prompt: ${tokens.prompt_tokens}, completion: ${tokens.completion_tokens}, total: ${tokens.total_tokens}`
+      `[LLM] Tokens — prompt: ${tokens.prompt_tokens}, completion: ${tokens.completion_tokens}, total: ${tokens.total_tokens}, cached: ${tokens.cached_tokens}`
     );
 
     return { respuesta: respuestaParsed, tokens };
@@ -141,7 +148,11 @@ interface StreamChunk {
   respuesta?: RespuestaLLM;
 }
 
-export async function* llamarLLMStream(mensajes: ChatMessage[]): AsyncGenerator<StreamChunk> {
+export async function* llamarLLMStream(
+  mensajes: ChatMessage[],
+  opciones: { centinela?: string } = {},
+): AsyncGenerator<StreamChunk> {
+  const centinela = opciones.centinela ?? '@REINTENTAR';
   const ctrl = new AbortController();
 
   try {
@@ -159,7 +170,7 @@ export async function* llamarLLMStream(mensajes: ChatMessage[]): AsyncGenerator<
         temperature: 0.1,
         enable_thinking: env.LLM_ENABLE_THINKING,
       }),
-      signal: ctrl.signal,
+      signal: AbortSignal.any([ctrl.signal, AbortSignal.timeout(TIMEOUT_CONEXION_MS)]),
     });
 
     if (!respuesta.ok) {
@@ -178,13 +189,26 @@ export async function* llamarLLMStream(mensajes: ChatMessage[]): AsyncGenerator<
     const decoder = new TextDecoder();
     let buffer = '';
     let textoCompleto = '';
-    let tokens: TokensUsados = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
-    let bufferDetect = ''; // Buffer para detectar @REINTENTAR
-    let detectado = false;
+    let tokens: TokensUsados = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0, cached_tokens: 0 };
+    let cola = '';
+    let modoCentinela = false;
+    let jsonCentinela = '';
+
+    // Race entre reader.read() y un timer de stall
+    const raceStall = (p: Promise<{ done: boolean; value?: Uint8Array }>) =>
+      Promise.race([
+        p.then((v) => ({ ok: true as const, ...v })),
+        new Promise<{ ok: false }>((r) => setTimeout(() => r({ ok: false }), TIMEOUT_STALL_MS)),
+      ]);
 
     while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
+      const resultado = await raceStall(reader.read());
+      if (!resultado.ok) {
+        yield { type: 'error', texto: 'El proveedor LLM dejó de responder (timeout)' };
+        return;
+      }
+      if (resultado.done) break;
+      const value = resultado.value;
 
       buffer += decoder.decode(value, { stream: true });
       const lineas = buffer.split('\n');
@@ -200,52 +224,72 @@ export async function* llamarLLMStream(mensajes: ChatMessage[]): AsyncGenerator<
         try {
           const parsed = JSON.parse(data);
 
-          // Tokens del último chunk
           if (parsed.usage) {
             tokens = {
               prompt_tokens: parsed.usage.prompt_tokens ?? 0,
               completion_tokens: parsed.usage.completion_tokens ?? 0,
               total_tokens: parsed.usage.total_tokens ?? 0,
+              cached_tokens: parsed.usage.prompt_tokens_details?.cached_tokens ?? 0,
             };
           }
 
-          // Delta de contenido
           const delta = parsed.choices?.[0]?.delta?.content;
           if (delta) {
             textoCompleto += delta;
 
-            // Detección de @REINTENTAR (solo al inicio)
-            if (!detectado) {
-              bufferDetect += delta;
-              // Verificar si empieza con @REINTENTAR (tolerando espacios y code fences)
-              const trimmedDetect = bufferDetect.replace(/^\s*```(?:json)?\s*/i, '').trimStart();
-              if (trimmedDetect.startsWith('@REINTENTAR')) {
-                detectado = true;
-                // Extraer el JSON después de @REINTENTAR
-                const jsonStr = trimmedDetect.slice('@REINTENTAR'.length).trim();
-                // Limpiar code fences si los hay
-                const jsonLimpio = jsonStr.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+            if (modoCentinela) {
+              // Acumular hasta JSON parseable
+              jsonCentinela += delta;
+              const limpio = jsonCentinela.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+              if (limpio.length >= 2) {
                 try {
-                  const parsedConsulta = JSON.parse(jsonLimpio);
-                  console.log('[LLM Stream] Reintento detectado:', parsedConsulta);
+                  const parsedConsulta = JSON.parse(limpio);
                   yield { type: 'consulta', respuesta: parsedConsulta };
-                } catch (parseErr) {
-                  console.error('[LLM Stream] Error parseando @REINTENTAR:', parseErr, jsonLimpio);
-                  // No parseó el JSON — tratar como error
-                  yield { type: 'error', texto: 'El LLM pidió reintento pero no pude entender la consulta' };
+                  return;
+                } catch {
+                  // JSON incompleto, seguir acumulando
                 }
-                return; // No emitir más eventos
               }
-              // Si bufferDetect tiene suficiente texto y NO es @REINTENTAR, dejar de bufferear
-              if (bufferDetect.length >= 30) {
-                detectado = true;
-                // Enviar el buffer como chunk normal
-                yield { type: 'chunk', texto: bufferDetect };
-                bufferDetect = '';
+              if (jsonCentinela.length > 4096) {
+                yield { type: 'error', texto: 'El LLM pidió reintento pero no pude entender la consulta' };
+                return;
               }
             } else {
-              // Ya pasó la fase de detección — emitir chunk normal
-              yield { type: 'chunk', texto: delta };
+              const candidato = cola + delta;
+              const idx = candidato.indexOf(centinela);
+
+              if (idx >= 0) {
+                // Centinela encontrado: emitir texto previo y entrar en modo centinela
+                modoCentinela = true;
+                const textoPrevio = candidato.slice(0, idx);
+                if (textoPrevio) yield { type: 'chunk', texto: textoPrevio };
+                jsonCentinela = candidato.slice(idx + centinela.length);
+                // Intentar parsear si ya hay suficiente
+                const limpio = jsonCentinela.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+                if (limpio.length >= 2) {
+                  try {
+                    const parsedConsulta = JSON.parse(limpio);
+                    yield { type: 'consulta', respuesta: parsedConsulta };
+                    return;
+                  } catch { /* seguir acumulando */ }
+                }
+                if (jsonCentinela.length > 4096) {
+                  yield { type: 'error', texto: 'El LLM pidió reintento pero no pude entender la consulta' };
+                  return;
+                }
+              } else {
+                // No encontrado: retener sufijo potencial y emitir el resto
+                let nuevaCola = '';
+                for (let k = Math.min(centinela.length - 1, candidato.length); k >= 1; k--) {
+                  if (candidato.endsWith(centinela.slice(0, k))) {
+                    nuevaCola = candidato.slice(-k);
+                    break;
+                  }
+                }
+                const aEmitir = candidato.slice(0, candidato.length - nuevaCola.length);
+                if (aEmitir) yield { type: 'chunk', texto: aEmitir };
+                cola = nuevaCola;
+              }
             }
           }
         } catch {
@@ -254,13 +298,13 @@ export async function* llamarLLMStream(mensajes: ChatMessage[]): AsyncGenerator<
       }
     }
 
-    // Si el buffer de detección tenía contenido sin emitir (caso edge)
-    if (!detectado && bufferDetect.length > 0) {
-      yield { type: 'chunk', texto: bufferDetect };
+    // Flush de cola pendiente (centinela parcial o texto restante)
+    if (!modoCentinela && cola.length > 0) {
+      yield { type: 'chunk', texto: cola };
     }
 
     console.log(
-      `[LLM Stream] Tokens — prompt: ${tokens.prompt_tokens}, completion: ${tokens.completion_tokens}, total: ${tokens.total_tokens}`
+      `[LLM Stream] Tokens — prompt: ${tokens.prompt_tokens}, completion: ${tokens.completion_tokens}, total: ${tokens.total_tokens}, cached: ${tokens.cached_tokens}`
     );
 
     yield { type: 'done', texto: textoCompleto, tokens };

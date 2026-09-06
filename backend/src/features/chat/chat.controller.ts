@@ -48,6 +48,39 @@ export class ChatController {
     }
   }
 
+  async preguntarStream(req: Request, res: Response): Promise<void> {
+    try {
+      const data = PreguntarDTO.parse(req.body);
+
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+      res.setHeader('X-Accel-Buffering', 'no');
+      res.flushHeaders();
+
+      for await (const evento of chatService.preguntarStream(data)) {
+        if (evento.type === 'chunk' && evento.texto) {
+          res.write(`event: chunk\ndata: ${JSON.stringify({ texto: evento.texto })}\n\n`);
+        } else if (evento.type === 'done') {
+          res.write(`event: done\ndata: ${JSON.stringify({ tokens: evento.tokens, uso: evento.uso })}\n\n`);
+        } else if (evento.type === 'consulta' && evento.respuesta) {
+          res.write(`event: consulta\ndata: ${JSON.stringify(evento.respuesta)}\n\n`);
+        } else if (evento.type === 'error') {
+          res.write(`event: error\ndata: ${JSON.stringify({ texto: evento.texto })}\n\n`);
+        }
+      }
+
+      res.end();
+    } catch (error) {
+      if (!res.headersSent) {
+        handleApiError(error, res);
+      } else {
+        res.write(`event: error\ndata: ${JSON.stringify({ texto: 'Error inesperado' })}\n\n`);
+        res.end();
+      }
+    }
+  }
+
   async resultadoStream(req: Request, res: Response): Promise<void> {
     try {
       const data = ResultadoConsultaDTO.parse(req.body);
@@ -62,7 +95,7 @@ export class ChatController {
       res.flushHeaders();
 
       let textoCompleto = '';
-      let tokens = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
+      let tokens: { prompt_tokens: number; completion_tokens: number; total_tokens: number; cached_tokens: number } = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0, cached_tokens: 0 };
 
       for await (const evento of llamarLLMStream(mensajes)) {
         if (evento.type === 'chunk' && evento.texto) {

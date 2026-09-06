@@ -5,6 +5,7 @@ const router = Router();
 const chatController = new ChatController();
 
 router.post('/mensajes', (req, res) => chatController.preguntar(req, res));
+router.post('/mensajes/stream', (req, res) => chatController.preguntarStream(req, res));
 router.post('/resultado', (req, res) => chatController.resultado(req, res));
 router.post('/resultado/stream', (req, res) => chatController.resultadoStream(req, res));
 router.post('/reporte', (req, res) => chatController.reporte(req, res));

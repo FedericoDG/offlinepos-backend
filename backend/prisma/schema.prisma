@@ -77,6 +77,7 @@ model ChatConsumo {
   prompt_tokens     BigInt   @default(0)
   completion_tokens BigInt   @default(0)
   total_tokens      BigInt   @default(0)
+  cached_tokens     BigInt   @default(0)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

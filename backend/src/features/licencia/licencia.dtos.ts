@@ -16,6 +16,8 @@ export type ActivarLicenciaDTO = z.infer<typeof ActivarLicenciaDTO>;
 export interface ActivarLicenciaResponseDTO {
   message: string;
   reinstalacion: boolean;
+  /** Token firmado: el escritorio decide el acceso solo con esto, no con su SQLite. */
+  token: string;
   licencia: {
     id: string;
     rol: 'SERVIDOR' | 'CLIENTE';

@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import prisma from '../../config/prisma';
 import { decrypt, encrypt } from '../../utils/encryption';
 import { verificarCupoDisponible } from './licencia.provision';
+import { firmarTokenLicencia, VIGENCIA_TOKEN_SEGUNDOS } from './licencia.token';
 import {
   ActivarLicenciaDTO,
   ActivarLicenciaResponseDTO,
@@ -161,6 +162,13 @@ export class LicenciaService {
       return {
         message: 'Licencia re-validada con éxito para esta instalación',
         reinstalacion: true,
+        token: this.firmarToken(
+          licenciaEncontrada.id,
+          data.instalacion_id,
+          licenciaEncontrada.rol,
+          licenciaEncontrada.comercio.id,
+          licenciaEncontrada.comercio.nombre
+        ),
         licencia: {
           id: licenciaEncontrada.id,
           rol: licenciaEncontrada.rol,
@@ -208,6 +216,13 @@ export class LicenciaService {
     return {
       message: 'Licencia activada con éxito',
       reinstalacion: false,
+      token: this.firmarToken(
+        licenciaActualizada.id,
+        data.instalacion_id,
+        licenciaActualizada.rol,
+        licenciaActualizada.comercio.id,
+        licenciaActualizada.comercio.nombre
+      ),
       licencia: {
         id: licenciaActualizada.id,
         rol: licenciaActualizada.rol,
@@ -217,5 +232,29 @@ export class LicenciaService {
         comercio: licenciaActualizada.comercio,
       },
     };
+  }
+
+  /**
+   * Prueba firmada de que el servidor validó esta instalación ahora mismo.
+   * El escritorio verifica la firma y computa la cadencia desde `validado_en`,
+   * sin confiar en su base local.
+   */
+  private firmarToken(
+    licenciaId: string,
+    instalacionId: string,
+    rol: string,
+    comercioId: string,
+    comercioNombre: string
+  ): string {
+    const validadoEn = Math.floor(Date.now() / 1000);
+    return firmarTokenLicencia({
+      licencia_id: licenciaId,
+      instalacion_id: instalacionId,
+      rol,
+      comercio_id: comercioId,
+      comercio_nombre: comercioNombre,
+      validado_en: validadoEn,
+      vence_en: validadoEn + VIGENCIA_TOKEN_SEGUNDOS,
+    });
   }
 }

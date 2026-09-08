@@ -14,7 +14,8 @@
     "db:migrate": "prisma migrate dev",
     "db:seed": "tsx prisma/seed.ts",
     "db:reset": "prisma migrate reset --force",
-    "db:studio": "prisma studio"
+    "db:studio": "prisma studio",
+    "licencia:generar-claves": "node scripts/generar-claves-licencia.mjs"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",

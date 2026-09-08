@@ -30,6 +30,9 @@ const envSchema = z.object({
   LLM_MODEL: z.string().min(1, 'LLM_MODEL es obligatorio').default('qwen3.7-flash'),
   LLM_ENABLE_THINKING: z.enum(['true', 'false']).default('false').transform((v) => v === 'true'),
   CHAT_MENSAJES_MES: z.coerce.number().int().positive().default(500),
+  // Clave privada Ed25519 (PEM) para firmar tokens de licencia. Opcional en dev
+  // (se usa un par efímero); en producción sin esta clave, activar licencia falla.
+  LICENCIA_SIGN_PRIV_KEY: z.string().min(1).optional(),
 });
 
 const _env = envSchema.safeParse(process.env);

@@ -11,6 +11,7 @@ import type {
   Resumen,
   Suscripcion,
   Vencimiento,
+  VersionVigente,
 } from './tipos';
 
 /** Arma un query string salteando lo vacio, para no ensuciar la URL. */
@@ -61,4 +62,7 @@ export const consultas = {
 
   chatConsumo: (periodo?: string) =>
     api.get<ChatConsumoResponse>(`/api/estadisticas/chat-consumo${periodo ? `?periodo=${periodo}` : ''}`),
+
+  /** Versión del POS vigente publicada (lo que descargan los updater). */
+  actualizacionVigente: () => api.get<VersionVigente>('/api/updates/admin/actual'),
 };

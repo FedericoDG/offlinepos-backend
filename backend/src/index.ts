@@ -12,6 +12,8 @@ import suscripcionRoutes from './features/suscripcion/suscripcion.routes';
 import pagoRoutes from './features/pago/pago.routes';
 import estadisticaRoutes from './features/estadistica/estadistica.routes';
 import chatRoutes from './features/chat/chat.routes';
+import actualizacionesRoutes from './features/actualizaciones/actualizaciones.routes';
+import { dirUpdates } from './features/actualizaciones/actualizaciones.service';
 
 const app = express();
 
@@ -39,6 +41,19 @@ app.use('/api/suscripciones', suscripcionRoutes);
 app.use('/api/pagos', pagoRoutes);
 app.use('/api/estadisticas', estadisticaRoutes);
 app.use('/api/chat', chatRoutes);
+app.use('/api/updates/admin', actualizacionesRoutes);
+
+// Descarga de versiones del POS (pública: el updater hace GET sin auth;
+// la confianza viene de la firma minisign embebida en el binario).
+app.use('/api/updates', express.static(dirUpdates(), {
+  maxAge: '1h',
+  setHeaders: (res, ruta) => {
+    // latest.json nunca cacheado: es lo primero que consulta el updater.
+    if (ruta.endsWith('latest.json')) {
+      res.setHeader('Cache-Control', 'no-store');
+    }
+  },
+}));
 
 app.get('/health', async (_req, res) => {
   try {

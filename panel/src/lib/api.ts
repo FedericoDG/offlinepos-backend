@@ -25,10 +25,15 @@ export class ApiError extends Error {
  * no necesita tener al panel en CORS_ORIGIN.
  */
 async function pedir<T>(ruta: string, init: RequestInit = {}, conToken = true): Promise<T> {
+  // Con FormData el navegador/Node fija solo el Content-Type con su boundary:
+  // si lo pisamos con application/json, multer no puede parsear el multipart.
+  const esFormulario = typeof FormData !== 'undefined' && init.body instanceof FormData;
   let cabeceras: Record<string, string> = {
-    'Content-Type': 'application/json',
     ...((init.headers as Record<string, string>) ?? {}),
   };
+  if (!esFormulario) {
+    cabeceras = { 'Content-Type': 'application/json', ...cabeceras };
+  }
 
   if (conToken) {
     const sesion = await leerSesion();
@@ -92,6 +97,9 @@ export const api = {
   patch: <T>(ruta: string, cuerpo?: unknown) =>
     pedir<T>(ruta, { method: 'PATCH', body: JSON.stringify(cuerpo ?? {}) }),
   delete: <T>(ruta: string) => pedir<T>(ruta, { method: 'DELETE' }),
+  /** Multipart (archivos): el Content-Type con boundary lo fija fetch solo. */
+  subir: <T>(ruta: string, datos: FormData) =>
+    pedir<T>(ruta, { method: 'POST', body: datos }),
   /** Sin token: el unico endpoint publico que usa el panel es el login. */
   publico: {
     post: <T>(ruta: string, cuerpo?: unknown) =>

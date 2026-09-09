@@ -33,6 +33,9 @@ const envSchema = z.object({
   // Clave privada Ed25519 (PEM) para firmar tokens de licencia. Opcional en dev
   // (se usa un par efímero); en producción sin esta clave, activar licencia falla.
   LICENCIA_SIGN_PRIV_KEY: z.string().min(1).optional(),
+  // URL pública del backend (dominio ngrok en producción): las descargas del
+  // updater llevan URLs absolutas y detrás de un túnel el host local no sirve.
+  PUBLIC_BASE_URL: z.string().url('PUBLIC_BASE_URL debe ser una URL válida').default('http://localhost:4000'),
 });
 
 const _env = envSchema.safeParse(process.env);

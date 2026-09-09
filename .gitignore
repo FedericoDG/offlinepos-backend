@@ -1,1 +1,4 @@
 .env
+# Versiones publicadas del POS (instaladores + latest.json): pesan decenas
+# de MB y se generan al publicar desde el panel, no se versionan.
+updates/

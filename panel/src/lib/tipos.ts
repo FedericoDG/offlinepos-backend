@@ -214,3 +214,24 @@ export interface ChatConsumoResponse {
   };
   detalle: ChatConsumoDetalle[];
 }
+
+export interface ArchivoVersion {
+  nombre: string;
+  url: string;
+  bytes: number;
+}
+
+export interface VersionPublicada {
+  version: string;
+  esVigente: boolean;
+  archivos: ArchivoVersion[];
+  bytes: number;
+}
+
+export interface VersionVigente {
+  version: string | null;
+  notas: string | null;
+  pub_date: string | null;
+  archivos: ArchivoVersion[];
+  versiones: VersionPublicada[];
+}

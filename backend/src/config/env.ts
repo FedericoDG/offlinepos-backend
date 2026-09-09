@@ -36,6 +36,9 @@ const envSchema = z.object({
   // URL pública del backend (dominio ngrok en producción): las descargas del
   // updater llevan URLs absolutas y detrás de un túnel el host local no sirve.
   PUBLIC_BASE_URL: z.string().url('PUBLIC_BASE_URL debe ser una URL válida').default('http://localhost:4000'),
+  // Secreto para el índice determinista de claves (clave_busqueda). Por defecto
+  // usa ENCRYPTION_KEY: siempre estable, evita requerir otro secret.
+  LOOKUP_SECRET: z.string().min(1).optional(),
 });
 
 const _env = envSchema.safeParse(process.env);

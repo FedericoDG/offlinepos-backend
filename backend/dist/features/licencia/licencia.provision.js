@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { decrypt, encrypt } from '../../utils/encryption';
+import { decrypt, encrypt, hmacBusqueda } from '../../utils/encryption';
 import { httpError } from '../../utils/api-error';
 /**
  * Aprovisionamiento de licencias a partir del cupo del plan.
@@ -27,13 +27,17 @@ function generarClave() {
     return `LIC-${new Date().getFullYear()}-${aleatorio(4)}-${aleatorio(4)}`;
 }
 /**
- * Las claves se guardan cifradas, no hasheadas, asi que no hay indice por el
- * que buscar: hay que descifrar y comparar. Es O(n) sobre la tabla, igual que
- * el resto del modulo de licencias. Con el volumen de un panel de comercios no
- * molesta; si algun dia molesta, la salida es el HMAC deterministico que el
- * .env ya tiene previsto como LOOKUP_SECRET.
+ * Chequea unicidad por el índice `clave_busqueda` (O(1)), con fallback al
+ * escaneo decrypt para filas viejas sin backfill —mismo patrón que el
+ * servicio de licencias, a desaparecer cuando todas tengan índice.
  */
 async function claveEnUso(tx, clave) {
+    const existe = await tx.licencia.findUnique({
+        where: { clave_busqueda: hmacBusqueda(clave) },
+        select: { id: true },
+    });
+    if (existe)
+        return true;
     const licencias = await tx.licencia.findMany({ select: { clave_hash: true } });
     for (const licencia of licencias) {
         try {
@@ -101,6 +105,7 @@ export async function sincronizarLicenciasConPlan(tx, comercioId, plan) {
                     data: {
                         comercio_id: comercioId,
                         clave_hash: encrypt(clave),
+                        clave_busqueda: hmacBusqueda(clave),
                         rol,
                         estado: 'activa',
                         // Una licencia habilita un puesto. Reinstalar la misma maquina no

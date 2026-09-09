@@ -1,7 +1,38 @@
 import crypto from 'crypto';
 import prisma from '../../config/prisma';
-import { decrypt, encrypt } from '../../utils/encryption';
+import { decrypt, encrypt, hmacBusqueda } from '../../utils/encryption';
 import { verificarCupoDisponible } from './licencia.provision';
+import { firmarTokenLicencia, VIGENCIA_TOKEN_SEGUNDOS } from './licencia.token';
+/**
+ * Busca una licencia por su clave en texto plano mediante el índice
+ * determinista `clave_busqueda` (O(1)). Si no se encuentra por el índice
+ * —fila vieja sin backfill—, hace fallback al escaneo decrypt de la tabla,
+ * que desaparecerá cuando todas las filas tengan `clave_busqueda`.
+ */
+async function buscarPorClave(clave) {
+    const hmac = hmacBusqueda(clave);
+    const porIndice = await prisma.licencia.findUnique({
+        where: { clave_busqueda: hmac },
+        include: { comercio: { select: { id: true, nombre: true } } },
+    });
+    if (porIndice)
+        return porIndice;
+    // Fallback pre-backfill: escaneo. Con el volumen del panel no molesta;
+    // dejarlo evita un error 404 fantasma si la fila aún no tiene índice.
+    const todas = await prisma.licencia.findMany({
+        include: { comercio: { select: { id: true, nombre: true } } },
+    });
+    for (const lic of todas) {
+        try {
+            if (decrypt(lic.clave_hash) === clave)
+                return lic;
+        }
+        catch {
+            continue;
+        }
+    }
+    return null;
+}
 const CARACTERES_CLAVE = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
 export class LicenciaService {
     async crear(data) {
@@ -30,6 +61,7 @@ export class LicenciaService {
             data: {
                 comercio_id: comercio.id,
                 clave_hash: encrypt(clave),
+                clave_busqueda: hmacBusqueda(clave),
                 rol: data.rol,
                 estado: 'activa',
                 max_activaciones: data.max_activaciones,
@@ -59,12 +91,18 @@ export class LicenciaService {
         return `LIC-${new Date().getFullYear()}-${aleatorio(4)}-${aleatorio(4)}`;
     }
     async claveEnUso(clave) {
+        const existe = await prisma.licencia.findUnique({
+            where: { clave_busqueda: hmacBusqueda(clave) },
+            select: { id: true },
+        });
+        if (existe)
+            return true;
+        // Fallback pre-backfill (mismo que buscarPorClave)
         const licencias = await prisma.licencia.findMany({ select: { clave_hash: true } });
         for (const licencia of licencias) {
             try {
-                if (decrypt(licencia.clave_hash) === clave) {
+                if (decrypt(licencia.clave_hash) === clave)
                     return true;
-                }
             }
             catch {
                 continue;
@@ -82,29 +120,7 @@ export class LicenciaService {
         throw new Error('No se pudo generar una clave única');
     }
     async activar(data) {
-        const licencias = await prisma.licencia.findMany({
-            include: {
-                comercio: {
-                    select: {
-                        id: true,
-                        nombre: true,
-                    },
-                },
-            },
-        });
-        let licenciaEncontrada = null;
-        for (const lic of licencias) {
-            try {
-                const claveDescifrada = decrypt(lic.clave_hash);
-                if (claveDescifrada === data.clave) {
-                    licenciaEncontrada = lic;
-                    break;
-                }
-            }
-            catch {
-                continue;
-            }
-        }
+        const licenciaEncontrada = await buscarPorClave(data.clave);
         if (!licenciaEncontrada) {
             const error = new Error('Licencia no encontrada');
             error.statusCode = 404;
@@ -135,6 +151,7 @@ export class LicenciaService {
             return {
                 message: 'Licencia re-validada con éxito para esta instalación',
                 reinstalacion: true,
+                token: this.firmarToken(licenciaEncontrada.id, data.instalacion_id, licenciaEncontrada.rol, licenciaEncontrada.comercio.id, licenciaEncontrada.comercio.nombre),
                 licencia: {
                     id: licenciaEncontrada.id,
                     rol: licenciaEncontrada.rol,
@@ -179,6 +196,7 @@ export class LicenciaService {
         return {
             message: 'Licencia activada con éxito',
             reinstalacion: false,
+            token: this.firmarToken(licenciaActualizada.id, data.instalacion_id, licenciaActualizada.rol, licenciaActualizada.comercio.id, licenciaActualizada.comercio.nombre),
             licencia: {
                 id: licenciaActualizada.id,
                 rol: licenciaActualizada.rol,
@@ -188,5 +206,22 @@ export class LicenciaService {
                 comercio: licenciaActualizada.comercio,
             },
         };
+    }
+    /**
+     * Prueba firmada de que el servidor validó esta instalación ahora mismo.
+     * El escritorio verifica la firma y computa la cadencia desde `validado_en`,
+     * sin confiar en su base local.
+     */
+    firmarToken(licenciaId, instalacionId, rol, comercioId, comercioNombre) {
+        const validadoEn = Math.floor(Date.now() / 1000);
+        return firmarTokenLicencia({
+            licencia_id: licenciaId,
+            instalacion_id: instalacionId,
+            rol,
+            comercio_id: comercioId,
+            comercio_nombre: comercioNombre,
+            validado_en: validadoEn,
+            vence_en: validadoEn + VIGENCIA_TOKEN_SEGUNDOS,
+        });
     }
 }

@@ -15,7 +15,8 @@
     "db:seed": "tsx prisma/seed.ts",
     "db:reset": "prisma migrate reset --force",
     "db:studio": "prisma studio",
-    "licencia:generar-claves": "node scripts/generar-claves-licencia.mjs"
+    "licencia:generar-claves": "node scripts/generar-claves-licencia.mjs",
+    "licencia:backfill-busqueda": "tsx scripts/backfill-clave-busqueda.mts"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",
@@ -25,6 +26,7 @@
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
+    "express-rate-limit": "^8.7.0",
     "jsonwebtoken": "^9.0.3",
     "multer": "^2.3.0",
     "zod": "^4.4.3"

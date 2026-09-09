@@ -44,6 +44,7 @@ model Licencia {
   comercio_id      String
   comercio         Comercio     @relation(fields: [comercio_id], references: [id], onDelete: Cascade)
   clave_hash       String
+  clave_busqueda   String?        @unique
   rol              RolLicencia  @default(SERVIDOR)
   estado           String       @default("activa")
   activado_en      DateTime?

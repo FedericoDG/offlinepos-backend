@@ -1,8 +1,37 @@
 import crypto from 'crypto';
 import prisma from '../../config/prisma';
-import { decrypt, encrypt } from '../../utils/encryption';
+import { decrypt, encrypt, hmacBusqueda } from '../../utils/encryption';
 import { verificarCupoDisponible } from './licencia.provision';
 import { firmarTokenLicencia, VIGENCIA_TOKEN_SEGUNDOS } from './licencia.token';
+
+/**
+ * Busca una licencia por su clave en texto plano mediante el índice
+ * determinista `clave_busqueda` (O(1)). Si no se encuentra por el índice
+ * —fila vieja sin backfill—, hace fallback al escaneo decrypt de la tabla,
+ * que desaparecerá cuando todas las filas tengan `clave_busqueda`.
+ */
+async function buscarPorClave(clave: string) {
+  const hmac = hmacBusqueda(clave);
+  const porIndice = await prisma.licencia.findUnique({
+    where: { clave_busqueda: hmac },
+    include: { comercio: { select: { id: true, nombre: true } } },
+  });
+  if (porIndice) return porIndice;
+
+  // Fallback pre-backfill: escaneo. Con el volumen del panel no molesta;
+  // dejarlo evita un error 404 fantasma si la fila aún no tiene índice.
+  const todas = await prisma.licencia.findMany({
+    include: { comercio: { select: { id: true, nombre: true } } },
+  });
+  for (const lic of todas) {
+    try {
+      if (decrypt(lic.clave_hash) === clave) return lic;
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
 import {
   ActivarLicenciaDTO,
   ActivarLicenciaResponseDTO,
@@ -42,6 +71,7 @@ export class LicenciaService {
       data: {
         comercio_id: comercio.id,
         clave_hash: encrypt(clave),
+        clave_busqueda: hmacBusqueda(clave),
         rol: data.rol,
         estado: 'activa',
         max_activaciones: data.max_activaciones,
@@ -76,18 +106,20 @@ export class LicenciaService {
   }
 
   private async claveEnUso(clave: string): Promise<boolean> {
+    const existe = await prisma.licencia.findUnique({
+      where: { clave_busqueda: hmacBusqueda(clave) },
+      select: { id: true },
+    });
+    if (existe) return true;
+    // Fallback pre-backfill (mismo que buscarPorClave)
     const licencias = await prisma.licencia.findMany({ select: { clave_hash: true } });
-
     for (const licencia of licencias) {
       try {
-        if (decrypt(licencia.clave_hash) === clave) {
-          return true;
-        }
+        if (decrypt(licencia.clave_hash) === clave) return true;
       } catch {
         continue;
       }
     }
-
     return false;
   }
 
@@ -103,30 +135,7 @@ export class LicenciaService {
   }
 
   async activar(data: ActivarLicenciaDTO): Promise<ActivarLicenciaResponseDTO> {
-    const licencias = await prisma.licencia.findMany({
-      include: {
-        comercio: {
-          select: {
-            id: true,
-            nombre: true,
-          },
-        },
-      },
-    });
-
-    let licenciaEncontrada: (typeof licencias)[number] | null = null;
-
-    for (const lic of licencias) {
-      try {
-        const claveDescifrada = decrypt(lic.clave_hash);
-        if (claveDescifrada === data.clave) {
-          licenciaEncontrada = lic;
-          break;
-        }
-      } catch {
-        continue;
-      }
-    }
+    const licenciaEncontrada = await buscarPorClave(data.clave);
 
     if (!licenciaEncontrada) {
       const error: any = new Error('Licencia no encontrada');

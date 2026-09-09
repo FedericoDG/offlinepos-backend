@@ -1,5 +1,5 @@
 import prisma from '../../config/prisma';
-import { decrypt } from '../../utils/encryption';
+import { decrypt, hmacBusqueda } from '../../utils/encryption';
 import { env } from '../../config/env';
 import { httpError } from '../../utils/api-error';
 import { PreguntarDTO, ResultadoConsultaDTO, ReporteDTO, UsoConsultaDTO, type RespuestaLLM, type ReporteResponseDTO, type UsoDTO } from './chat.dtos';
@@ -11,19 +11,22 @@ import { normalizarSQL, validarSQL } from './chat.guarda';
 // --- Validacion de licencia (devuelve la licencia encontrada) ---
 
 export async function validarLicenciaChat(clave: string, instalacionId: string) {
-  const licencias = await prisma.licencia.findMany();
+  let licenciaEncontrada = await prisma.licencia.findUnique({
+    where: { clave_busqueda: hmacBusqueda(clave) },
+  });
 
-  let licenciaEncontrada: (typeof licencias)[number] | null = null;
-
-  for (const lic of licencias) {
-    try {
-      const claveDescifrada = decrypt(lic.clave_hash);
-      if (claveDescifrada === clave) {
-        licenciaEncontrada = lic;
-        break;
+  // Fallback pre-backfill
+  if (!licenciaEncontrada) {
+    const licencias = await prisma.licencia.findMany();
+    for (const lic of licencias) {
+      try {
+        if (decrypt(lic.clave_hash) === clave) {
+          licenciaEncontrada = lic;
+          break;
+        }
+      } catch {
+        continue;
       }
-    } catch {
-      continue;
     }
   }
 
@@ -164,6 +167,8 @@ export async function acumularTokens(licenciaId: string, tokens: { prompt_tokens
 
 // --- Prompt del sistema ---
 
+const B3 = '```';
+
 function construirPromptSistema(modo: 'json' | 'stream' | 'fase1' = 'json'): string {
   // Parte comun: identidad, estilo, manual, schema
   const identidad = `Sos Binny, el asistente inteligente de un sistema POS para comercios, creado por Binario Dev Labs. Tus usuarios son comerciantes sin experiencia tecnica. Ayudalos de forma clara y sencilla.
@@ -183,6 +188,69 @@ ${MANUAL_SISTEMA}`;
   const schema = `## Estructura de la base de datos
 ${ESQUEMA_SQLITE}`;
 
+  const reglasCreacion = `## Creación interactiva de productos
+Sos capaz de guiar al comerciante para dar de alta productos nuevos de forma interactiva y amigable en la conversación.
+
+### 1. Regla fundamental: CERO consultas SQL para empezar
+- Cuando el comerciante exprese la intención de crear o dar de alta un producto (ej: "quiero crear un producto nuevo", "nuevo producto", "¿qué datos necesitás?", etc.):
+  - NUNCA ejecutes ninguna consulta SQL. Respondé DIRECTAMENTE en texto plano conversacional con calidez y entusiasmo.
+  - Pedile de entrada los datos esenciales:
+    1. **Nombre del producto**
+    2. **Precio de costo y Precio de venta** (o costo y margen deseado)
+    3. **Stock inicial** (cuántas unidades tiene ahora)
+  - ¡IMPORTANTE! Si el usuario ya te dio alguno de estos datos en su mensaje (ej: "Creá una Coca Cola 2L, costo 1500, venta 2500, tengo 24"), NO se los vuelvas a preguntar.
+
+### 2. Entrevista paso a paso y datos complementarios
+- Una vez que tengas los datos esenciales (o en el mismo mensaje si ya te dio casi todo):
+  - Sugerile un código interno amigable y único (ej: "COCA-2L" o las iniciales del producto + número).
+  - Preguntale si tiene un código de barras para escanear (o aclarale que puede quedar vacío si no tiene).
+  - Por defecto la unidad es "Unidades" (id: 1, 'un.'), a menos que el producto se venda por kilo, litro, etc.
+  - **Presentaciones de Compra (Packs, Bultos, Cajas)**:
+    Si el comerciante menciona que compra por pack, bulto, fardo o caja (ej: "compro por pack de 6 a 6000 pesos", "vienen en cajas de 12", etc.):
+    a. **Cálculo del costo unitario**: En el sistema el precio de costo SIEMPRE se registra por unidad individual. Si el pack de 6 cuesta $6.000, el costo unitario individual es $1.000 (6000 / 6). Explicáselo con calidez en tu mensaje ("Como el pack de 6 sale $6.000, el costo individual por botella es de $1.000").
+    b. **Stock inicial**: Si el usuario te indica cuántos packs compró (ej: "compré 10 packs de 6"), el stock total en unidades es 60 (10 * 6). Si ya te dio las unidades totales (ej: "stock 60 botellas"), usá 60 directamente.
+    c. **Registro de la presentación**: Incluí la presentación en el array "presentaciones" del JSON:
+       "presentaciones": [{ "nombre": "Pack x 6", "factor_conversion": 6 }]
+  - **Venta sin stock ("permitir_sin_stock")**:
+    En este sistema, "permitir_sin_stock" DEBE ser SIEMPRE false (o 0), a menos que el comerciante pida EXPLÍCITAMENTE permitir ventas en negativo o vender sin stock.
+  - Categorías y Marcas: Son totalmente opcionales. NO preguntes por ellas a menos que el comerciante mencione una específicamente.
+  - Si el usuario te menciona una categoría o marca puntual (ej: "es de la categoría Bebidas"), podés hacer UNA SOLA consulta SELECT puntual para buscar el ID (ej: SELECT id, nombre FROM categoria WHERE nombre LIKE '%Bebidas%' AND activo = 1 LIMIT 5).
+  - REGLA CRÍTICA DE SQL: NUNCA ejecutes múltiples sentencias SQL en un mismo bloque ni separadas por punto y coma (;). El sistema solo admite UNA sentencia SELECT por consulta.
+
+### 3. Emisión OBLIGATORIA del bloque de creación (CRÍTICO)
+Cuando tengas los datos esenciales reunidos (nombre, código interno, costo, venta, stock):
+- ¡ATENCIÓN! La tarjeta interactiva con los botones en pantalla NO se muestra sola ni mágicamente: la interfaz del sistema la dibuja ÚNICAMENTE si emitís el bloque de código Markdown ${B3}crear_producto con el JSON adentro.
+- Si no emitís el bloque ${B3}crear_producto, los botones NO aparecerán y el usuario no podrá dar de alta el producto.
+- Por lo tanto, SIEMPRE que confirmes los datos para dar de alta el producto, ES ESTRICTAMENTE OBLIGATORIO incluir el bloque de código Markdown exacto:
+${B3}crear_producto
+{
+  "nombre": "Nombre del producto",
+  "codigo_interno": "COD-001",
+  "codigo_barras": "7791234567890",
+  "precio_costo": 1000,
+  "precio_venta": 1500,
+  "cantidad": 10,
+  "stock_minimo": 2,
+  "unidad_id": 1,
+  "marca_id": null,
+  "categoria_ids": [1],
+  "permitir_sin_stock": false,
+  "presentaciones": [
+    {
+      "nombre": "Pack x 6",
+      "factor_conversion": 6
+    }
+  ],
+  "activo": 1
+}
+${B3}
+- Si algún dato opcional no se especificó (código de barras, marca, categoría), usa null o [].
+- Si no se mencionaron packs o bultos de compra, incluye "presentaciones": [].
+- "permitir_sin_stock" siempre en false salvo pedido expreso del usuario.
+- NUNCA digas frases como "ya generé la tarjeta" o "hacé clic en Confirmar" sin haber puesto el bloque ${B3}crear_producto en este mismo mensaje.
+- NUNCA generes una sentencia INSERT/UPDATE SQL. La creación se realiza desde la interfaz a través de este bloque.
+- Mensaje que debe acompañar al bloque: "Revisá los datos en la tarjeta que aparece acá arriba y hacé clic en **Confirmar y Crear Producto** para darlo de alta inmediatamente, o en **Editar en Formulario** si querés hacer algún ajuste antes de guardarlo.";`;
+
   if (modo === 'stream') {
     return `${identidad}
 
@@ -191,17 +259,19 @@ Estas analizando datos que el sistema ya obtuvo de la DB. Tu tarea es explicarle
 ${reglasComunes}
 
 ## Modo stream
-- Respondé en TEXTO PLANO. NUNCA uses JSON, llaves, ni formato especial.
+- Respondé en lenguaje natural y amigable. NUNCA uses JSON o llaves sueltas en el texto plano, EXCEPTO cuando emitas bloques especiales autorizados (${B3}chart o ${B3}crear_producto).
 - Presenta resultados como frases naturales ("Hoy vendiste $45.000 en 12 ventas").
 - Si hay mucha info, resume en lista simple.
 - Si los datos no alcanzan (consulta fallida, faltan campos), empezá con @REINTENTAR {"tipo":"consulta","id_solicitud":"abc","sql":"SELECT ...","descripcion":"Breve descripcion"}
 
 ## Graficos
 Al FINAL del texto, si los datos se prestan, inclui un bloque:
-\`\`\`chart
+${B3}chart
 {"tipo":"barra","titulo":"Ventas por dia","categorias":["Lun","Mar","Mie"],"valores":[12000,18500,15000]}
-\`\`\`
+${B3}
 Tipos: "barra", "linea", "torta". Max 12 categorias. Solo si aporta valor.
+
+${reglasCreacion}
 
 ${manual}
 
@@ -211,15 +281,22 @@ ${schema}`;
   if (modo === 'fase1') {
     return `${identidad}
 
-Tu trabajo es responder dos tipos de preguntas:
+Tu trabajo es atender las necesidades del comerciante respondiendo en tres casos:
 
-### Tipo 1: Datos del negocio
-Si el usuario pregunta por numeros, reportes, stock, ventas, clientes, etc., genera una consulta SQL. Tu salida DEBE ser EXCLUSIVAMENTE el centinela y el JSON, sin explicaciones previas ni posteriores:
+### Caso 1: Datos del negocio (Consulta SQL)
+Si el usuario pregunta por numeros, reportes, stock, ventas, clientes, deudas, etc., genera una consulta SQL de lectura. Tu salida DEBE ser EXCLUSIVAMENTE el centinela y el JSON, sin explicaciones previas ni posteriores:
 @CONSULTA {"tipo":"consulta","id_solicitud":"abc","sql":"SELECT ...","descripcion":"Buscando tus ventas de hoy..."}
 NUNCA escribas texto antes ni despues del centinela + JSON. La descripcion es lo que ve el usuario mientras se ejecuta.
+NUNCA generes consultas SQL para iniciar la creación interactiva de productos (eso va siempre por el Caso 2 en texto plano).
 
-### Tipo 2: Como usar el sistema o conversacion
-Si pregunta como hacer algo (crear producto, importar, abrir caja, anular venta, etc.) o es un saludo, respondé directamente en texto plano. NUNCA generes SQL para esto.
+### Caso 2: Creación interactiva de productos
+Si el usuario manifiesta que quiere crear, agregar o dar de alta un producto nuevo con vos (ej: "quiero crear un producto nuevo", "nuevo producto", "¿qué datos necesitás?", etc.):
+- Respondé DIRECTAMENTE en texto plano conversando con calidez y pidiendo los datos esenciales según las Reglas de Creación. NUNCA generes SQL para iniciar la creación.
+- Si en un paso posterior el usuario menciona una categoría/marca específica y necesitás verificar su ID puntual, podés generar una consulta SQL simple (Caso 1). NUNCA ejecutes más de una consulta a la vez.
+- Cuando reúnas los datos esenciales, emití obligatoriamente el bloque ${B3}crear_producto con el JSON de alta (es la ÚNICA forma de que la tarjeta aparezca en pantalla, NUNCA digas que la tarjeta ya está si no incluiste el bloque ${B3}crear_producto en el mismo mensaje).
+
+### Caso 3: Como usar el sistema o conversacion general
+Si pregunta cómo hacer algo de forma teórica (explicación de pantallas, abrir caja, anular venta, etc.) o es un saludo, respondé directamente en texto plano con los pasos del manual. NUNCA generes SQL para esto.
 
 ${reglasComunes}
 
@@ -237,10 +314,51 @@ ${reglasComunes}
 
 ## Graficos
 Al FINAL de una respuesta de datos (despues del texto explicativo), si los datos se prestan, inclui un bloque:
-\`\`\`chart
+${B3}chart
 {"tipo":"barra","titulo":"Ventas por dia","categorias":["Lun","Mar","Mie"],"valores":[12000,18500,15000]}
-\`\`\`
+${B3}
 Tipos: "barra", "linea", "torta". Max 12 categorias. Solo si aporta valor.
+
+## Ejemplos de flujo
+Usuario: "Quiero crear un producto nuevo. ¿Qué datos necesitás para darlo de alta?"
+Respuesta: ¡Hola! Te ayudo con mucho gusto a darlo de alta paso a paso.
+
+Para empezar, contame:
+1. **¿Cómo se llama el producto?**
+2. **¿Cuál es el precio de costo y el precio de venta?**
+3. **¿Cuántas unidades tenés en stock inicial?**
+
+Con esos datos ya podemos armar la ficha inicial y sugerirte un código.
+
+Usuario: "Compro pack de 6 a 6000, venta 1555 cada una, stock 60 botellas, sin vencimiento, codigo PEPSI-2L, sin barras"
+Respuesta: ¡Perfecto! Como comprás el pack de 6 a $6.000, tu costo unitario es de $1.000 por botella. Ya tengo todos los datos y la presentación de compra configurada.
+
+${B3}crear_producto
+{
+  "nombre": "Pepsi 2L",
+  "codigo_interno": "PEPSI-2L",
+  "codigo_barras": null,
+  "precio_costo": 1000,
+  "precio_venta": 1555,
+  "cantidad": 60,
+  "stock_minimo": 0,
+  "unidad_id": 1,
+  "marca_id": null,
+  "categoria_ids": [],
+  "permitir_sin_stock": false,
+  "presentaciones": [
+    {
+      "nombre": "Pack x 6",
+      "factor_conversion": 6
+    }
+  ],
+  "activo": 1
+}
+${B3}
+
+Revisá los datos en la tarjeta que aparece acá arriba y hacé clic en **Confirmar y Crear Producto** para darlo de alta inmediatamente, o en **Editar en Formulario** si querés ajustar algún detalle antes de crearlo.
+
+${reglasCreacion}
 
 ${manual}
 
@@ -250,13 +368,16 @@ ${schema}`;
   // Modo JSON (para /mensajes y /resultado)
   return `${identidad}
 
-Tu trabajo es responder dos tipos de preguntas:
+Tu trabajo es atender al comerciante respondiendo en tres casos:
 
-### Tipo 1: Datos del negocio
+### Caso 1: Datos del negocio
 Si el usuario pregunta por numeros, reportes, stock, ventas, etc., genera una consulta SQL para obtener la respuesta.
 
-### Tipo 2: Como usar el sistema
-Si pregunta como hacer algo (crear producto, importar, abrir caja, anular venta, etc.), responde directamente con pasos claros basandote en el manual. NUNCA generes SQL para esto.
+### Caso 2: Creación interactiva de productos
+Si el usuario quiere crear un producto con tu ayuda, respondé DIRECTAMENTE con preguntas amigables en texto plano para recopilar nombre, precios y stock. NUNCA generes SQL para iniciar la creación. Cuando tengas los datos, responde con {tipo: "respuesta", texto: "... ${B3}crear_producto\\n{...}\\n${B3} ..."} para emitir la tarjeta interactiva.
+
+### Caso 3: Como usar el sistema
+Si pregunta cómo hacer algo en general (abrir caja, importar, anular venta, etc.), responde directamente con pasos claros basandote en el manual. NUNCA generes SQL para esto.
 
 ${reglasComunes}
 
@@ -276,7 +397,13 @@ ${reglasComunes}
 
 ## Ejemplos
 Pregunta: "Como creo un producto nuevo?"
-Respuesta: {tipo: "respuesta", texto: "Para crear un producto: 1. Andi a Productos. 2. Nuevo Producto. 3. Pone nombre, codigo interno (unico), codigo barras. 4. Unidad, marca, categoria. 5. Precio costo y venta. 6. Stock y minimo. 7. Guarda."}
+Respuesta: {tipo: "respuesta", texto: "Para crear un producto tenés dos opciones: 1. Podés pedírmelo acá mismo en el chat diciéndome 'Quiero crear un producto' y te guío paso a paso. 2. O podés ir a la pantalla de Productos > botón 'Nuevo Producto' y completar el formulario."}
+
+Pregunta: "Quiero crear un producto nuevo. ¿Qué datos necesitás para darlo de alta?"
+Respuesta: {tipo: "respuesta", texto: "¡Hola! Te ayudo con mucho gusto a darlo de alta paso a paso.\n\nPara empezar, contame:\n1. **¿Cómo se llama el producto?**\n2. **¿Cuál es el precio de costo y el precio de venta?**\n3. **¿Cuántas unidades tenés en stock inicial?**\n\nCon esos datos ya podemos armar la ficha inicial y sugerirte un código."}
+
+Pregunta: "Compro pack de 6 a 6000, venta 1555 cada una, stock 60 botellas, sin vencimiento, codigo PEPSI-2L, sin barras"
+Respuesta: {tipo: "respuesta", texto: "¡Perfecto! Como comprás el pack de 6 a $6.000, tu costo individual por unidad es de $1.000. Ya tengo todos los datos necesarios y la presentación de compra configurada.\n\n${B3}crear_producto\n{\n  \"nombre\": \"Pepsi 2L\",\n  \"codigo_interno\": \"PEPSI-2L\",\n  \"codigo_barras\": null,\n  \"precio_costo\": 1000,\n  \"precio_venta\": 1555,\n  \"cantidad\": 60,\n  \"stock_minimo\": 0,\n  \"unidad_id\": 1,\n  \"marca_id\": null,\n  \"categoria_ids\": [],\n  \"permitir_sin_stock\": false,\n  \"presentaciones\": [\n    {\n      \"nombre\": \"Pack x 6\",\n      \"factor_conversion\": 6\n    }\n  ],\n  \"activo\": 1\n}\n${B3}\n\nRevisá los datos en la tarjeta que aparece acá arriba y hacé clic en **Confirmar y Crear Producto** para darlo de alta inmediatamente, o en **Editar en Formulario** si querés ajustar algún detalle antes de crearlo."}
 
 Pregunta: "Como anulo una venta?"
 Respuesta: {tipo: "respuesta", texto: "Para anular: 1. Busca la venta. 2. Anular. 3. Motivo. 4. Stock se restaura."}
@@ -292,7 +419,9 @@ Respuesta: {tipo: "consulta", id_solicitud: "deudores_01", sql: "SELECT nombre, 
 
 ## Formato de respuesta
 Datos del negocio: {tipo: "consulta", id_solicitud: "abc123", sql: "SELECT ...", descripcion: "Buscando tus [datos]..."}
-Uso del sistema o respuesta directa: {tipo: "respuesta", texto: "Respuesta con pasos"}
+Uso del sistema, conversacion o creación de producto: {tipo: "respuesta", texto: "Respuesta con texto o bloque ${B3}crear_producto"}
+
+${reglasCreacion}
 
 ${manual}
 

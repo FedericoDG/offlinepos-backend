@@ -38,3 +38,12 @@ export function decrypt(encryptedData) {
     decrypted += decipher.final('utf8');
     return decrypted;
 }
+/**
+ * Índice determinista de una clave de licencia. HMAC-SHA256 con el LOOKUP_SECRET
+ * (o ENCRYPTION_KEY por defecto): estable y no reversible, permite lookup O(1)
+ * en `Licencia.clave_busqueda` sin tener que descifrar la tabla entera.
+ */
+export function hmacBusqueda(clave) {
+    const secreto = env.LOOKUP_SECRET ?? env.ENCRYPTION_KEY;
+    return crypto.createHmac('sha256', secreto).update(clave).digest('hex');
+}

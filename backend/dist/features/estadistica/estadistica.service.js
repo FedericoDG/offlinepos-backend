@@ -202,4 +202,42 @@ export class EstadisticaService {
             .map((fila) => ({ ...fila, total: Math.round(fila.total * 100) / 100 }))
             .sort((a, b) => b.total - a.total);
     }
+    async chatConsumo(periodo) {
+        const p = periodo || new Date().toISOString().slice(0, 7); // "2026-09"
+        const consumos = await this.db.chatConsumo.findMany({
+            where: { periodo: p },
+            include: {
+                licencia: {
+                    include: {
+                        comercio: true,
+                    },
+                },
+            },
+        });
+        const detalle = consumos.map((c) => {
+            const comercio = c.licencia?.comercio;
+            const plan = 'plan' in c.licencia ? c.licencia.plan?.nombre ?? '' : '';
+            const pt = Number(c.prompt_tokens);
+            const ct = Number(c.completion_tokens);
+            const costoUsd = Math.round((pt * 0.03 / 1_000_000 + ct * 0.13 / 1_000_000) * 10_000) / 10_000;
+            return {
+                comercio_id: c.licencia_id,
+                comercio: comercio?.nombre ?? 'Desconocido',
+                plan,
+                mensajes_usados: c.mensajes,
+                mensajes_limite: 500,
+                prompt_tokens: pt,
+                completion_tokens: ct,
+                total_tokens: Number(c.total_tokens),
+                costo_usd: costoUsd,
+            };
+        });
+        const resumen = {
+            total_mensajes: detalle.reduce((s, d) => s + d.mensajes_usados, 0),
+            total_tokens: detalle.reduce((s, d) => s + d.total_tokens, 0),
+            total_costo_usd: Math.round(detalle.reduce((s, d) => s + d.costo_usd, 0) * 10_000) / 10_000,
+            comercios_activos: new Set(detalle.map((d) => d.comercio_id)).size,
+        };
+        return { resumen, detalle };
+    }
 }

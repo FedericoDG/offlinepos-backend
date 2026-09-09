@@ -23,7 +23,17 @@ const envSchema = z.object({
     LLM_BASE_URL: z.string().url('LLM_BASE_URL debe ser una URL válida').default('https://dashscope-intl.aliyuncs.com/compatible-mode/v1'),
     LLM_API_KEY: z.string().min(1, 'LLM_API_KEY es obligatoria para el chat con IA'),
     LLM_MODEL: z.string().min(1, 'LLM_MODEL es obligatorio').default('qwen3.7-flash'),
-    CHAT_MENSAJES_DIA: z.coerce.number().int().positive().default(50),
+    LLM_ENABLE_THINKING: z.enum(['true', 'false']).default('false').transform((v) => v === 'true'),
+    CHAT_MENSAJES_MES: z.coerce.number().int().positive().default(500),
+    // Clave privada Ed25519 (PEM) para firmar tokens de licencia. Opcional en dev
+    // (se usa un par efímero); en producción sin esta clave, activar licencia falla.
+    LICENCIA_SIGN_PRIV_KEY: z.string().min(1).optional(),
+    // URL pública del backend (dominio ngrok en producción): las descargas del
+    // updater llevan URLs absolutas y detrás de un túnel el host local no sirve.
+    PUBLIC_BASE_URL: z.string().url('PUBLIC_BASE_URL debe ser una URL válida').default('http://localhost:4000'),
+    // Secreto para el índice determinista de claves (clave_busqueda). Por defecto
+    // usa ENCRYPTION_KEY: siempre estable, evita requerir otro secret.
+    LOOKUP_SECRET: z.string().min(1).optional(),
 });
 const _env = envSchema.safeParse(process.env);
 if (!_env.success) {

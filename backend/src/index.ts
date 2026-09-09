@@ -17,6 +17,42 @@ import { dirUpdates } from './features/actualizaciones/actualizaciones.service';
 
 const app = express();
 
+// Ngrok (y otros proxies) reenvían la IP real en X-Forwarded-For: sin trust
+// proxy, express-rate-limit contaría todo contra la misma IP del túnel.
+app.set('trust proxy', 1);
+
+import rateLimit from 'express-rate-limit';
+
+// Límite default: malla de seguridad para cualquier otra ruta no listada abajo.
+const limiterDefault = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: (req) =>
+    req.path.startsWith('/api/licencias/activar') ||
+    req.path.startsWith('/api/administradores/login') ||
+    req.path.startsWith('/api/chat'),
+});
+const limiterActivar = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+const limiterLogin = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+const limiterChat = rateLimit({
+  windowMs: 60 * 1000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 // Middlewares globales
 app.use(cors({
   origin: env.CORS_ORIGIN === '*' ? '*' : env.CORS_ORIGIN.split(','),
@@ -29,6 +65,14 @@ app.use(compression({
   },
 }));
 app.use(express.json());
+
+// /health sin límite: lo patean healthchecks de Docker/negroni.
+
+// Aplicar límites antes de las rutas (orden importa).
+app.use('/api/licencias/activar', limiterActivar);
+app.use('/api/administradores/login', limiterLogin);
+app.use('/api/chat', limiterChat);
+app.use('/api', limiterDefault);
 
 // Rutas
 app.use('/api/administradores', administradorRoutes);

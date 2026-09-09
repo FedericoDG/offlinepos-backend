@@ -7,7 +7,7 @@ export const PreguntarDTO = z.object({
     clave: z.string().trim().min(1, 'La clave de licencia es obligatoria'),
     instalacion_id: z.string().trim().min(1, 'El identificador de instalación es obligatorio'),
     pregunta: z.string().trim().min(1, 'La pregunta es obligatoria').max(2000),
-    id_conversacion: z.string().optional(),
+    id_conversacion: z.string().nullish(),
     historial: z.array(MensajeHistorialDTO).default([]),
 });
 export const ResultadoConsultaDTO = z.object({
@@ -18,4 +18,13 @@ export const ResultadoConsultaDTO = z.object({
     filas: z.array(z.record(z.string(), z.unknown())),
     recortado: z.boolean().default(false),
     error: z.string().optional(),
+});
+export const ReporteDTO = z.object({
+    clave: z.string().trim().min(1, 'La clave de licencia es obligatoria'),
+    instalacion_id: z.string().trim().min(1, 'El identificador de instalacion es obligatorio'),
+    datos: z.record(z.string(), z.unknown()),
+});
+export const UsoConsultaDTO = z.object({
+    clave: z.string().trim().min(1),
+    instalacion_id: z.string().trim().min(1),
 });

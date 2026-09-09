@@ -8,12 +8,14 @@ const nextConfig: NextConfig = {
   // de la LAN) sin que Next bloquee los recursos dev cross-origin (HMR y
   // chunks del cliente). Si cambia tu IP local, actualizá este valor.
   allowedDevOrigins: ['192.168.100.78'],
-  // La subida de instaladores del POS supera por lejos el 1 MB por defecto
-  // de las server actions (un MSI puede pasar los 30 MB).
+  // La subida de instaladores del POS supera por lejos los límites por defecto
+  // (un MSI puede pasar los 30 MB y el form lleva 4 archivos en un solo request).
+  // Next 16 renombró middleware → proxy y ambas claves a la vez son error.
   experimental: {
     serverActions: {
-      bodySizeLimit: '64mb',
+      bodySizeLimit: '128mb',
     },
+    proxyClientMaxBodySize: '128mb',
   },
 };
 

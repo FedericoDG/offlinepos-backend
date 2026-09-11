@@ -26,6 +26,11 @@ export const ContextoNegocioDTO = z.object({
       })
     )
     .optional(),
+  fecha_actual: z.string().optional(),
+  hora_actual: z.string().optional(),
+  dia_semana: z.string().optional(),
+  timestamp_actual: z.number().optional(),
+  modulo_recordatorios: z.boolean().optional(),
 });
 
 export type ContextoNegocioDTO = z.infer<typeof ContextoNegocioDTO>;

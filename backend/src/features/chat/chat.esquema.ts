@@ -52,6 +52,7 @@ categoria_gasto (id, nombre, activo)
 marca (id, nombre, activo)
 unidad (id, abreviatura, nombre, activo)
 usuario (id, usuario, rol, activo, permisos)
+recordatorio (id, usuario_id, titulo, descripcion, fecha_hora_programada, completado, disparado, pospuesto_hasta, sonido, creado_en, actualizado_en)
 config (clave, valor)
 
 ## Notas
@@ -63,6 +64,7 @@ config (clave, valor)
 - Seeds categoria_gasto: Servicios, Alquileres, Sueldos, Impuestos, Insumos, Mantenimiento, Fletes, Marketing, Otros.
 - Gastos programados y recurrentes: La tabla gasto_programado guarda reglas de egresos futuros y recurrentes. NO restan dinero de caja ni son gastos reales hasta que llega su fecha pactada y se asienta el egreso en la tabla gasto (donde gasto.gasto_programado_id apunta a la regla de origen).
 - proxima_ejecucion en gasto_programado es timestamp Unix en segundos con la siguiente fecha a pagar.
+- Recordatorios: La tabla recordatorio guarda avisos personales y tareas operativas agendadas por el usuario. fecha_hora_programada es timestamp Unix en segundos. completado=0 indica avisos pendientes. sonido identifica la alerta sonora ('sound_01' a 'sound_05' o null/silencioso).
 - IVA y Alícuotas: La tabla alicuota_iva guarda las tasas oficiales y personalizadas (21% general, 10.5% reducida, 0% exento, etc.). producto.alicuota_iva_id vincula el artículo con su tasa. Si usar_iva = '1' en config, venta.total_iva acumula el Débito Fiscal AFIP del período y venta.total_neto la base imponible comercial real.
 `;
 
@@ -94,5 +96,9 @@ export const EJEMPLOS_CONSULTAS: Array<{ pregunta: string; sql: string }> = [
   {
     pregunta: 'Tengo boletas o facturas variables pendientes de confirmar?',
     sql: `SELECT gp.id, gp.concepto, gp.monto AS monto_estimado, DATETIME(gp.proxima_ejecucion, 'unixepoch', 'localtime') AS vencio_el FROM gasto_programado gp WHERE gp.activo = 1 AND gp.auto_generar = 0 AND gp.proxima_ejecucion <= strftime('%s', 'now') ORDER BY gp.proxima_ejecucion ASC LIMIT 20`,
+  },
+  {
+    pregunta: 'Que recordatorios o tareas pendientes tengo agendadas?',
+    sql: `SELECT id, titulo, descripcion, DATETIME(fecha_hora_programada, 'unixepoch', 'localtime') AS programado_para, sonido FROM recordatorio WHERE completado = 0 ORDER BY fecha_hora_programada ASC LIMIT 20`,
   },
 ];

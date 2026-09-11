@@ -20,6 +20,11 @@ export const ContextoNegocioDTO = z.object({
         predeterminada: z.boolean(),
     }))
         .optional(),
+    fecha_actual: z.string().optional(),
+    hora_actual: z.string().optional(),
+    dia_semana: z.string().optional(),
+    timestamp_actual: z.number().optional(),
+    modulo_recordatorios: z.boolean().optional(),
 });
 export const PreguntarDTO = z.object({
     clave: z.string().trim().min(1, 'La clave de licencia es obligatoria'),

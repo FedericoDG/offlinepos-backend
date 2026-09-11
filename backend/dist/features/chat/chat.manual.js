@@ -59,6 +59,12 @@ Etiquetas EAN-13: digitos 1-6 precio, 7-12 codigo PLU, 13 verificador. Se parsea
 
 **Programar gasto futuro o recurrente**: Gastos > Nuevo > activar el switch "¿Programar a futuro o recurrente?" > elegir Única vez (fecha puntual) o Recurrente (diario, semanal, quincenal, mensual o anual) > configurar frecuencia, fecha de inicio y si es automático o requiere confirmación de importe (para boletas variables como luz o gas) > Guardar. El gasto no afecta la caja ni los balances contables hasta su fecha de vencimiento. Se administran y pausan desde la pestaña "Gastos Programados y Recurrentes".
 
+**Programar recordatorio**: Se pueden agendar desde la barra superior (icono de campana > "Nuevo Recordatorio" o "Crear con Binny") o pidiéndoselo directamente a Binny en el chat (ej. "recordame llamar al proveedor mañana a las 10:00"). Binny genera una tarjeta interactiva donde podés elegir el tono de alarma (5 sonidos disponibles: sound_01 a sound_05, o silencioso), probar cómo suena y programarlo en 1 clic.
+
+**Dictado por voz (Whisper STT)**: En el chat podés dictar mensajes manteniendo presionado el botón del micrófono. El reconocimiento de voz funciona 100% offline y en local procesado por el CPU del equipo. En Configuración > Asistente Binny podés elegir entre 3 modelos: **Whisper Tiny** (~75 MB, ultra liviano), **Whisper Base** (~142 MB, **recomendado** por su excelente velocidad y precisión en español), y **Whisper Small** (~466 MB, máxima precisión).
+
+**Voz del Asistente (TTS)**: Podés escuchar las respuestas de Binny en voz alta presionando el botón de parlante en cada mensaje o activando la lectura automática en la barra de entrada del chat. En Configuración > Asistente Binny podés seleccionar entre 3 motores de audio: **Piper TTS** (neuronal local de alta fidelidad humana en español, ~100 MB, 100% offline), **Web Speech API** (nativa del sistema operativo, 0 MB) y **eSpeak NG** (sintética ligera robótica, 0 MB).
+
 **Crear combo**: Combos > Nuevo > nombre, codigo > agregar componentes con cantidades > precio combo > Guardar.
 
 **Crear promocion**: Promociones (admin) > Nuevo > nombre, prioridad > configurar condiciones y efectos > Activar.

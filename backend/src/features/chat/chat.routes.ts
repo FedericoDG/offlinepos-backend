@@ -8,7 +8,11 @@ router.post('/mensajes', (req, res) => chatController.preguntar(req, res));
 router.post('/mensajes/stream', (req, res) => chatController.preguntarStream(req, res));
 router.post('/resultado', (req, res) => chatController.resultado(req, res));
 router.post('/resultado/stream', (req, res) => chatController.resultadoStream(req, res));
-router.post('/reporte', (req, res) => chatController.reporte(req, res));
 router.post('/uso', (req, res) => chatController.uso(req, res));
+router.post('/factura-ocr', (req, res) => chatController.procesarFacturaOcr(req, res));
+router.post('/movil-factura/sesion', (req, res) => chatController.crearSesionMovil(req, res));
+router.get('/movil-factura/:sessionId', (req, res) => chatController.verPaginaMovil(req, res));
+router.post('/movil-factura/:sessionId/subir', (req, res) => chatController.subirFotoMovil(req, res));
+router.get('/movil-factura/:sessionId/estado', (req, res) => chatController.estadoSesionMovil(req, res));
 
 export default router;

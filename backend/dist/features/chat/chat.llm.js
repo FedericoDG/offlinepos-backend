@@ -246,3 +246,52 @@ export async function* llamarLLMStream(mensajes, opciones = {}) {
         yield { type: 'error', texto: `Error en stream: ${error}` };
     }
 }
+const TIMEOUT_VISION_MS = 90_000;
+export async function llamarLLMVision(mensajes, opciones = {}) {
+    const { jsonMode = true, model = env.LLM_VISION_MODEL || env.LLM_MODEL } = opciones;
+    const ctrl = new AbortController();
+    try {
+        const body = {
+            model,
+            messages: mensajes,
+            temperature: 0.1,
+        };
+        if (jsonMode) {
+            body.response_format = { type: 'json_object' };
+        }
+        const respuesta = await fetch(`${env.LLM_BASE_URL}/chat/completions`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${env.LLM_API_KEY}`,
+            },
+            body: JSON.stringify(body),
+            signal: AbortSignal.any([ctrl.signal, AbortSignal.timeout(TIMEOUT_VISION_MS)]),
+        });
+        if (!respuesta.ok) {
+            const texto = await respuesta.text();
+            console.error('[LLM Vision] Error del proveedor:', respuesta.status, texto);
+            throw new Error(`Error del proveedor LLM Vision (código ${respuesta.status})`);
+        }
+        const data = (await respuesta.json());
+        const choice = data.choices?.[0];
+        if (!choice) {
+            throw new Error('El proveedor LLM Vision no devolvió respuesta');
+        }
+        const contenido = choice.message?.content ?? '';
+        const usage = data.usage;
+        const tokens = {
+            prompt_tokens: usage?.prompt_tokens ?? 0,
+            completion_tokens: usage?.completion_tokens ?? 0,
+            total_tokens: usage?.total_tokens ?? 0,
+            cached_tokens: usage?.prompt_tokens_details?.cached_tokens ?? 0,
+        };
+        return { texto: contenido, tokens };
+    }
+    catch (error) {
+        if (ctrl.signal.aborted) {
+            throw new Error('La llamada a la IA de visión fue cancelada por timeout');
+        }
+        throw error;
+    }
+}

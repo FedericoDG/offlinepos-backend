@@ -2,10 +2,10 @@ import prisma from '../../config/prisma';
 import { decrypt, hmacBusqueda } from '../../utils/encryption';
 import { env } from '../../config/env';
 import { httpError } from '../../utils/api-error';
-import { PreguntarDTO, ResultadoConsultaDTO, ReporteDTO, UsoConsultaDTO, type RespuestaLLM, type ReporteResponseDTO, type UsoDTO } from './chat.dtos';
+import { PreguntarDTO, ResultadoConsultaDTO, UsoConsultaDTO, FacturaOcrRequestDTO, type ContextoNegocioDTO, type RespuestaLLM, type UsoDTO, type FacturaOcrResponseDTO, type FacturaOcrItemDTO, type FacturaOcrResultadoDTO } from './chat.dtos';
 import { ESQUEMA_SQLITE, EJEMPLOS_CONSULTAS } from './chat.esquema';
 import { MANUAL_SISTEMA } from './chat.manual';
-import { llamarLLM, llamarLLMStream } from './chat.llm';
+import { llamarLLM, llamarLLMStream, llamarLLMVision, type ChatMessageVision } from './chat.llm';
 import { normalizarSQL, validarSQL } from './chat.guarda';
 
 // --- Validacion de licencia (devuelve la licencia encontrada) ---
@@ -106,7 +106,7 @@ async function obtenerUso(licenciaId: string): Promise<UsoChat> {
  * Incrementa el contador de mensajes SOLO si no se superó el límite.
  * Retorna el uso actualizado. Si el límite fue alcanzado, retorna null.
  */
-async function incrementarMensajes(licenciaId: string): Promise<UsoChat | null> {
+async function incrementarMensajes(licenciaId: string, cantidad: number = 1): Promise<UsoChat | null> {
   const periodo = periodoActual();
   const limite = await obtenerLimiteChat(licenciaId);
 
@@ -114,8 +114,8 @@ async function incrementarMensajes(licenciaId: string): Promise<UsoChat | null> 
   if (limite === 0) {
     await prisma.chatConsumo.upsert({
       where: { licencia_id_periodo: { licencia_id: licenciaId, periodo } },
-      create: { licencia_id: licenciaId, periodo, mensajes: 1 },
-      update: { mensajes: { increment: 1 } },
+      create: { licencia_id: licenciaId, periodo, mensajes: cantidad },
+      update: { mensajes: { increment: cantidad } },
     });
     return obtenerUso(licenciaId);
   }
@@ -127,14 +127,14 @@ async function incrementarMensajes(licenciaId: string): Promise<UsoChat | null> 
     update: {},
   });
 
-  // Incremento atómico condicional: solo si < limite
+  // Incremento atómico condicional: solo si mensajes + cantidad <= limite
   const result = await prisma.chatConsumo.updateMany({
     where: {
       licencia_id: licenciaId,
       periodo,
-      mensajes: { lt: limite },
+      mensajes: { lte: limite - cantidad },
     },
-    data: { mensajes: { increment: 1 } },
+    data: { mensajes: { increment: cantidad } },
   });
 
   if (result.count === 0) {
@@ -144,11 +144,11 @@ async function incrementarMensajes(licenciaId: string): Promise<UsoChat | null> 
   return obtenerUso(licenciaId);
 }
 
-async function decrementarMensajes(licenciaId: string): Promise<void> {
+async function decrementarMensajes(licenciaId: string, cantidad: number = 1): Promise<void> {
   const periodo = periodoActual();
   await prisma.chatConsumo.updateMany({
-    where: { licencia_id: licenciaId, periodo, mensajes: { gt: 0 } },
-    data: { mensajes: { decrement: 1 } },
+    where: { licencia_id: licenciaId, periodo, mensajes: { gte: cantidad } },
+    data: { mensajes: { decrement: cantidad } },
   });
 }
 
@@ -169,10 +169,14 @@ export async function acumularTokens(licenciaId: string, tokens: { prompt_tokens
 
 const B3 = '```';
 
-function construirPromptSistema(modo: 'json' | 'stream' | 'fase1' = 'json'): string {
+function construirPromptSistema(modo: 'json' | 'stream' | 'fase1' = 'json', contexto?: ContextoNegocioDTO): string {
   // Parte comun: identidad, estilo, manual, schema
   const identidad = `Sos Binny, el asistente inteligente de un sistema POS para comercios, creado por Binario Dev Labs. Tus usuarios son comerciantes sin experiencia tecnica. Ayudalos de forma clara y sencilla.
 Si te preguntan quien sos o quienes te hicieron, conta con calidez que sos Binny, el asistente de Binario Dev Labs, desarrollado por Federico y Joaquin. No inventes mas detalles sobre la empresa ni sobre sus desarrolladores.`;
+
+  const usarIva = contexto?.usar_iva ?? false;
+  const alicuotaPred = contexto?.alicuota_predeterminada ?? { id: 1, porcentaje: 21, nombre: 'IVA General 21%' };
+  const alicuotasTexto = contexto?.alicuotas?.map(a => `${a.porcentaje}% (${a.nombre}, id: ${a.id}${a.predeterminada ? ' - por defecto' : ''})`).join(', ') ?? '21% (IVA General 21%, id: 1)';
 
   const reglasComunes = `## Reglas
 - Responde siempre en espanol.
@@ -182,11 +186,36 @@ Si te preguntan quien sos o quienes te hicieron, conta con calidez que sos Binny
 - Para datos monetarios, usa pesos argentinos con separadores de miles.
 - Si no encontras informacion sobre algo en el manual, DECi que no tenes esa info en vez de inventar. No alucines funcionalidades.`;
 
+  const reglasGastos = `## Reglas sobre Gastos y Egresos (CRÍTICO)
+1. **Diferenciación entre Egresos Reales y Compromisos Futuros**:
+   - La tabla \`gasto\` contiene los egresos YA PAGADOS y devengados contablemente. Para preguntas como "¿Cuánto gasté?", "¿Cuál es mi balance?", "¿Cuánto dinero salió de caja?", consulta ÚNICAMENTE la tabla \`gasto\`.
+   - La tabla \`gasto_programado\` contiene compromisos futuros pactados o reglas recurrentes (alquileres, sueldos, servicios). **NO son egresos reales todavía** ni restan dinero de la caja ni del balance del negocio.
+2. **Consultas sobre el futuro y costos fijos**:
+   - Si el comerciante pregunta por compromisos a futuro ("¿Qué pagos se me vienen?", "¿Qué gastos tengo esta semana/mes?", "¿Cuánto tengo en costos fijos?"), consulta \`gasto_programado\` con \`activo = 1\` y filtra o agrupa por \`proxima_ejecucion\` o \`tipo = 'recurrente'\`.
+   - Si un gasto programado tiene \`auto_generar = 0\`, aclara con calidez que se trata de un monto estimado y que el sistema le solicitará ingresar el importe real de la boleta al momento de su vencimiento.
+   - Si un gasto es \`auto_generar = 1\`, aclara que se asentará de forma automática en la fecha programada.
+3. **Preguntas sobre cómo programar**:
+   - Si el usuario te pide programar un gasto o te pregunta cómo funciona, explicale con amabilidad y claridad los pasos del manual (ir a Gastos > Nuevo Gasto > activar el switch de programar > elegir Única vez o Recurrente, frecuencia y fecha).`;
+
   const manual = `## Manual de uso del sistema
 ${MANUAL_SISTEMA}`;
 
   const schema = `## Estructura de la base de datos
 ${ESQUEMA_SQLITE}`;
+
+  const seccionIvaCreacion = usarIva
+    ? `  - **Módulo de IVA: HABILITADO en este comercio**:
+    a. **Precios de venta al público (PVP)**: En el sistema los precios de venta son SIEMPRE con IVA incluido (PVP). Cuando el usuario te dice un precio de venta (ej: "venta 1500"), asumí que es el PVP final con IVA.
+    b. **Alícuota impositiva**: La alícuota por defecto del negocio es ${alicuotaPred.porcentaje}% (${alicuotaPred.nombre}, id: ${alicuotaPred.id}). Si el usuario no menciona ninguna alícuota, asigná siempre id: ${alicuotaPred.id} (${alicuotaPred.porcentaje}%). Si menciona una alícuota específica (ej. 10.5%, 27% o exento al 0%), usá el ID que corresponda de las disponibles: ${alicuotasTexto}.
+    c. **Desglose transparente en tu mensaje**: Al confirmar los datos del producto, explicále con calidez el desglose:
+       - Precio Final PVP: $X (con IVA ${alicuotaPred.porcentaje}% incl.)
+       - Neto Gravado: $Y (base imponible)
+       - IVA Débito: $Z (tributo AFIP)
+       - Costo: $C
+       - Margen Comercial Neto: M%
+    d. **JSON del bloque**: Incluí en el JSON "alicuota_iva_id": ${alicuotaPred.id} y "alicuota_iva_porcentaje": ${alicuotaPred.porcentaje}.`
+    : `  - **Módulo de IVA: DESHABILITADO en este comercio**:
+    El comercio opera con precios planos sin discriminación impositiva. NUNCA menciones IVA, ni AFIP, ni débitos fiscales. En el JSON del bloque incluye: "alicuota_iva_id": null.`;
 
   const reglasCreacion = `## Creación interactiva de productos
 Sos capaz de guiar al comerciante para dar de alta productos nuevos de forma interactiva y amigable en la conversación.
@@ -211,6 +240,7 @@ Sos capaz de guiar al comerciante para dar de alta productos nuevos de forma int
     b. **Stock inicial**: Si el usuario te indica cuántos packs compró (ej: "compré 10 packs de 6"), el stock total en unidades es 60 (10 * 6). Si ya te dio las unidades totales (ej: "stock 60 botellas"), usá 60 directamente.
     c. **Registro de la presentación**: Incluí la presentación en el array "presentaciones" del JSON:
        "presentaciones": [{ "nombre": "Pack x 6", "factor_conversion": 6 }]
+${seccionIvaCreacion}
   - **Venta sin stock ("permitir_sin_stock")**:
     En este sistema, "permitir_sin_stock" DEBE ser SIEMPRE false (o 0), a menos que el comerciante pida EXPLÍCITAMENTE permitir ventas en negativo o vender sin stock.
   - Categorías y Marcas: Son totalmente opcionales. NO preguntes por ellas a menos que el comerciante mencione una específicamente.
@@ -235,6 +265,7 @@ ${B3}crear_producto
   "marca_id": null,
   "categoria_ids": [1],
   "permitir_sin_stock": false,
+  ${usarIva ? `"alicuota_iva_id": ${alicuotaPred.id},\n  "alicuota_iva_porcentaje": ${alicuotaPred.porcentaje},` : `"alicuota_iva_id": null,`}
   "presentaciones": [
     {
       "nombre": "Pack x 6",
@@ -257,6 +288,8 @@ ${B3}
 Estas analizando datos que el sistema ya obtuvo de la DB. Tu tarea es explicarle al comerciante los resultados en lenguaje simple.
 
 ${reglasComunes}
+
+${reglasGastos}
 
 ## Modo stream
 - Respondé en lenguaje natural y amigable. NUNCA uses JSON o llaves sueltas en el texto plano, EXCEPTO cuando emitas bloques especiales autorizados (${B3}chart o ${B3}crear_producto).
@@ -299,6 +332,8 @@ Si el usuario manifiesta que quiere crear, agregar o dar de alta un producto nue
 Si pregunta cómo hacer algo de forma teórica (explicación de pantallas, abrir caja, anular venta, etc.) o es un saludo, respondé directamente en texto plano con los pasos del manual. NUNCA generes SQL para esto.
 
 ${reglasComunes}
+
+${reglasGastos}
 
 ## Reglas SQL
 1. Solo SELECT o WITH (lectura). NUNCA INSERT, UPDATE, DELETE, DROP, ALTER, CREATE.
@@ -381,6 +416,8 @@ Si pregunta cómo hacer algo en general (abrir caja, importar, anular venta, etc
 
 ${reglasComunes}
 
+${reglasGastos}
+
 ## Reglas SQL (no las mostres al usuario)
 1. Solo SELECT o WITH (lectura). NUNCA INSERT, UPDATE, DELETE, DROP, ALTER, CREATE.
 2. TODA consulta DEBE incluir un LIMIT (maximo 500), incluso en agregaciones.
@@ -410,6 +447,9 @@ Respuesta: {tipo: "respuesta", texto: "Para anular: 1. Busca la venta. 2. Anular
 
 Pregunta: "Cuanto vendi hoy?"
 Respuesta: {tipo: "consulta", id_solicitud: "vta_hoy_01", sql: "SELECT SUM(total) AS total_hoy FROM venta WHERE estado = 'completada' AND anulada_en IS NULL AND DATE(creada_en, 'unixepoch', 'localtime') = DATE('now', 'localtime') LIMIT 1", descripcion: "Buscando tus ventas de hoy..."}
+
+Pregunta: "Que pagos tengo que hacer esta semana?"
+Respuesta: {tipo: "consulta", id_solicitud: "gastos_prog_01", sql: "SELECT gp.concepto, gp.monto, gp.tipo, gp.frecuencia, gp.auto_generar, DATETIME(gp.proxima_ejecucion, 'unixepoch', 'localtime') AS fecha_pago, cg.nombre AS categoria FROM gasto_programado gp LEFT JOIN categoria_gasto cg ON cg.id = gp.categoria_gasto_id WHERE gp.activo = 1 AND gp.proxima_ejecucion BETWEEN strftime('%s', 'now') AND strftime('%s', 'now', '+7 days') ORDER BY gp.proxima_ejecucion ASC LIMIT 20", descripcion: "Buscando tus pagos programados de la semana..."}
 
 Pregunta: "Stock bajo"
 Respuesta: {tipo: "consulta", id_solicitud: "stock_bajo_01", sql: "SELECT p.nombre, p.cantidad, p.stock_minimo, u.abreviatura FROM producto p JOIN unidad u ON u.id = p.unidad_id WHERE p.cantidad <= p.stock_minimo AND p.activo = 1 ORDER BY p.cantidad ASC LIMIT 50", descripcion: "Buscando productos con stock bajo..."}
@@ -446,7 +486,7 @@ export class ChatService {
     const uso = usoCheck!;
 
     const mensajes: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
-      { role: 'system', content: construirPromptSistema() },
+      { role: 'system', content: construirPromptSistema('json', data.contexto) },
     ];
 
     for (const msg of data.historial.slice(-10)) {
@@ -532,29 +572,141 @@ export class ChatService {
     return { ...respuesta, tokens };
   }
 
-  async reporte(data: ReporteDTO): Promise<ReporteResponseDTO> {
-    const lic = await validarLicenciaChat(data.clave, data.instalacion_id);
-
-    const mensajes: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
-      { role: 'system', content: construirPromptReporte() },
-      { role: 'user', content: `Aca estan los datos del negocio de hoy:\n${JSON.stringify(data.datos, null, 2)}\n\nGenera un resumen breve y calido para el comerciante.` },
-    ];
-
-    const { respuesta, tokens } = await llamarLLM(mensajes, { jsonMode: false });
-
-    if (tokens.total_tokens > 0) {
-      await acumularTokens(lic.id, tokens);
-    }
-
-    return {
-      texto: respuesta.tipo === 'respuesta' ? respuesta.texto : 'No pude generar el reporte.',
-      tokens: tokens.total_tokens,
-    };
-  }
-
   async uso(data: UsoConsultaDTO): Promise<UsoDTO> {
     const lic = await validarLicenciaChat(data.clave, data.instalacion_id);
     return obtenerUso(lic.id);
+  }
+
+  async procesarFacturaOcr(data: FacturaOcrRequestDTO): Promise<FacturaOcrResponseDTO> {
+    const lic = await validarLicenciaChat(data.clave, data.instalacion_id);
+
+    const cantidadMensajes = env.CHAT_MENSAJES_POR_OCR;
+    const usoCheck = await incrementarMensajes(lic.id, cantidadMensajes);
+    if (!usoCheck) {
+      const limite = await obtenerLimiteChat(lic.id);
+      httpError(
+        `Alcanzaste tu límite mensual de consultas (${limite}). El escaneo de facturas requiere ${cantidadMensajes} consultas. Se renueva el día 1 del próximo mes.`,
+        429,
+      );
+    }
+    const uso = usoCheck!;
+
+    let imageUrl = data.imagen_base64.trim();
+    if (!imageUrl.startsWith('data:')) {
+      const mime = data.mime_type || 'image/jpeg';
+      imageUrl = `data:${mime};base64,${imageUrl}`;
+    }
+
+    const promptSistema = `Sos un asistente contable de alta precisión especializado en digitalización y extracción de comprobantes comerciales, facturas y remitos de proveedores (Argentina y Latinoamérica).
+Tu objetivo es transcribir con máxima fidelidad la información de la imagen adjunta en un único objeto JSON estructurado.
+
+Estructura JSON requerida:
+{
+  "tipo_comprobante": "Factura A, Factura B, Factura C, Remito o Presupuesto (o null)",
+  "proveedor_nombre": "Razón social o nombre comercial del proveedor emisor (o null)",
+  "cuit": "CUIT o identificación fiscal del emisor si figura (o null)",
+  "numero_comprobante": "Número de factura o remito tal como figura (ej: 0001-00045231) (o null)",
+  "fecha": "Fecha de emisión en formato YYYY-MM-DD (o null)",
+  "items": [
+    {
+      "descripcion": "Descripción o nombre del producto exactamente como aparece en la factura",
+      "codigo": "Código interno o de barras si figura en el renglón (o null)",
+      "cantidad": 1.0,
+      "precio_unitario": 100.0,
+      "subtotal": 100.0,
+      "unidades_por_bulto": null,
+      "descuento_porcentaje": null,
+      "alicuota_iva": null
+    }
+  ],
+  "subtotal_neto": null,
+  "iva_total": null,
+  "percepciones_total": null,
+  "total": 100.0
+}
+
+Reglas estrictas:
+- Devuelve SOLAMENTE el objeto JSON válido. Sin markdown ni comentarios adicionales.
+- Los campos numéricos ("cantidad", "precio_unitario", "subtotal", "total", "unidades_por_bulto", "descuento_porcentaje", "alicuota_iva") DEBEN ser números válidos o null.
+- "unidades_por_bulto": Si la descripción o presentación indica un pack/caja/fardo (ej: "PACK X 6", "CAJA X 12", "DISPLAY X 24", "X 8"), extrae la cantidad de unidades por bulto como número entero (ej: 6, 12, 24). Si es por unidad suelta o no se especifica, pon null.
+- "descuento_porcentaje": Si el renglón tiene un porcentaje de descuento o bonificación (ej: 5%, 10%), extrae el número (ej: 10.0). Si no hay descuento, pon null o 0.
+- "alicuota_iva": Si en el renglón o columna figura la alícuota de IVA aplicada (ej: 21%, 10.5%), extrae el número (ej: 21.0 o 10.5). Si no se indica, pon null.
+- "tipo_comprobante": Identifica claramente la letra o tipo en la cabecera (Letra A, B, C, o Remito).
+- En "items", extrae TODOS y cada uno de los renglones de mercadería que figuren en la factura. No omitas ninguno.
+- Si un ítem no tiene subtotal explícito, calcula cantidad * precio_unitario.`;
+
+    const mensajes: ChatMessageVision[] = [
+      { role: 'system', content: promptSistema },
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'Extrae detalladamente todos los datos y la lista de productos de este comprobante en formato JSON.' },
+          { type: 'image_url', image_url: { url: imageUrl } },
+        ],
+      },
+    ];
+
+    try {
+      const { texto, tokens } = await llamarLLMVision(mensajes, { jsonMode: true });
+
+      if (tokens.total_tokens > 0) {
+        await acumularTokens(lic.id, tokens);
+      }
+
+      let jsonLimpio = texto.trim();
+      if (jsonLimpio.startsWith('```json')) {
+        jsonLimpio = jsonLimpio.slice(7);
+      } else if (jsonLimpio.startsWith('```')) {
+        jsonLimpio = jsonLimpio.slice(3);
+      }
+      if (jsonLimpio.endsWith('```')) {
+        jsonLimpio = jsonLimpio.slice(0, -3);
+      }
+      jsonLimpio = jsonLimpio.trim();
+
+      const parsed = JSON.parse(jsonLimpio);
+
+      const items: FacturaOcrItemDTO[] = Array.isArray(parsed.items)
+        ? parsed.items.map((it: any) => ({
+            descripcion: String(it.descripcion || 'Producto').trim(),
+            codigo: it.codigo ? String(it.codigo).trim() : null,
+            cantidad: Math.max(0.001, Number(it.cantidad) || 1),
+            precio_unitario: Math.max(0, Number(it.precio_unitario) || 0),
+            subtotal: Number(it.subtotal) || (Number(it.cantidad) || 1) * (Number(it.precio_unitario) || 0),
+            unidades_por_bulto: it.unidades_por_bulto ? Number(it.unidades_por_bulto) : null,
+            descuento_porcentaje: it.descuento_porcentaje != null ? Number(it.descuento_porcentaje) : null,
+            alicuota_iva: it.alicuota_iva != null ? Number(it.alicuota_iva) : null,
+          }))
+        : [];
+
+      const totalCalculado = items.reduce((acc, it) => acc + it.subtotal, 0);
+      const total = Number(parsed.total) || totalCalculado;
+
+      const resultado: FacturaOcrResultadoDTO = {
+        tipo_comprobante: parsed.tipo_comprobante ? String(parsed.tipo_comprobante).trim() : null,
+        proveedor_nombre: parsed.proveedor_nombre ? String(parsed.proveedor_nombre).trim() : null,
+        cuit: parsed.cuit ? String(parsed.cuit).trim() : null,
+        numero_comprobante: parsed.numero_comprobante ? String(parsed.numero_comprobante).trim() : null,
+        fecha: parsed.fecha ? String(parsed.fecha).trim() : null,
+        items,
+        subtotal_neto: parsed.subtotal_neto ? Number(parsed.subtotal_neto) : null,
+        iva_total: parsed.iva_total ? Number(parsed.iva_total) : null,
+        percepciones_total: parsed.percepciones_total ? Number(parsed.percepciones_total) : null,
+        total,
+      };
+
+      return {
+        datos: resultado,
+        uso: {
+          ...uso,
+          mensajes_descontados: cantidadMensajes,
+        },
+      };
+    } catch (err) {
+      await decrementarMensajes(lic.id, cantidadMensajes);
+      console.error('[Factura OCR Error]:', err);
+      throw httpError(`Error al procesar la imagen de la factura con IA: ${err instanceof Error ? err.message : String(err)}`, 500);
+    }
   }
 
   async *preguntarStream(data: PreguntarDTO): AsyncGenerator<{ type: string; texto?: string; tokens?: any; respuesta?: any; uso?: UsoDTO }> {
@@ -571,7 +723,7 @@ export class ChatService {
     const uso = usoCheck!;
 
     const mensajes: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
-      { role: 'system', content: construirPromptSistema('fase1') },
+      { role: 'system', content: construirPromptSistema('fase1', data.contexto) },
     ];
 
     for (const msg of data.historial.slice(-10)) {
@@ -636,22 +788,6 @@ export class ChatService {
   }
 }
 
-function construirPromptReporte(): string {
-  return `Sos Binny, el asistente de Binario Dev Labs. Tus usuarios son comerciantes sin experiencia tecnica.
-
-Tu tarea es generar un resumen diario breve y amigable a partir de datos estadisticos del negocio. Explica los numeros como si le hablaras a un comerciante sin experiencia con computadoras.
-
-Reglas:
-- TEXTO PLAIN (sin JSON, sin llaves, sin bloques de codigo).
-- Respuesta en 1-3 parrafos cortos o bullet points. NO mas de 200 palabras.
-- Tono calido y profesional. Sin jerga tecnica.
-- Analiza las tendencias: si las ventas subieron o bajaron vs ayer, mencionalo.
-- Si hay alertas importantes (stock critico, vencimientos), mencionalas al final.
-- Si todo esta bien, explicitalo ("Todo funciona bien, no hay alertas").
-- Si los datos indican cero ventas o cero actividad, se amable y sugerí que abrió recién o que puede revisar la caja.
-- Responde siempre en espanol.`;
-}
-
 export function construirMensajesResultado(data: ResultadoConsultaDTO, modo: 'json' | 'stream' = 'json'): Array<{ role: 'system' | 'user' | 'assistant'; content: string }> {
   const mensajes: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
     { role: 'system', content: construirPromptSistema(modo) },
@@ -681,3 +817,267 @@ export function construirMensajesResultado(data: ResultadoConsultaDTO, modo: 'js
 
   return mensajes;
 }
+
+// ============================================================================
+// FASE 4: Ingesta Móvil sin Cables vía Código QR (Sesiones Efímeras y Web UI)
+// ============================================================================
+
+export interface SesionMovilFactura {
+  sessionId: string;
+  creadaEn: number;
+  expiraEn: number;
+  estado: 'esperando' | 'completada' | 'expirada';
+  imagenBase64?: string;
+  mimeType?: string;
+  nombreArchivo?: string;
+}
+
+const sesionesMovil = new Map<string, SesionMovilFactura>();
+
+// Limpiar sesiones expiradas periódicamente cada 5 minutos
+setInterval(() => {
+  const ahora = Date.now();
+  for (const [id, s] of sesionesMovil.entries()) {
+    if (ahora > s.expiraEn) {
+      sesionesMovil.delete(id);
+    }
+  }
+}, 5 * 60 * 1000);
+
+export function crearSesionMovil(): { sessionId: string; expiraEn: number } {
+  const sessionId = 'movil_' + Math.random().toString(36).substring(2, 10) + Date.now().toString(36);
+  const creadaEn = Date.now();
+  const expiraEn = creadaEn + 15 * 60 * 1000; // 15 minutos
+
+  sesionesMovil.set(sessionId, {
+    sessionId,
+    creadaEn,
+    expiraEn,
+    estado: 'esperando',
+  });
+
+  return { sessionId, expiraEn };
+}
+
+export function obtenerEstadoSesionMovil(sessionId: string): {
+  estado: 'esperando' | 'completada' | 'expirada' | 'no_encontrada';
+  imagenBase64?: string;
+  mimeType?: string;
+  nombreArchivo?: string;
+} {
+  const sesion = sesionesMovil.get(sessionId);
+  if (!sesion) {
+    return { estado: 'no_encontrada' };
+  }
+  if (Date.now() > sesion.expiraEn) {
+    sesion.estado = 'expirada';
+    return { estado: 'expirada' };
+  }
+  return {
+    estado: sesion.estado,
+    imagenBase64: sesion.imagenBase64,
+    mimeType: sesion.mimeType,
+    nombreArchivo: sesion.nombreArchivo,
+  };
+}
+
+export function subirImagenSesionMovil(
+  sessionId: string,
+  imagenBase64: string,
+  mimeType?: string,
+  nombreArchivo?: string,
+): boolean {
+  const sesion = sesionesMovil.get(sessionId);
+  if (!sesion || Date.now() > sesion.expiraEn) {
+    return false;
+  }
+  sesion.imagenBase64 = imagenBase64;
+  sesion.mimeType = mimeType || 'image/jpeg';
+  sesion.nombreArchivo = nombreArchivo || 'factura_celular.jpg';
+  sesion.estado = 'completada';
+  return true;
+}
+
+export function renderHtmlMovil(sessionId: string): string {
+  return `<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Cargar Factura al POS - Binny</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body { background: #0f172a; color: #f8fafc; min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 16px; }
+    .card { background: #1e293b; border: 1px solid #334155; border-radius: 20px; width: 100%; max-width: 420px; padding: 24px; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.5); text-align: center; }
+    .icon-box { width: 64px; height: 64px; border-radius: 18px; background: rgba(139, 92, 246, 0.15); color: #a78bfa; display: flex; align-items: center; justify-content: center; margin: 0 auto 16px; border: 1px solid rgba(139, 92, 246, 0.3); }
+    h1 { font-size: 1.25rem; font-weight: 700; margin-bottom: 6px; color: #fff; }
+    p { font-size: 0.85rem; color: #94a3b8; line-height: 1.4; margin-bottom: 20px; }
+    .btn { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; padding: 14px; border-radius: 14px; font-size: 0.95rem; font-weight: 600; cursor: pointer; transition: all 0.2s; border: none; }
+    .btn-primary { background: #7c3aed; color: #fff; box-shadow: 0 4px 12px rgba(124, 58, 237, 0.4); }
+    .btn-primary:active { transform: scale(0.98); background: #6d28d9; }
+    .btn-secondary { background: #334155; color: #f8fafc; border: 1px solid #475569; }
+    .btn-secondary:active { transform: scale(0.98); background: #1e293b; }
+    .btn-outline { background: transparent; border: 1px solid #475569; color: #cbd5e1; margin-top: 10px; }
+    .preview-box { margin-top: 16px; border-radius: 14px; overflow: hidden; max-height: 240px; border: 1px solid #475569; position: relative; background: #000; }
+    .preview-box img { width: 100%; height: auto; max-height: 240px; object-fit: contain; display: block; }
+    .status { margin-top: 16px; padding: 12px; border-radius: 12px; font-size: 0.85rem; display: none; }
+    .status.success { background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.3); color: #34d399; display: block; }
+    .status.error { background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.3); color: #f87171; display: block; }
+    .status.loading { background: rgba(139, 92, 246, 0.15); border: 1px solid rgba(139, 92, 246, 0.3); color: #c4b5fd; display: block; }
+    .badge { display: inline-block; padding: 3px 8px; border-radius: 6px; font-size: 0.7rem; font-weight: 700; background: #7c3aed; color: #fff; text-transform: uppercase; margin-bottom: 12px; }
+  </style>
+</head>
+<body>
+  <div class="card" id="mainCard">
+    <div class="badge">OCR Móvil en Tiempo Real</div>
+    <div class="icon-box">
+      <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/>
+        <circle cx="12" cy="13" r="3"/>
+      </svg>
+    </div>
+    <h1>Enviar Factura a tu PC</h1>
+    <p>Sacá una foto con la cámara o elegí una imagen existente desde la galería de tu celular.</p>
+
+    <input type="file" id="fileInputCamara" accept="image/*" capture="environment" style="display:none">
+    <input type="file" id="fileInputGaleria" accept="image/*" style="display:none">
+    
+    <div id="actionButtons" style="display: flex; flex-direction: column; gap: 10px;">
+      <button class="btn btn-primary" onclick="document.getElementById('fileInputCamara').click()">
+        📸 Sacar Foto con la Cámara
+      </button>
+      <button class="btn btn-secondary" onclick="document.getElementById('fileInputGaleria').click()">
+        🖼️ Elegir de la Galería
+      </button>
+    </div>
+
+    <div id="previewContainer" style="display:none">
+      <div class="preview-box">
+        <img id="previewImg" src="" alt="Vista previa">
+      </div>
+      <button class="btn btn-primary" id="btnEnviar" style="margin-top: 14px;" onclick="enviarFoto()">
+        🚀 Enviar Comprobante al POS
+      </button>
+      <button class="btn btn-outline" onclick="reintentar()">
+        🔄 Elegir otra foto o imagen
+      </button>
+    </div>
+
+    <div id="statusBox" class="status"></div>
+  </div>
+
+  <script>
+    const sessionId = "${sessionId}";
+    let imagenBase64 = null;
+    let mimeType = 'image/jpeg';
+    let nombreArchivo = 'factura_movil.jpg';
+
+    const fileInputCamara = document.getElementById('fileInputCamara');
+    const fileInputGaleria = document.getElementById('fileInputGaleria');
+    const previewContainer = document.getElementById('previewContainer');
+    const actionButtons = document.getElementById('actionButtons');
+    const previewImg = document.getElementById('previewImg');
+    const statusBox = document.getElementById('statusBox');
+    const btnEnviar = document.getElementById('btnEnviar');
+
+    function procesarArchivo(file) {
+      if (!file) return;
+
+      nombreArchivo = file.name || 'comprobante_movil.jpg';
+      mimeType = file.type || 'image/jpeg';
+      mostrarEstado('Comprimiendo y optimizando foto...', 'loading');
+
+      const reader = new FileReader();
+      reader.onload = function(event) {
+        const img = new Image();
+        img.onload = function() {
+          // Escalar a max 1800px para carga ultra-rápida y excelente nitidez OCR
+          const maxDim = 1800;
+          let w = img.width;
+          let h = img.height;
+          if (w > maxDim || h > maxDim) {
+            if (w > h) {
+              h = Math.round((h * maxDim) / w);
+              w = maxDim;
+            } else {
+              w = Math.round((w * maxDim) / h);
+              h = maxDim;
+            }
+          }
+          const canvas = document.createElement('canvas');
+          canvas.width = w;
+          canvas.height = h;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, w, h);
+          imagenBase64 = canvas.toDataURL('image/jpeg', 0.86);
+          previewImg.src = imagenBase64;
+          previewContainer.style.display = 'block';
+          actionButtons.style.display = 'none';
+          ocultarEstado();
+        };
+        img.src = event.target.result;
+      };
+      reader.readAsDataURL(file);
+    }
+
+    fileInputCamara.addEventListener('change', function(e) {
+      const file = e.target.files && e.target.files[0];
+      procesarArchivo(file);
+    });
+
+    fileInputGaleria.addEventListener('change', function(e) {
+      const file = e.target.files && e.target.files[0];
+      procesarArchivo(file);
+    });
+
+    function reintentar() {
+      imagenBase64 = null;
+      fileInputCamara.value = '';
+      fileInputGaleria.value = '';
+      previewContainer.style.display = 'none';
+      actionButtons.style.display = 'flex';
+      ocultarEstado();
+    }
+
+    async function enviarFoto() {
+      if (!imagenBase64) return;
+      btnEnviar.disabled = true;
+      btnEnviar.innerText = 'Transfiriendo a la PC...';
+      mostrarEstado('Enviando comprobante al sistema...', 'loading');
+
+      try {
+        const res = await fetch('/api/chat/movil-factura/' + sessionId + '/subir', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ imagenBase64, mimeType, nombreArchivo })
+        });
+        const data = await res.json();
+        if (res.ok) {
+          mostrarEstado('✅ ¡Comprobante recibido en tu computadora! Ya podés cerrar esta pantalla.', 'success');
+          previewContainer.style.display = 'none';
+        } else {
+          mostrarEstado('❌ Error: ' + (data.error || 'No se pudo enviar'), 'error');
+          btnEnviar.disabled = false;
+          btnEnviar.innerText = '🚀 Enviar Comprobante al POS';
+        }
+      } catch (err) {
+        mostrarEstado('❌ Error de conexión al enviar', 'error');
+        btnEnviar.disabled = false;
+        btnEnviar.innerText = '🚀 Enviar Comprobante al POS';
+      }
+    }
+
+    function mostrarEstado(msg, tipo) {
+      statusBox.innerText = msg;
+      statusBox.className = 'status ' + tipo;
+    }
+
+    function ocultarEstado() {
+      statusBox.className = 'status';
+      statusBox.style.display = 'none';
+    }
+  </script>
+</body>
+</html>`;
+}
+

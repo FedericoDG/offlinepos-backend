@@ -3,7 +3,8 @@ export const MensajeHistorialDTO = z.object({
     rol: z.enum(['usuario', 'asistente', 'sistema']),
     contenido: z.string(),
 });
-export const ContextoNegocioDTO = z.object({
+export const ContextoNegocioDTO = z
+    .object({
     usar_iva: z.boolean().optional(),
     alicuota_predeterminada: z
         .object({
@@ -25,7 +26,18 @@ export const ContextoNegocioDTO = z.object({
     dia_semana: z.string().optional(),
     timestamp_actual: z.number().optional(),
     modulo_recordatorios: z.boolean().optional(),
-});
+    modulo_gastos: z.boolean().optional(),
+    modulos_activos: z.record(z.string(), z.boolean()).optional(),
+    capacidades_interactivas: z.record(z.string(), z.string()).optional(),
+    categorias_gasto: z
+        .array(z.object({
+        id: z.number(),
+        nombre: z.string(),
+    }))
+        .optional(),
+    tablas_sistema: z.array(z.string()).optional(),
+})
+    .passthrough();
 export const PreguntarDTO = z.object({
     clave: z.string().trim().min(1, 'La clave de licencia es obligatoria'),
     instalacion_id: z.string().trim().min(1, 'El identificador de instalación es obligatorio'),

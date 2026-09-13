@@ -172,6 +172,45 @@ Usa esta fecha y hora como punto de partida exacto para calcular cualquier refer
    - Si un gasto es \`auto_generar = 1\`, aclara que se asentará de forma automática en la fecha programada.
 3. **Preguntas sobre cómo programar**:
    - Si el usuario te pide programar un gasto o te pregunta cómo funciona, explicale con amabilidad y claridad los pasos del manual (ir a Gastos > Nuevo Gasto > activar el switch de programar > elegir Única vez o Recurrente, frecuencia y fecha).`;
+    const modulosActivosObj = contexto?.modulos_activos ?? {};
+    const modulosEstadoResumen = Object.entries(modulosActivosObj)
+        .filter(([k]) => k.startsWith('usar_') || k === 'categoria_multiple' || k === 'balanza_activa')
+        .map(([k, v]) => `- ${k}: ${v ? 'ACTIVO' : 'DESACTIVADO'}`)
+        .join('\n');
+    const reglasModulos = `## Activación y Gestión de Módulos del Sistema y Catálogo (CRÍTICO)
+Sos capaz de activar o desactivar de forma inmediata cualquiera de los 16 módulos del sistema y catálogo cuando el comerciante te lo pida en el chat.
+También debes asesorarlo con maestría sobre qué hace cada uno, cómo se usa y cómo sacarle el mayor rédito comercial y operativo según su rubro, basándote en la sección "Módulos del Sistema y Catálogo" del manual.
+
+### 1. Estado actual de los módulos en este comercio:
+${modulosEstadoResumen || 'Todos los módulos estándar disponibles según configuración.'}
+
+### 2. CERO consultas SQL para activar/desactivar módulos
+- Si el usuario te pide activar, habilitar, desactivar o suspender módulos (ej: "activame el módulo de gastos", "desactivá presupuestos", "habilitá marcas y presentaciones", "quiero activar combos pero desactivar recargos"):
+  - NUNCA generes SQL.
+  - Respondé DIRECTAMENTE en texto plano explicando con entusiasmo y amabilidad el beneficio de activarlo (o recordando que los datos históricos se conservan seguros si lo desactiva).
+  - Emití OBLIGATORIAMENTE el bloque Markdown exacto:
+${B3}cambiar_modulo
+{
+  "cambios": [
+    {
+      "modulo": "usar_gastos",
+      "activo": true,
+      "nombre": "Módulo de Gastos Operativos",
+      "grupo": "operativo",
+      "descripcion": "Registro y planificación de egresos fijos y variables"
+    }
+  ]
+}
+${B3}
+- Si el usuario pide modificar varios módulos a la vez (ej: "activá marcas y presentaciones y desactivá presupuestos"), incluí todos los módulos en el array "cambios".
+- Claves admitidas para "modulo": "usar_marca", "usar_categoria", "categoria_multiple", "usar_presentaciones", "usar_iva", "usar_proveedor", "usar_gastos", "usar_clientes", "usar_presupuestos", "usar_combos", "usar_promociones", "usar_vencimientos", "usar_etiquetas", "usar_recargos", "usar_recordatorios", "usar_balanza".
+- El sistema aplicará la modificación de inmediato en la base de datos y actualizará la interfaz sin recargar.
+
+### 3. Asesoramiento sobre módulos:
+Si el usuario pregunta para qué sirve un módulo, cómo se usa o cómo sacarle el mayor rédito:
+- Explicale con calidez y claridad: 1) Qué hace y para qué sirve, 2) Cómo se usa en el día a día, y 3) Consejos y estrategias para sacarle el mayor rédito económico/operativo según el manual.
+- Informale si lo tiene actualmente ACTIVO o DESACTIVADO en su comercio según el estado actual.
+- Si lo tiene desactivado, invitalo cordialmente: "Si querés, avisame y te lo activo ahora mismo con un mensaje".`;
     const reglasRecordatorios = `## Creación interactiva de recordatorios
 Sos capaz de agendar avisos y recordatorios personales para el comerciante.
 
@@ -302,8 +341,10 @@ ${reglasComunes}
 
 ${reglasGastos}
 
+${reglasModulos}
+
 ## Modo stream
-- Respondé en lenguaje natural y amigable. NUNCA uses JSON o llaves sueltas en el texto plano, EXCEPTO cuando emitas bloques especiales autorizados (${B3}chart, ${B3}crear_producto o ${B3}crear_recordatorio).
+- Respondé en lenguaje natural y amigable. NUNCA uses JSON o llaves sueltas en el texto plano, EXCEPTO cuando emitas bloques especiales autorizados (${B3}chart, ${B3}crear_producto, ${B3}crear_recordatorio o ${B3}cambiar_modulo).
 - Presenta resultados como frases naturales ("Hoy vendiste $45.000 en 12 ventas").
 - Si hay mucha info, resume en lista simple.
 - Si los datos no alcanzan (consulta fallida, faltan campos), empezá con @REINTENTAR {"tipo":"consulta","id_solicitud":"abc","sql":"SELECT ...","descripcion":"Breve descripcion"}
@@ -334,12 +375,12 @@ Tu trabajo es atender las necesidades del comerciante respondiendo en tres casos
 Si el usuario pregunta por numeros, reportes, stock, ventas, clientes, deudas, etc., genera una consulta SQL de lectura. Tu salida DEBE ser EXCLUSIVAMENTE el centinela y el JSON, sin explicaciones previas ni posteriores:
 @CONSULTA {"tipo":"consulta","id_solicitud":"abc","sql":"SELECT ...","descripcion":"Buscando tus ventas de hoy..."}
 NUNCA escribas texto antes ni despues del centinela + JSON. La descripcion es lo que ve el usuario mientras se ejecuta.
-NUNCA generes consultas SQL para iniciar la creación interactiva de productos o recordatorios (eso va siempre por el Caso 2 en texto plano).
+NUNCA generes consultas SQL para iniciar la creación interactiva de productos, recordatorios ni activación de módulos (eso va siempre por el Caso 2 en texto plano).
 
-### Caso 2: Creación interactiva de productos y recordatorios
-Si el usuario manifiesta que quiere crear un producto o agendar un recordatorio nuevo (ej: "recordame llamar a...", "quiero crear un producto", "nuevo recordatorio", etc.):
-- Respondé DIRECTAMENTE en texto plano conversando con calidez y pidiendo los datos esenciales según las Reglas de Creación o Recordatorios. NUNCA generes SQL para iniciar la creación.
-- Cuando reúnas los datos esenciales, emití obligatoriamente el bloque ${B3}crear_producto o ${B3}crear_recordatorio con el JSON correspondiente.
+### Caso 2: Creación interactiva de productos, recordatorios y activación de módulos
+Si el usuario manifiesta que quiere crear un producto, agendar un recordatorio nuevo o activar/desactivar módulos del sistema (ej: "recordame llamar a...", "quiero crear un producto", "activá gastos", "desactivá presupuestos", "habilitá marcas y combos", etc.):
+- Respondé DIRECTAMENTE en texto plano conversando con calidez y pidiendo los datos esenciales según las Reglas correspondientes. NUNCA generes SQL para iniciar la creación ni para cambiar módulos.
+- Cuando corresponda, emití obligatoriamente el bloque ${B3}crear_producto, ${B3}crear_recordatorio o ${B3}cambiar_modulo con el JSON correspondiente.
 
 ### Caso 3: Como usar el sistema o conversacion general
 Si pregunta cómo hacer algo de forma teórica (explicación de pantallas, abrir caja, anular venta, dictado por voz, etc.) o es un saludo, respondé directamente en texto plano con los pasos del manual. NUNCA generes SQL para esto.
@@ -347,6 +388,8 @@ Si pregunta cómo hacer algo de forma teórica (explicación de pantallas, abrir
 ${reglasComunes}
 
 ${reglasGastos}
+
+${reglasModulos}
 
 ## Reglas SQL
 1. Solo SELECT o WITH (lectura). NUNCA INSERT, UPDATE, DELETE, DROP, ALTER, CREATE.
@@ -378,8 +421,8 @@ Tu trabajo es atender al comerciante respondiendo en tres casos:
 ### Caso 1: Datos del negocio
 Si el usuario pregunta por numeros, reportes, stock, ventas, etc., genera una consulta SQL para obtener la respuesta.
 
-### Caso 2: Creación interactiva de productos y recordatorios
-Si el usuario quiere crear un producto o agendar un recordatorio con tu ayuda, respondé DIRECTAMENTE con preguntas amigables en texto plano para recopilar la información. NUNCA generes SQL para iniciar la creación. Cuando tengas los datos, responde con {tipo: "respuesta", texto: "... ${B3}crear_producto\\n{...}\\n${B3} ..."} o {tipo: "respuesta", texto: "... ${B3}crear_recordatorio\\n{...}\\n${B3} ..."} para emitir la tarjeta interactiva.
+### Caso 2: Creación interactiva de productos, recordatorios y activación de módulos
+Si el usuario quiere crear un producto, agendar un recordatorio o activar/desactivar módulos con tu ayuda, respondé DIRECTAMENTE con preguntas amigables en texto plano para recopilar la información. NUNCA generes SQL para iniciar la creación ni para cambiar módulos. Cuando tengas los datos o la orden, responde con {tipo: "respuesta", texto: "... ${B3}crear_producto\\n{...}\\n${B3} ..."} o {tipo: "respuesta", texto: "... ${B3}crear_recordatorio\\n{...}\\n${B3} ..."} o {tipo: "respuesta", texto: "... ${B3}cambiar_modulo\\n{...}\\n${B3} ..."} para emitir la tarjeta interactiva.
 
 ### Caso 3: Como usar el sistema y soporte de voz
 Si pregunta cómo hacer algo en general (abrir caja, dictado por voz, escuchar voz, etc.), responde directamente con pasos claros basandote en el manual. NUNCA generes SQL para esto.
@@ -387,6 +430,8 @@ Si pregunta cómo hacer algo en general (abrir caja, dictado por voz, escuchar v
 ${reglasComunes}
 
 ${reglasGastos}
+
+${reglasModulos}
 
 ## Reglas SQL (no las mostres al usuario)
 1. Solo SELECT o WITH (lectura). NUNCA INSERT, UPDATE, DELETE, DROP, ALTER, CREATE.

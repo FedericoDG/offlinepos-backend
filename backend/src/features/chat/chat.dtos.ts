@@ -7,31 +7,45 @@ export const MensajeHistorialDTO = z.object({
 
 export type MensajeHistorialDTO = z.infer<typeof MensajeHistorialDTO>;
 
-export const ContextoNegocioDTO = z.object({
-  usar_iva: z.boolean().optional(),
-  alicuota_predeterminada: z
-    .object({
-      id: z.number(),
-      porcentaje: z.number(),
-      nombre: z.string(),
-    })
-    .optional(),
-  alicuotas: z
-    .array(
-      z.object({
+export const ContextoNegocioDTO = z
+  .object({
+    usar_iva: z.boolean().optional(),
+    alicuota_predeterminada: z
+      .object({
         id: z.number(),
         porcentaje: z.number(),
         nombre: z.string(),
-        predeterminada: z.boolean(),
       })
-    )
-    .optional(),
-  fecha_actual: z.string().optional(),
-  hora_actual: z.string().optional(),
-  dia_semana: z.string().optional(),
-  timestamp_actual: z.number().optional(),
-  modulo_recordatorios: z.boolean().optional(),
-});
+      .optional(),
+    alicuotas: z
+      .array(
+        z.object({
+          id: z.number(),
+          porcentaje: z.number(),
+          nombre: z.string(),
+          predeterminada: z.boolean(),
+        })
+      )
+      .optional(),
+    fecha_actual: z.string().optional(),
+    hora_actual: z.string().optional(),
+    dia_semana: z.string().optional(),
+    timestamp_actual: z.number().optional(),
+    modulo_recordatorios: z.boolean().optional(),
+    modulo_gastos: z.boolean().optional(),
+    modulos_activos: z.record(z.string(), z.boolean()).optional(),
+    capacidades_interactivas: z.record(z.string(), z.string()).optional(),
+    categorias_gasto: z
+      .array(
+        z.object({
+          id: z.number(),
+          nombre: z.string(),
+        })
+      )
+      .optional(),
+    tablas_sistema: z.array(z.string()).optional(),
+  })
+  .passthrough();
 
 export type ContextoNegocioDTO = z.infer<typeof ContextoNegocioDTO>;
 

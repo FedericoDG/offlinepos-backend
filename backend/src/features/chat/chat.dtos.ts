@@ -44,6 +44,9 @@ export const ContextoNegocioDTO = z
       )
       .optional(),
     tablas_sistema: z.array(z.string()).optional(),
+    // Fase 1: resumen precocinado del negocio + memoria del comercio (inyección local)
+    resumen_negocio: z.string().optional(),
+    memoria_comercio: z.string().optional(),
   })
   .passthrough();
 
@@ -92,6 +95,101 @@ export const UsoConsultaDTO = z.object({
 });
 
 export type UsoConsultaDTO = z.infer<typeof UsoConsultaDTO>;
+
+// --- Agente multi-paso (function calling) ---
+
+/** Límite de pasos con herramientas por ciclo: anti-abuso y control de costo. */
+export const AGENTE_MAX_PASOS = 7;
+
+/**
+ * Tope de mensajes por ciclo del agente (pregunta + tool_calls + resultados).
+ * Un informe complejo (7 pasos × tandas de hasta 6 consultas) llega a ~50
+ * items legítimamente: 72 lo cubre con margen y a la vez acota el costo del
+ * peor ciclo por diseño. El servicio recorta con gracia si llega más largo
+ * (nunca 400 al usuario); el schema solo pone un techo sanitario superior.
+ */
+export const HISTORIAL_MAX_AGENTE = 72;
+
+const AgenteToolCallDTO = z.object({
+  id: z.string().min(1).max(200),
+  type: z.literal('function'),
+  function: z.object({
+    name: z.string().min(1).max(100),
+    arguments: z.string().max(32_000),
+  }),
+});
+
+export const MensajeAgenteDTO = z.object({
+  role: z.enum(['system', 'user', 'assistant', 'tool']),
+  content: z.string().max(200_000),
+  tool_calls: z.array(AgenteToolCallDTO).max(AGENTE_MAX_PASOS).optional(),
+  tool_call_id: z.string().max(200).optional(),
+  name: z.string().max(100).optional(),
+});
+
+export type MensajeAgenteDTO = z.infer<typeof MensajeAgenteDTO>;
+
+/** El primer turno del ciclo usa el mismo formato que PreguntarDTO. */
+export const PreguntarAgenteDTO = PreguntarDTO;
+export type PreguntarAgenteDTO = z.infer<typeof PreguntarAgenteDTO>;
+
+/**
+ * Turnos siguientes del ciclo: el desktop reenvía los mensajes acumulados
+ * (pregunta + tool_calls del asistente + resultados role:"tool") SIN el mensaje
+ * del sistema — el backend lo reconstruye con `contexto` en cada paso.
+ * El backend es stateless: no guarda sesiones entre pasos.
+ */
+export const ContinuarAgenteDTO = z
+  .object({
+    clave: z.string().trim().min(1, 'La clave de licencia es obligatoria'),
+    instalacion_id: z.string().trim().min(1, 'El identificador de instalación es obligatorio'),
+    contexto: ContextoNegocioDTO.optional(),
+    historial: z.array(MensajeAgenteDTO).min(1).max(HISTORIAL_MAX_AGENTE * 3),
+  })
+  .superRefine((data, ctx) => {
+    // El mensaje del sistema inicial lo genera el backend con `contexto`;
+    // los mensajes system en mitad del array son eventos de cierre de loop
+    // del desktop (ej: "✓ Producto creado") y son válidos para el proveedor.
+    //
+    // Tope anti-abuso en HISTORIAL_MAX_AGENTE resultados: un informe complejo
+    // (7 pasos × tandas de 6) trae ~42 legítimamente. Si llega más, el
+    // servicio recorta con gracia (nunca se rechaza con 400 al usuario).
+    const pasosTool = data.historial.filter((m) => m.role === 'tool').length;
+    if (pasosTool > HISTORIAL_MAX_AGENTE) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `Se superó el máximo de ${HISTORIAL_MAX_AGENTE} resultados de herramientas por ciclo`,
+        path: ['historial'],
+      });
+    }
+  });
+
+export type ContinuarAgenteDTO = z.infer<typeof ContinuarAgenteDTO>;
+
+// --- Binny Proactivo: Brief Diario e Informe Semanal (Fase 3) ---
+// Ambos validan licencia pero NO consumen cuota: son el diferencial comercial.
+// El desktop envía datos ya agregados (nunca filas crudas masivas).
+
+/** Resumen del día compilado localmente por el desktop (KPIs + píldoras). */
+export const BriefDTO = z.object({
+  clave: z.string().trim().min(1, 'La clave de licencia es obligatoria'),
+  instalacion_id: z.string().trim().min(1, 'El identificador de instalación es obligatorio'),
+  contexto: ContextoNegocioDTO.optional(),
+  resumen: z.string().trim().min(1, 'El resumen es obligatorio').max(60_000),
+});
+
+export type BriefDTO = z.infer<typeof BriefDTO>;
+
+/** Datos agregados de la semana compilados localmente por el desktop. */
+export const InformeDTO = z.object({
+  clave: z.string().trim().min(1, 'La clave de licencia es obligatoria'),
+  instalacion_id: z.string().trim().min(1, 'El identificador de instalación es obligatorio'),
+  contexto: ContextoNegocioDTO.optional(),
+  periodo: z.string().trim().max(100).optional(),
+  datos: z.string().trim().min(1, 'Los datos son obligatorios').max(120_000),
+});
+
+export type InformeDTO = z.infer<typeof InformeDTO>;
 
 export const FacturaOcrRequestDTO = z.object({
   clave: z.string().trim().min(1, 'La clave de licencia es obligatoria'),

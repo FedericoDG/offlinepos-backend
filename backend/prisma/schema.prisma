@@ -117,7 +117,7 @@ model Plan {
   /// Cupo de licencias con rol CLIENTE. BASICO = 0, PRO = 2.
   max_clientes   Int      @default(0)
   /// Mensajes mensuales del chat. 0 = ilimitado.
-  chat_mensajes_mes Int  @default(500)
+  chat_mensajes_mes Int  @default(400)
   /// Baja logica. Un plan discontinuado deja de ofrecerse pero las
   /// suscripciones que ya lo tienen contratado siguen funcionando.
   activo         Boolean  @default(true)

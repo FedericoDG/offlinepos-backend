@@ -1,5 +1,6 @@
 import { EstadoSuscripcion } from '@prisma/client';
 import prisma from '../../config/prisma';
+import { env } from '../../config/env';
 import type { ClienteRaiz } from '../../config/prisma.tipos';
 import { diasDeCalendarioHasta, DIAS_GRACIA, MS_POR_DIA } from '../suscripcion/suscripcion.reglas';
 import { IngresoMensualDTO } from './estadistica.dtos';
@@ -257,7 +258,16 @@ export class EstadisticaService {
       include: {
         licencia: {
           include: {
-            comercio: true,
+            comercio: {
+              include: {
+                suscripciones: {
+                  where: { estado: EstadoSuscripcion.ACTIVA },
+                  orderBy: { inicia_en: 'desc' },
+                  take: 1,
+                  include: { plan: true },
+                },
+              },
+            },
           },
         },
       },
@@ -265,7 +275,10 @@ export class EstadisticaService {
 
     const detalle = consumos.map((c) => {
       const comercio = c.licencia?.comercio;
-      const plan = 'plan' in (c.licencia as any) ? (c.licencia as any).plan?.nombre ?? '' : '';
+      // Límite real del plan (misma regla que obtenerLimiteChat): 0 = ilimitado,
+      // sin suscripción activa = default del entorno.
+      const plan = comercio?.suscripciones?.[0]?.plan;
+      const limite = plan ? plan.chat_mensajes_mes : env.CHAT_MENSAJES_MES;
       const pt = Number(c.prompt_tokens);
       const ct = Number(c.completion_tokens);
       const costoUsd = Math.round((pt * 0.03 / 1_000_000 + ct * 0.13 / 1_000_000) * 10_000) / 10_000;
@@ -273,9 +286,9 @@ export class EstadisticaService {
       return {
         comercio_id: c.licencia_id,
         comercio: comercio?.nombre ?? 'Desconocido',
-        plan,
+        plan: plan?.nombre ?? '',
         mensajes_usados: c.mensajes,
-        mensajes_limite: 500,
+        mensajes_limite: limite,
         prompt_tokens: pt,
         completion_tokens: ct,
         total_tokens: Number(c.total_tokens),

@@ -1,29 +1,16 @@
 export const ESQUEMA_SQLITE = `
-# DB SQLite del POS - Estructura REAL
-
-IMPORTANTE: Usá los nombres de columnas tal cual aparecen. NO inventes columnas.
-
-## Fechas
-Timestamps Unix en segundos (INTEGER). "Hoy": DATE(col, 'unixepoch', 'localtime') = DATE('now', 'localtime'). "Este mes": fecha >= strftime('%s', 'now', 'start of month').
-
+# DB SQLite del POS. Usá columnas tal cual: NO inventes.
+## Fechas: timestamps Unix INTEGER. Hoy: DATE(col,'unixepoch','localtime')=DATE('now','localtime'). Mes: fecha >= strftime('%s','now','start of month').
 ## Enums
-- venta.estado: "completada" | "anulada". Validas: estado='completada' AND anulada_en IS NULL.
-- turno_caja.estado: "abierto" | "cerrado"
-- compra/gasto: anulada/anulado = 0 (activo) | 1 (anulado)
-- venta_pago.metodo / gasto.metodo_pago: "efectivo" | "debito" | "credito" | "transferencia" | "mercado_pago" | "cuenta_corriente" | "cheque" | "otro"
-- gasto_programado.tipo: "unica_vez" (gasto futuro para fecha pactada) | "recurrente" (regla periódica)
-- gasto_programado.frecuencia: "diario" | "semanal" | "quincenal" | "mensual" | "anual"
-- gasto_programado.activo: 1 (activo) | 0 (pausado)
-- gasto_programado.auto_generar: 1 (automático al llegar fecha) | 0 (variable/requiere confirmación de importe, ej: boletas de luz/gas/agua)
-- movimiento_stock.tipo: "STOCK_INICIAL" | "COMPRA" | "DEVOLUCION_VENTA" | "VENTA" | "AJUSTE_DE_STOCK" | "ANULACION_COMPRA"
-- cliente_movimiento_cuenta.tipo: "pago" | "cargo" | "ajuste_debito" | "ajuste_credito"
-- presupuesto.estado: "pendiente" | "aprobado" | "cancelado" (vencido se calcula al vuelo)
-- usuario.rol: "admin" | "vendedor"
-- recargo.tipo: "fijo" | "porcentaje"
-- historial_precio.tipo: "costo" | "venta"
-
-## Tablas principales
-
+- venta.estado: "completada"|"anulada". Válidas: estado='completada' AND anulada_en IS NULL.
+- turno_caja.estado: "abierto"|"cerrado". compra/gasto anulada: 0|1.
+- venta_pago.metodo, gasto.metodo_pago: "efectivo"|"debito"|"credito"|"transferencia"|"mercado_pago"|"cuenta_corriente"|"cheque"|"otro".
+- gasto_programado: tipo "unica_vez"|"recurrente"; frecuencia "diario"|"semanal"|"quincenal"|"mensual"|"anual"; activo 1|0; auto_generar 1 (automático) | 0 (requiere confirmar importe, ej: luz/gas).
+- movimiento_stock.tipo: "STOCK_INICIAL"|"COMPRA"|"DEVOLUCION_VENTA"|"VENTA"|"AJUSTE_DE_STOCK"|"ANULACION_COMPRA".
+- cliente_movimiento_cuenta.tipo: "pago"|"cargo"|"ajuste_debito"|"ajuste_credito".
+- presupuesto.estado: "pendiente"|"aprobado"|"cancelado" (vencido: pendiente AND vence_en < ahora).
+- usuario.rol: "admin"|"vendedor". recargo.tipo: "fijo"|"porcentaje". historial_precio.tipo: "costo"|"venta".
+## Tablas
 venta (id, turno_caja_id, usuario_id, cliente_id, total, descuento, estado, nota, anulada_en, anulada_motivo, creada_en, recargo, recargo_concepto, total_neto, total_iva)
 venta_item (id, venta_id, producto_id, cantidad, precio_unitario, subtotal, descuento_item, precio_neto, alicuota_iva_porcentaje, monto_iva)
 venta_pago (id, venta_id, metodo, monto)
@@ -54,18 +41,22 @@ unidad (id, abreviatura, nombre, activo)
 usuario (id, usuario, rol, activo, permisos)
 recordatorio (id, usuario_id, titulo, descripcion, fecha_hora_programada, completado, disparado, pospuesto_hasta, sonido, creado_en, actualizado_en)
 config (clave, valor)
-
+## Vistas (PREFERILAS a joins manuales; SELECT+WHERE+LIMIT)
+vista_ventas_detalle (venta_id, venta_total, descuento, estado, anulada_en, creada_en, usuario_id, cliente_id, total_iva, producto_id, cantidad, precio_unitario, item_subtotal, descuento_item, precio_neto, producto_nombre, codigo_interno, precio_costo, metodo_pago, pago_monto)
+- Válidas: estado='completada' AND anulada_en IS NULL. Ej: SELECT producto_nombre, SUM(cantidad) AS un FROM vista_ventas_detalle WHERE estado='completada' AND anulada_en IS NULL AND DATE(creada_en,'unixepoch','localtime')=DATE('now','localtime') GROUP BY producto_id LIMIT 50
+vista_deuda_clientes (id, nombre, documento, telefono, saldo_actual, limite_credito, ultimo_movimiento)
+- Solo con deuda y activos. Ej: SELECT nombre, saldo_actual FROM vista_deuda_clientes ORDER BY saldo_actual DESC LIMIT 10
+vista_stock_critico (id, nombre, codigo_interno, cantidad, stock_minimo, precio_costo, precio_venta, unidad)
+- Activos con stock <= mínimo. Ej: SELECT nombre, cantidad FROM vista_stock_critico LIMIT 20
+vista_gastos_mes (id, concepto, monto, fecha, metodo_pago, comprobante, categoria)
+- No anulados del mes. Ej: SELECT categoria, SUM(monto) AS total FROM vista_gastos_mes GROUP BY categoria LIMIT 20
 ## Notas
-- Un turno_caja tiene varias ventas, caja_retiros y gastos.
-- Producto se une a categorias via producto_categoria (tabla puente).
-- Presupuesto vencido se calcula: estado='pendiente' AND vence_en < now.
-- Cuenta corriente: tipo='cargo' al vender, tipo='pago' al cobrar.
-- Seeds: cliente "Consumidor Final", unidad "un" (Unidades).
-- Seeds categoria_gasto: Servicios, Alquileres, Sueldos, Impuestos, Insumos, Mantenimiento, Fletes, Marketing, Otros.
-- Gastos programados y recurrentes: La tabla gasto_programado guarda reglas de egresos futuros y recurrentes. NO restan dinero de caja ni son gastos reales hasta que llega su fecha pactada y se asienta el egreso en la tabla gasto (donde gasto.gasto_programado_id apunta a la regla de origen).
-- proxima_ejecucion en gasto_programado es timestamp Unix en segundos con la siguiente fecha a pagar.
-- Recordatorios: La tabla recordatorio guarda avisos personales y tareas operativas agendadas por el usuario. fecha_hora_programada es timestamp Unix en segundos. completado=0 indica avisos pendientes. sonido identifica la alerta sonora ('sound_01' a 'sound_05' o null/silencioso).
-- IVA y Alícuotas: La tabla alicuota_iva guarda las tasas oficiales y personalizadas (21% general, 10.5% reducida, 0% exento, etc.). producto.alicuota_iva_id vincula el artículo con su tasa. Si usar_iva = '1' en config, venta.total_iva acumula el Débito Fiscal AFIP del período y venta.total_neto la base imponible comercial real.
+- turno_caja → ventas, retiros, gastos. Producto↔categorias vía producto_categoria (puente).
+- Cuenta corriente: 'cargo' al vender, 'pago' al cobrar.
+- Seeds: cliente "Consumidor Final", unidad "un"; categoria_gasto: Servicios, Alquileres, Sueldos, Impuestos, Insumos, Mantenimiento, Fletes, Marketing, Otros.
+- gasto_programado son reglas futuras: NO restan caja hasta asentarse en gasto (gasto.gasto_programado_id = origen). proxima_ejecucion es Unix.
+- recordatorio: fecha_hora_programada es Unix; pendientes completado=0; sonido 'sound_01'-'sound_05' o null.
+- IVA: producto.alicuota_iva_id → alicuota_iva. Si usar_iva='1': venta.total_iva = débito fiscal, venta.total_neto = base.
 `;
 
 export const EJEMPLOS_CONSULTAS: Array<{ pregunta: string; sql: string }> = [

@@ -9,6 +9,13 @@ router.post('/mensajes/stream', (req, res) => chatController.preguntarStream(req
 router.post('/resultado', (req, res) => chatController.resultado(req, res));
 router.post('/resultado/stream', (req, res) => chatController.resultadoStream(req, res));
 router.post('/uso', (req, res) => chatController.uso(req, res));
+// Agente multi-paso (function calling). Los endpoints legacy /mensajes* y
+// /resultado* se mantienen para versiones viejas del desktop ya distribuidas.
+router.post('/agente/stream', (req, res) => chatController.agenteStream(req, res));
+router.post('/agente/continuar/stream', (req, res) => chatController.agenteContinuarStream(req, res));
+// Binny Proactivo (Fase 3): no consumen cuota mensual.
+router.post('/brief', (req, res) => chatController.brief(req, res));
+router.post('/informe', (req, res) => chatController.informe(req, res));
 router.post('/factura-ocr', (req, res) => chatController.procesarFacturaOcr(req, res));
 router.post('/movil-factura/sesion', (req, res) => chatController.crearSesionMovil(req, res));
 router.get('/movil-factura/:sessionId', (req, res) => chatController.verPaginaMovil(req, res));

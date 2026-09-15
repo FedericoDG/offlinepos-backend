@@ -11,6 +11,18 @@ import { ZodError } from 'zod';
  */
 export function handleApiError(error: any, res: Response, fallback = 'Error interno del servidor'): void {
   if (error instanceof ZodError) {
+    // Log sin valores (solo path/código/mensaje) para diagnosticar 400s
+    // sin filtrar datos sensibles como claves de licencia.
+    console.warn(
+      '[API] validación fallida',
+      JSON.stringify(
+        error.issues.map((issue) => ({
+          field: issue.path.join('.'),
+          code: issue.code,
+          message: issue.message,
+        })),
+      ),
+    );
     res.status(400).json({
       message: 'Error de validación en los datos enviados',
       errors: error.issues.map((issue) => ({

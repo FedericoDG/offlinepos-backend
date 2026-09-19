@@ -45,7 +45,7 @@ export const CrearPlanDTO = z.object({
     .number({ message: 'chat_mensajes_mes debe ser un número entero' })
     .int()
     .min(0, 'chat_mensajes_mes no puede ser negativo')
-    .default(500)
+    .default(400)
     .describe('Mensajes mensuales del chat. 0 = ilimitado.'),
   activo: z.boolean().default(true),
 });

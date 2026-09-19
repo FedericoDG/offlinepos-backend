@@ -28,9 +28,12 @@ const envSchema = z.object({
   LLM_BASE_URL: z.string().url('LLM_BASE_URL debe ser una URL válida').default('https://dashscope-intl.aliyuncs.com/compatible-mode/v1'),
   LLM_API_KEY: z.string().min(1, 'LLM_API_KEY es obligatoria para el chat con IA'),
   LLM_MODEL: z.string().min(1, 'LLM_MODEL es obligatorio').default('qwen3.7-flash'),
+  // Modelo mayor opcional para análisis profundos (Fase 1: router de modelo).
+  // Si no se define, todo usa LLM_MODEL y el router no cambia nada.
+  LLM_MODEL_PRO: z.string().min(1).optional(),
   LLM_VISION_MODEL: z.string().default('qwen-vl-plus'),
   LLM_ENABLE_THINKING: z.enum(['true', 'false']).default('false').transform((v) => v === 'true'),
-  CHAT_MENSAJES_MES: z.coerce.number().int().positive().default(500),
+  CHAT_MENSAJES_MES: z.coerce.number().int().positive().default(400),
   CHAT_MENSAJES_POR_OCR: z.coerce.number().int().positive().default(10),
   // Clave privada Ed25519 (PEM) para firmar tokens de licencia. Opcional en dev
   // (se usa un par efímero); en producción sin esta clave, activar licencia falla.

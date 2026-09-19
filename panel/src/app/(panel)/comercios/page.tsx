@@ -6,7 +6,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { consultas } from '@/lib/consultas';
 import { fecha, plata, vencimiento } from '@/lib/formato';
-import { EliminarComercio, NuevoComercio, RenombrarComercio } from './formularios';
+import { AjustarCupoBinny, EliminarComercio, NuevoComercio, RenombrarComercio } from './formularios';
 
 export const metadata: Metadata = { title: 'Comercios' };
 export const dynamic = 'force-dynamic';
@@ -90,6 +90,7 @@ export default async function PaginaComercios() {
                       </TableCell>
                       <TableCell className="pr-6">
                         <div className="flex justify-end gap-2">
+                          <AjustarCupoBinny comercio={comercio} />
                           <RenombrarComercio comercio={comercio} />
                           <EliminarComercio comercio={comercio} />
                         </div>

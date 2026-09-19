@@ -88,7 +88,7 @@ function CamposPlan({ plan }: { plan?: Plan }) {
           name="chat_mensajes_mes"
           type="number"
           min={0}
-          defaultValue={plan?.chat_mensajes_mes ?? 500}
+          defaultValue={plan?.chat_mensajes_mes ?? 400}
           required
         />
       </Field>

@@ -37,6 +37,24 @@ export async function renombrarComercio(_estado: EstadoAccion, datos: FormData):
   return resultado;
 }
 
+export async function ajustarCupoBinny(_estado: EstadoAccion, datos: FormData): Promise<EstadoAccion> {
+  const id = String(datos.get('id') ?? '');
+  const raw = String(datos.get('chat_mensajes_override') ?? '').trim();
+  const payload: Record<string, unknown> = {};
+  if (raw === '') {
+    payload.chat_mensajes_override = null;
+  } else {
+    const n = Number(raw);
+    if (!Number.isInteger(n) || n < 0) return { ok: false, mensaje: 'El cupo debe ser un entero >= 0 (0 = ilimitado, vacío = usa plan)' };
+    payload.chat_mensajes_override = n;
+  }
+
+  const resultado = await ejecutar('Cupo de Binny actualizado', () => api.put(`/api/comercios/${id}`, payload));
+
+  if (resultado.ok) refrescar();
+  return resultado;
+}
+
 export async function eliminarComercio(id: string): Promise<EstadoAccion> {
   const resultado = await ejecutar('Comercio eliminado', () => api.delete(`/api/comercios/${id}`));
   if (resultado.ok) refrescar();

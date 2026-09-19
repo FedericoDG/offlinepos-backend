@@ -27,6 +27,8 @@ model Administrador {
 model Comercio {
   id        String     @id @default(uuid())
   nombre    String
+  /// Override por comercio del cupo de Binny. null = usa el plan / env; 0 = ilimitado solo para este comercio.
+  chat_mensajes_override Int?
   licencias     Licencia[]
   suscripciones Suscripcion[]
 

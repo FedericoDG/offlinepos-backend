@@ -99,11 +99,11 @@ export type UsoConsultaDTO = z.infer<typeof UsoConsultaDTO>;
 // --- Agente multi-paso (function calling) ---
 
 /** Límite de pasos con herramientas por ciclo: anti-abuso y control de costo. */
-export const AGENTE_MAX_PASOS = 7;
+export const AGENTE_MAX_PASOS = 10;
 
 /**
  * Tope de mensajes por ciclo del agente (pregunta + tool_calls + resultados).
- * Un informe complejo (7 pasos × tandas de hasta 6 consultas) llega a ~50
+ * Un informe complejo (10 pasos × tandas de hasta 6 consultas) llega a ~60
  * items legítimamente: 72 lo cubre con margen y a la vez acota el costo del
  * peor ciclo por diseño. El servicio recorta con gracia si llega más largo
  * (nunca 400 al usuario); el schema solo pone un techo sanitario superior.
@@ -152,7 +152,7 @@ export const ContinuarAgenteDTO = z
     // del desktop (ej: "✓ Producto creado") y son válidos para el proveedor.
     //
     // Tope anti-abuso en HISTORIAL_MAX_AGENTE resultados: un informe complejo
-    // (7 pasos × tandas de 6) trae ~42 legítimamente. Si llega más, el
+    // (10 pasos × tandas de 6) trae ~60 legítimamente. Si llega más, el
     // servicio recorta con gracia (nunca se rechaza con 400 al usuario).
     const pasosTool = data.historial.filter((m) => m.role === 'tool').length;
     if (pasosTool > HISTORIAL_MAX_AGENTE) {

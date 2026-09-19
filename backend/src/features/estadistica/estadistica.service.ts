@@ -274,11 +274,11 @@ export class EstadisticaService {
     });
 
     const detalle = consumos.map((c) => {
-      const comercio = c.licencia?.comercio;
-      // Límite real del plan (misma regla que obtenerLimiteChat): 0 = ilimitado,
-      // sin suscripción activa = default del entorno.
+      const comercio = c.licencia?.comercio as unknown as { nombre?: string; chat_mensajes_override?: number | null; suscripciones?: Array<{ plan?: { nombre?: string; chat_mensajes_mes?: number } | null }> } | null;
+      // Límite real: override por comercio tiene prioridad sobre plan/env (0 = ilimitado)
+      const override = comercio?.chat_mensajes_override;
       const plan = comercio?.suscripciones?.[0]?.plan;
-      const limite = plan ? plan.chat_mensajes_mes : env.CHAT_MENSAJES_MES;
+      const limite = override != null ? override : plan ? (plan.chat_mensajes_mes as number) : env.CHAT_MENSAJES_MES;
       const pt = Number(c.prompt_tokens);
       const ct = Number(c.completion_tokens);
       const costoUsd = Math.round((pt * 0.03 / 1_000_000 + ct * 0.13 / 1_000_000) * 10_000) / 10_000;

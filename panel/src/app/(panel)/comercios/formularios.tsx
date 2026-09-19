@@ -1,7 +1,7 @@
 'use client';
 
-import { Pencil, Plus } from 'lucide-react';
-import { crearComercio, eliminarComercio, renombrarComercio } from '@/actions/comercios';
+import { Pencil, Plus, Bot } from 'lucide-react';
+import { crearComercio, eliminarComercio, renombrarComercio, ajustarCupoBinny } from '@/actions/comercios';
 import { AccionModal } from '@/components/ui/accion-modal';
 import { BotonAccion } from '@/components/ui/boton-accion';
 import { Button } from '@/components/ui/button';
@@ -60,5 +60,40 @@ export function EliminarComercio({ comercio }: { comercio: Comercio }) {
     >
       Eliminar
     </BotonAccion>
+  );
+}
+
+export function AjustarCupoBinny({ comercio }: { comercio: Comercio }) {
+  const override = comercio.chat_mensajes_override;
+  const placeholder = override == null ? 'usa plan (vacío)' : String(override);
+  const esIlimitado = override === 0;
+  return (
+    <AccionModal
+      disparador={
+        <Button variant="outline" size="sm" title={override == null ? 'Sin override: usa el plan' : esIlimitado ? 'Cupo ilimitado para este comercio' : `${override} mensajes/mes para este comercio`}>
+          <Bot /> Cupo Binny {override == null ? '(plan)' : esIlimitado ? '(∞)' : `(${override})`}
+        </Button>
+      }
+      titulo={`Cupo de Binny — ${comercio.nombre}`}
+      descripcion="Override por comercio. Vacío = usa el cupo del plan contratado. 0 = ilimitado solo para este comercio. Entero >0 = límite mensual custom. Se aplica de inmediato al próximo mensaje."
+      accion={ajustarCupoBinny}
+      textoGuardar="Guardar cupo"
+    >
+      <input type="hidden" name="id" value={comercio.id} />
+      <Field label="Consultas mensuales de Binny para este comercio" htmlFor={`cupo-${comercio.id}`}>
+        <Input
+          id={`cupo-${comercio.id}`}
+          name="chat_mensajes_override"
+          type="number"
+          min={0}
+          step={1}
+          placeholder="Vacío = usa plan"
+          defaultValue={override ?? ''}
+        />
+      </Field>
+      <p className="text-xs text-muted-foreground mt-2">
+        Ej: <code className="px-1 py-0.5 rounded bg-muted">500</code> para este comercio, <code className="px-1 py-0.5 rounded bg-muted">0</code> para ilimitado, vacío para volver al plan ({placeholder}).
+      </p>
+    </AccionModal>
   );
 }

@@ -83,6 +83,10 @@ async function obtenerLimiteChat(licenciaId: string): Promise<number> {
     },
   });
 
+  // Override por comercio: si está definido (0 = ilimitado), tiene prioridad sobre el plan/env
+  const override = (licencia?.comercio as unknown as { chat_mensajes_override?: number | null })?.chat_mensajes_override;
+  if (override != null) return override;
+
   const plan = licencia?.comercio?.suscripciones?.[0]?.plan;
   if (!plan) return env.CHAT_MENSAJES_MES;
 

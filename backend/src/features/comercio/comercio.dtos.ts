@@ -36,6 +36,12 @@ export const UpdateComercioDTO = z.object({
     .trim()
     .min(2, 'El nombre del comercio debe tener al menos 2 caracteres')
     .optional(),
+  chat_mensajes_override: z
+    .number({ message: 'chat_mensajes_override debe ser un número' })
+    .int()
+    .min(0, 'chat_mensajes_override no puede ser negativo')
+    .nullable()
+    .optional(),
 });
 
 export type UpdateComercioDTO = z.infer<typeof UpdateComercioDTO>;

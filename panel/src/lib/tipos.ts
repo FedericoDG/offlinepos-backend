@@ -44,6 +44,7 @@ export interface Licencia {
 export interface Comercio {
   id: string;
   nombre: string;
+  chat_mensajes_override?: number | null;
   licencias: Licencia[];
   createdAt: string;
   updatedAt: string;

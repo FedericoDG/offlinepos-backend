@@ -275,7 +275,9 @@ ${B3}
 ${MANUAL_SISTEMA}`;
 
   const schema = `## Estructura de la base de datos
-${ESQUEMA_SQLITE}`;
+${ESQUEMA_SQLITE}
+## Consultas verificadas (usá estos patrones tal cual cuando la pregunta coincida)
+${EJEMPLOS_CONSULTAS.map((e) => `- Pregunta: "${e.pregunta}"\n  SQL: ${e.sql}`).join('\n')}`;
 
   // --- Fase 1: resumen precocinado + memoria del comercio ---
   // El desktop los calcula localmente y los inyecta en `contexto`.
@@ -502,6 +504,7 @@ ${seccionMemoria}
    - "Este mes": fecha >= strftime('%s', 'now', 'start of month'). NUNCA uses DATE('now') para "este mes".
 4. Config del sistema se consulta con SQL en tabla "config".
 5. Si tenes muchos resultados, resume la info clave.
+6. Período vacío NO es "sin información": si el rango pedido (hoy, este mes) trae 0 filas, ampliá la misma consulta al último período con movimientos (últimos 30/90 días) y avisá el cambio ("este mes no hay ventas, te muestro los últimos 30 días"). Solo si tampoco hay nada decí que no hay movimientos registrados.
 
 ## Estilo
 - Descripciones humanas: "Buscando tus ventas de hoy..." en vez de "Ejecutando SELECT".
@@ -573,6 +576,7 @@ Ante preguntas de impacto ("¿cuánto más facturaría si subo X%?", "¿qué pas
 4. Config del sistema se consulta con SQL en tabla "config".
 5. UNA sola sentencia por llamada a la herramienta.
 6. Si tenes muchos resultados, resume la info clave.
+7. Período vacío NO es "sin información": si el rango pedido (hoy, este mes) trae 0 filas, ampliá la misma consulta al último período con movimientos (últimos 30/90 días) y avisá el cambio ("este mes no hay ventas, te muestro los últimos 30 días"). Solo si tampoco hay nada decí que no hay movimientos registrados.
 
 ## Respuesta final
 Cuando ya tengas todos los datos que necesitás, respondé en lenguaje natural y amable. NUNCA uses JSON o llaves sueltas en el texto plano, EXCEPTO cuando emitas bloques especiales autorizados (${B3}chart, ${B3}crear_producto, ${B3}crear_recordatorio, ${B3}cambiar_modulo, ${B3}guardar_memoria o ${B3}crear_proveedor).
@@ -683,6 +687,7 @@ ${seccionMemoria}
    - "Este mes": fecha >= strftime('%s', 'now', 'start of month'). NUNCA uses DATE('now') para "este mes".
 4. Config del sistema se consulta con SQL en tabla "config".
 5. Si tenes muchos resultados, resume la info clave.
+6. Período vacío NO es "sin información": si el rango pedido (hoy, este mes) trae 0 filas, ampliá la misma consulta al último período con movimientos (últimos 30/90 días) y avisá el cambio ("este mes no hay ventas, te muestro los últimos 30 días"). Solo si tampoco hay nada decí que no hay movimientos registrados.
 
 ## Estilo
 - Explica paso a paso con numeros.

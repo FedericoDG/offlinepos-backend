@@ -44,6 +44,8 @@ config (clave, valor)
 ## Vistas (PREFERILAS a joins manuales; SELECT+WHERE+LIMIT)
 vista_ventas_detalle (venta_id, venta_total, descuento, estado, anulada_en, creada_en, usuario_id, cliente_id, total_iva, producto_id, cantidad, precio_unitario, item_subtotal, descuento_item, precio_neto, producto_nombre, codigo_interno, precio_costo, metodo_pago, pago_monto)
 - Válidas: estado='completada' AND anulada_en IS NULL. Ej: SELECT producto_nombre, SUM(cantidad) AS un FROM vista_ventas_detalle WHERE estado='completada' AND anulada_en IS NULL AND DATE(creada_en,'unixepoch','localtime')=DATE('now','localtime') GROUP BY producto_id LIMIT 50
+vista_ventas_marca (venta_id, venta_total, estado, anulada_en, creada_en, usuario_id, cliente_id, producto_id, cantidad, item_subtotal, marca_id, marca_nombre)
+- Válidas: estado='completada' AND anulada_en IS NULL. Rankings por marca del mes: SELECT marca_nombre, COUNT(DISTINCT venta_id) AS tickets, SUM(item_subtotal) AS facturado FROM vista_ventas_marca WHERE estado='completada' AND anulada_en IS NULL AND creada_en >= strftime('%s','now','start of month') GROUP BY marca_id ORDER BY facturado DESC LIMIT 20. Los productos sin marca salen con marca_nombre NULL: mencionalos como "sin marca" en vez de omitirlos.
 vista_deuda_clientes (id, nombre, documento, telefono, saldo_actual, limite_credito, ultimo_movimiento)
 - Solo con deuda y activos. Ej: SELECT nombre, saldo_actual FROM vista_deuda_clientes ORDER BY saldo_actual DESC LIMIT 10
 vista_stock_critico (id, nombre, codigo_interno, cantidad, stock_minimo, precio_costo, precio_venta, unidad)
@@ -75,6 +77,14 @@ export const EJEMPLOS_CONSULTAS: Array<{ pregunta: string; sql: string }> = [
   {
     pregunta: 'Gasto en alquiler este mes',
     sql: `SELECT SUM(g.monto) AS total FROM gasto g JOIN categoria_gasto cg ON cg.id = g.categoria_gasto_id WHERE cg.nombre = 'Alquileres' AND g.anulado = 0 AND g.fecha >= strftime('%s', 'now', 'start of month') LIMIT 1`,
+  },
+  {
+    pregunta: 'Qué marcas generaron más ventas este mes?',
+    sql: `SELECT marca_nombre, COUNT(DISTINCT venta_id) AS tickets, SUM(item_subtotal) AS facturado FROM vista_ventas_marca WHERE estado = 'completada' AND anulada_en IS NULL AND creada_en >= strftime('%s', 'now', 'start of month') GROUP BY marca_id ORDER BY facturado DESC LIMIT 20`,
+  },
+  {
+    pregunta: 'Qué productos generaron más ingresos por ventas este mes?',
+    sql: `SELECT producto_nombre, SUM(cantidad) AS unidades, SUM(item_subtotal) AS facturado FROM vista_ventas_detalle WHERE estado = 'completada' AND anulada_en IS NULL AND creada_en >= strftime('%s', 'now', 'start of month') GROUP BY producto_id ORDER BY facturado DESC LIMIT 10`,
   },
   {
     pregunta: 'Que gastos o pagos tengo programados para los proximos dias?',

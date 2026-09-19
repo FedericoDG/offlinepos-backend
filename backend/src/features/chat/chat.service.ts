@@ -106,6 +106,14 @@ async function obtenerUso(licenciaId: string): Promise<UsoChat> {
   };
 }
 
+function mensajeCuotaSistema(uso: UsoChat): string {
+  if (uso.mensajes_limite === 0) {
+    return `## Cuota del asistente\nEste comercio tiene consultas ilimitadas (plan sin límite). Cuando te pregunten cuántas consultas quedan, respondé que son ilimitadas y que puede consultar todo lo que necesite. PROHIBIDO inventar un límite si es ilimitado.`;
+  }
+  const restantes = Math.max(0, uso.mensajes_limite - uso.mensajes_usados);
+  return `## Cuota del asistente\nEste comercio tiene ${uso.mensajes_limite} consultas mensuales, lleva usadas ${uso.mensajes_usados}, le quedan ${restantes}. Renueva el día 1 del próximo mes. Cuando te pregunten cuántas consultas quedan, por consultas restantes o límite, respondé con esos números exactos. PROHIBIDO decir "no hay límite estricto" o "ilimitado" si el límite es ${uso.mensajes_limite}. Si le quedan 0, avisá que alcanzó el límite y que renueva el día 1.`;
+}
+
 /**
  * Incrementa el contador de mensajes SOLO si no se superó el límite.
  * Retorna el uso actualizado. Si el límite fue alcanzado, retorna null.
@@ -570,6 +578,15 @@ Cuando el comerciante te pida preparar una orden de compra o cargar una compra:
 
 ## Simulador de escenarios "¿qué pasa si...?"
 Ante preguntas de impacto ("¿cuánto más facturaría si subo X%?", "¿qué pasa si bajo tal precio?"): invocá simular_escenario (NO calcules vos ni uses SQL). Narrá el resultado en español simple: delta en $, sobre qué base (45 días) y el supuesto de volumen constante. Si el alcance es ambiguo ("las gaseosas" = producto_nombre), usá ese fragmento tal cual.
+
+## Herramientas nativas de analítica (cálculo exacto en Rust, preferilas a SQL manual)
+- "¿qué reponer / qué comprar / quiebre / stock?": invocá predecir_reposicion (dias_cobertura opcional).
+- "¿qué anda mal / anomalías / tickets raros / sobrecostos?": invocá obtener_analitica_anomalias.
+- "oportunidades / pildoras / combos sugeridos / capital parado": invocá obtener_pildoras_oportunidad.
+- "vs mes pasado / vs ayer / cómo vengo / comparar períodos": invocá comparar_periodos (dias opcional).
+- "curva ABC / Pareto / qué productos mantienen el negocio / cuáles liquidar": invocá obtener_analitica_abc.
+- "ventas a pérdida / bajo costo / margen negativo / fugas de precio": invocá obtener_fugas_precio.
+- "cajeros / operadores / desempeño por turno / diferencias por usuario": invocá comparar_cajeros.
 
 ## Reglas SQL (no las muestres al usuario)
 1. Solo SELECT o WITH (lectura). NUNCA INSERT, UPDATE, DELETE, DROP, ALTER, CREATE.
@@ -1354,6 +1371,7 @@ export class ChatService {
 
     const mensajes: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
       { role: 'system', content: construirPromptSistema('json', data.contexto) },
+      { role: 'system', content: mensajeCuotaSistema(uso) },
     ];
 
     for (const msg of data.historial.slice(-10)) {
@@ -1649,6 +1667,7 @@ Reglas estrictas:
 
     const mensajes: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
       { role: 'system', content: construirPromptSistema('fase1', data.contexto) },
+      { role: 'system', content: mensajeCuotaSistema(uso) },
     ];
 
     for (const msg of data.historial.slice(-10)) {
@@ -1772,6 +1791,7 @@ Reglas estrictas:
 
     const mensajes: AgenteMessage[] = [
       { role: 'system', content: construirPromptSistema('agente', data.contexto) },
+      { role: 'system', content: mensajeCuotaSistema(uso) },
     ];
 
     for (const msg of data.historial.slice(-10)) {
@@ -1808,6 +1828,7 @@ Reglas estrictas:
     // el desktop solo reenvía pregunta + tool_calls + resultados.
     const mensajes: AgenteMessage[] = [
       { role: 'system', content: construirPromptSistema('agente', data.contexto) },
+      { role: 'system', content: mensajeCuotaSistema(uso) },
       ...historialRecortado.map((m) => ({
         role: m.role,
         content: m.content,
@@ -2337,6 +2358,107 @@ export const HERRAMIENTAS_AGENTE: AgenteToolDef[] = [
             tipo: { type: 'string', description: '"precio" (cambia venta, mide facturación) o "costo" (cambia costo, mide margen). Por defecto precio.' },
           },
           required: ['porcentaje'],
+          additionalProperties: false,
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'predecir_reposicion',
+        description:
+          'Calcula qué y cuánto reponer basado en ventas reales de los últimos 45 días y stock actual. Usala cuando el comerciante pregunte qué comprar, qué reponer o si va a tener quiebre.',
+        parameters: {
+          type: 'object',
+          properties: {
+            dias_cobertura: { type: 'number', description: 'Días de cobertura deseados (3-60). Por defecto 14.' },
+          },
+          additionalProperties: false,
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'obtener_analitica_anomalias',
+        description:
+          'Detecta anomalías recientes (tickets atípicos, turnos con muchas anulaciones, compras con sobrecosto, ajustes de stock). Usala para auditorías rápidas sin escribir SQL.',
+        parameters: {
+          type: 'object',
+          properties: {},
+          additionalProperties: false,
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'obtener_pildoras_oportunidad',
+        description:
+          'Devuelve oportunidades detectadas localmente (quiebres inminentes, capital parado, combos sugeridos, gastos desalineados). Usala para dar un diagnóstico proactivo del negocio.',
+        parameters: {
+          type: 'object',
+          properties: {},
+          additionalProperties: false,
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'comparar_periodos',
+        description:
+          'Compara dos períodos de N días: el último período vs el anterior. Devuelve ventas, tickets, ticket promedio, margen, gastos, compras y deltas %. Usala para "vs mes pasado", "vs semana pasada", "cómo vengo este mes".',
+        parameters: {
+          type: 'object',
+          properties: {
+            dias: { type: 'number', description: 'Tamaño del período en días (7-90). Por defecto 30. Compara últimos N días vs N días previos.' },
+          },
+          additionalProperties: false,
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'obtener_analitica_abc',
+        description:
+          'Clasifica el catálogo por curva ABC (Pareto) según facturación y margen de los últimos 90 días. Usala para decidir qué mantener, revisar o liquidar.',
+        parameters: {
+          type: 'object',
+          properties: {
+            limite: { type: 'number', description: 'Cuántos productos top devolver por clase (5-30). Por defecto 15.' },
+          },
+          additionalProperties: false,
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'obtener_fugas_precio',
+        description:
+          'Detecta ventas a pérdida (precio_unitario < precio_costo) de los últimos 90 días, con ranking por pérdida acumulada. Usala para auditar precios desactualizados o errores de carga.',
+        parameters: {
+          type: 'object',
+          properties: {
+            dias: { type: 'number', description: 'Ventana en días (7-180). Por defecto 90.' },
+          },
+          additionalProperties: false,
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'comparar_cajeros',
+        description:
+          'Compara desempeño por cajero/operador en los últimos N días: turnos cerrados, diferencias de caja, ratio de anulaciones y ticket promedio. Usala para auditoría de turnos sin señalar.',
+        parameters: {
+          type: 'object',
+          properties: {
+            dias: { type: 'number', description: 'Ventana en días (7-90). Por defecto 30.' },
+          },
           additionalProperties: false,
         },
       },

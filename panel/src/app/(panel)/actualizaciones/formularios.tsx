@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Rocket, Trash2 } from 'lucide-react';
+import { Check, Copy, Rocket, Trash2 } from 'lucide-react';
 import { eliminarArchivoVersion, eliminarVersion, publicarVersion } from '@/actions/actualizaciones';
 import { AccionModal } from '@/components/ui/accion-modal';
 import { Button } from '@/components/ui/button';
@@ -200,5 +200,36 @@ export function EliminarArchivo({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/**
+ * Copia el enlace público de descarga del instalador, para pasárselo al
+ * cliente (WhatsApp, mail). La URL viene de la API y ya apunta al dominio
+ * público del backend, no al host interno del panel.
+ */
+export function CopiarUrl({ url, nombre }: { url: string; nombre: string }) {
+  const [copiada, setCopiada] = useState(false);
+
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon"
+      className="size-7"
+      title={`Copiar enlace de ${nombre}`}
+      onClick={async () => {
+        try {
+          await navigator.clipboard.writeText(url);
+          setCopiada(true);
+          setTimeout(() => setCopiada(false), 1600);
+        } catch {
+          setCopiada(false);
+        }
+      }}
+    >
+      {copiada ? <Check className="text-[var(--success)]" /> : <Copy />}
+      <span className="sr-only">Copiar enlace de descarga</span>
+    </Button>
   );
 }

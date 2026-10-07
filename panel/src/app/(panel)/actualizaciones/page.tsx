@@ -6,7 +6,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { consultas } from '@/lib/consultas';
 import { fecha } from '@/lib/formato';
-import { EliminarArchivo, EliminarVersion, PublicarVersion } from './formularios';
+import { CopiarUrl, EliminarArchivo, EliminarVersion, PublicarVersion } from './formularios';
 
 export const metadata: Metadata = { title: 'Actualizaciones' };
 export const dynamic = 'force-dynamic';
@@ -50,6 +50,9 @@ export default async function PaginaActualizaciones() {
                     <TableHead>Archivo</TableHead>
                     <TableHead>Tamaño</TableHead>
                     <TableHead>Descarga</TableHead>
+                    {/* Copiar el enlace público: solo para la versión publicada
+                        (esta tabla). El historial de versiones viejas no lo lleva. */}
+                    <TableHead className="w-20 text-center">Enlace</TableHead>
                     <TableHead className="w-24 text-right">Acciones</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -65,6 +68,9 @@ export default async function PaginaActualizaciones() {
                         >
                           <Download className="size-3.5" /> Descargar
                         </a>
+                      </TableCell>
+                      <TableCell className="text-center">
+                        <CopiarUrl url={a.url} nombre={a.nombre} />
                       </TableCell>
                       <TableCell className="text-right">
                         <EliminarArchivo version={vigente.version!} nombre={a.nombre} esVigente />

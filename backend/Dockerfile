@@ -20,6 +20,10 @@ FROM node:22-alpine AS build
 WORKDIR /app/backend
 COPY --from=deps /app/backend/node_modules ./node_modules
 COPY backend/ ./
+# DATABASE_URL placeholder SOLO para el build: prisma.config.ts valida su presencia
+# al cargar (prisma generate). El runtime recibe el env real por env_file del compose;
+# dotenv no pisa variables ya existentes, así que este valor nunca llega a producción.
+ENV DATABASE_URL="postgresql://placeholder:placeholder@localhost:5432/build?sslmode=require"
 RUN npx prisma generate && npm run build
 
 # ---- runtime: solo lo necesario para correr + migrar ----

@@ -15,12 +15,16 @@ export default function proxy(request: NextRequest) {
 
   if (!tieneSesion && !esLogin) {
     const destino = new URL('/login', request.url);
+    // Con basePath en el panel (servido bajo /panel-pos-offline), un redirect
+    // a /login crudo cae fuera de esa base y 404. nextUrl.basePath la lleva.
+    destino.pathname = (request.nextUrl.basePath || '') + '/login';
     if (pathname !== '/') destino.searchParams.set('volver', pathname);
     return NextResponse.redirect(destino);
   }
 
   if (tieneSesion && esLogin) {
-    return NextResponse.redirect(new URL('/dashboard', request.url));
+    const destinoBasePath = (request.nextUrl.basePath || '') + '/dashboard';
+    return NextResponse.redirect(new URL(destinoBasePath, request.url));
   }
 
   return NextResponse.next();

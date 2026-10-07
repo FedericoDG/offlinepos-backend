@@ -14,7 +14,7 @@ import estadisticaRoutes from './features/estadistica/estadistica.routes';
 import chatRoutes from './features/chat/chat.routes';
 import actualizacionesRoutes from './features/actualizaciones/actualizaciones.routes';
 import { dirUpdates, repararLatest } from './features/actualizaciones/actualizaciones.service';
-import { resolverBasePublica } from './utils/base-publica';
+import { esBasePublica, resolverBasePublica } from './utils/base-publica';
 
 const app = express();
 
@@ -111,9 +111,12 @@ app.use('/api/updates/admin', actualizacionesRoutes);
 // reescribimos sus platforms[*].url con el origen de ESTE request. Es seguro
 // porque la firma minisign cubre el artefacto descargado, no la URL. Si el
 // archivo no existe, seguimos al static, que devuelve 404 como siempre.
+// Solo se repara si la base resuelta sirve para un cliente externo: un request
+// interno (ej. Host: panel-backend:4000) no debe pisar el archivo publicado.
 app.get('/api/updates/latest.json', (req, res, next) => {
   try {
-    repararLatest(resolverBasePublica(req));
+    const base = resolverBasePublica(req);
+    if (esBasePublica(base)) repararLatest(base);
   } catch {
     /* si la reparación falla, servimos lo que haya sin romper la descarga */
   }

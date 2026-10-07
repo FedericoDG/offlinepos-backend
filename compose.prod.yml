@@ -20,6 +20,12 @@ services:
     environment:
       PORT: "4000"
       NODE_ENV: production
+      # Origen público del backend para las URLs absolutas que consumen
+      # clientes externos (descargas del updater y link móvil del chat).
+      # No es confidencial y va fijo acá: así el contenedor no depende de los
+      # headers del request (el panel interno le pega como panel-backend:4000,
+      # que NO sirve como URL pública). Debe ser SOLO el origen, sin path.
+      PUBLIC_BASE_URL: https://vps1-binario.duckdns.org
     volumes:
       - pos-updates:/app/updates
     networks:

@@ -31,11 +31,11 @@ export async function validarLicenciaChat(clave: string, instalacionId: string) 
   }
 
   if (!licenciaEncontrada) {
-    httpError('Licencia no encontrada', 404);
+    throw httpError('Licencia no encontrada', 404);
   }
 
   if (licenciaEncontrada!.estado !== 'activa') {
-    httpError('La licencia no esta activa', 403);
+    throw httpError('La licencia no esta activa', 403);
   }
 
   const activacion = await prisma.activacion.findUnique({
@@ -48,7 +48,7 @@ export async function validarLicenciaChat(clave: string, instalacionId: string) 
   });
 
   if (!activacion) {
-    httpError('Esta instalacion no tiene una activacion valida', 403);
+    throw httpError('Esta instalacion no tiene una activacion valida', 403);
   }
 
   return licenciaEncontrada!;
@@ -1467,7 +1467,7 @@ export class ChatService {
     const usoCheck = await incrementarMensajes(lic.id);
     if (!usoCheck) {
       const limite = await obtenerLimiteChat(lic.id);
-      httpError(
+      throw httpError(
         `Alcanzaste tu limite mensual de ${limite} consultas del asistente. Se renueva el dia 1 del proximo mes.`,
         429,
       );
@@ -1632,7 +1632,7 @@ export class ChatService {
     const usoCheck = await incrementarMensajes(lic.id, cantidadMensajes);
     if (!usoCheck) {
       const limite = await obtenerLimiteChat(lic.id);
-      httpError(
+      throw httpError(
         `Alcanzaste tu límite mensual de consultas (${limite}). El escaneo de facturas requiere ${cantidadMensajes} consultas. Se renueva el día 1 del próximo mes.`,
         429,
       );
@@ -1763,7 +1763,7 @@ Reglas estrictas:
     const usoCheck = await incrementarMensajes(lic.id);
     if (!usoCheck) {
       const limite = await obtenerLimiteChat(lic.id);
-      httpError(
+      throw httpError(
         `Alcanzaste tu limite mensual de ${limite} consultas del asistente. Se renueva el dia 1 del proximo mes.`,
         429,
       );
@@ -1887,7 +1887,7 @@ Reglas estrictas:
     const usoCheck = await incrementarMensajes(lic.id);
     if (!usoCheck) {
       const limite = await obtenerLimiteChat(lic.id);
-      httpError(
+      throw httpError(
         `Alcanzaste tu limite mensual de ${limite} consultas del asistente. Se renueva el dia 1 del proximo mes.`,
         429,
       );

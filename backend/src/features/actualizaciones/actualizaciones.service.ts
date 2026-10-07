@@ -64,8 +64,8 @@ function asegurarDirs(): void {
   fs.mkdirSync(DIR_ARCHIVOS, { recursive: true });
 }
 
-function basePublica(): string {
-  return env.PUBLIC_BASE_URL.replace(/\/$/, '');
+function basePublica(base?: string): string {
+  return (base ?? env.PUBLIC_BASE_URL).replace(/\/$/, '');
 }
 
 export function dirUpdates(): string {
@@ -81,8 +81,62 @@ export function leerLatest(): any | null {
   }
 }
 
+/**
+ * Reescribe las URLs de un `latest.json` ya publicado para que apunten al
+ * origen del request actual.
+ *
+ * Por qué es seguro mutar el archivo: la firma minisign (`platforms[*].signature`)
+ * cubre el artefacto descargado, no la URL que lo señala. Cambiar el origen de
+ * la URL no altera el binario ni su firma, así que el updater sigue validando
+ * exactamente lo mismo. Solo se toca `platforms[*].url`; `version`, `notas`,
+ * `pub_date` y cada `signature` se conservan intactos.
+ *
+ * Si el archivo no existe, devuelve `null` (el static resolverá el 404 como hoy).
+ * Si todas las URLs ya empiezan con la base pedida, no escribe nada.
+ */
+export function repararLatest(base: string): any | null {
+  const latest = leerLatest();
+  if (!latest) return null;
+
+  const origen = basePublica(base);
+  const platforms: Record<string, any> = { ...(latest.platforms ?? {}) };
+  let cambiado = false;
+
+  for (const target of Object.keys(platforms)) {
+    const url = platforms[target]?.url;
+    if (typeof url !== 'string' || url.startsWith(`${origen}/`)) continue;
+    platforms[target] = { ...platforms[target], url: reescribirOrigen(url, origen) };
+    cambiado = true;
+  }
+
+  if (!cambiado) return latest;
+
+  const reparado = { ...latest, platforms };
+  fs.writeFileSync(PATH_LATEST, JSON.stringify(reparado, null, 2) + '\n');
+  return reparado;
+}
+
+/**
+ * Reemplaza el origen de una URL absoluta conservando su path y query. Si la
+ * URL viniera relativa (empieza con `/`), se le antepone el origen.
+ */
+function reescribirOrigen(url: string, origen: string): string {
+  try {
+    const u = new URL(url);
+    const b = new URL(origen);
+    // Se setean hostname y port por separado: asignar `.host` conserva el
+    // puerto viejo (ej. :4000) aunque el origen nuevo no lo lleve.
+    u.protocol = b.protocol;
+    u.hostname = b.hostname;
+    u.port = b.port;
+    return u.toString();
+  } catch {
+    return url.startsWith('/') ? `${origen}${url}` : url;
+  }
+}
+
 /** Estado vigente para el panel: latest.json + archivos con tamaño. */
-export function estadoActual(): VersionVigente {
+export function estadoActual(base?: string): VersionVigente {
   const latest = leerLatest();
   if (!latest) {
     return { version: null, notas: null, pub_date: null, archivos: [] };
@@ -93,18 +147,18 @@ export function estadoActual(): VersionVigente {
     version: latest.version ?? null,
     notas: latest.notas ?? null,
     pub_date: latest.pub_date ?? null,
-    archivos: archivosDe(dirVersion, latest.version),
+    archivos: archivosDe(dirVersion, latest.version, base),
   };
 }
 
-function archivosDe(dirVersion: string, version: string): ArchivoVersion[] {
+function archivosDe(dirVersion: string, version: string, base?: string): ArchivoVersion[] {
   try {
     return fs
       .readdirSync(dirVersion)
       .filter((n) => !n.endsWith('.sig'))
       .map((n) => ({
         nombre: n,
-        url: `${basePublica()}/api/updates/archivos/v${version}/${n}`,
+        url: `${basePublica(base)}/api/updates/archivos/v${version}/${n}`,
         bytes: fs.statSync(path.join(dirVersion, n)).size,
       }));
   } catch {
@@ -120,7 +174,7 @@ export interface VersionPublicada {
 }
 
 /** Todas las versiones publicadas en disco (para el historial del panel). */
-export function listarVersiones(): VersionPublicada[] {
+export function listarVersiones(base?: string): VersionPublicada[] {
   let vigente: string | null = null;
   try {
     vigente = leerLatest()?.version ?? null;
@@ -141,7 +195,7 @@ export function listarVersiones(): VersionPublicada[] {
   return carpetas
     .map((c) => {
       const version = c.slice(1);
-      const archivos = archivosDe(path.join(DIR_ARCHIVOS, c), version);
+      const archivos = archivosDe(path.join(DIR_ARCHIVOS, c), version, base);
       return {
         version,
         esVigente: version === vigente,
@@ -302,7 +356,7 @@ export interface SubidaVersion {
  * latest.json. El instalador que el updater de Tauri descarga en Windows es
  * el NSIS (.exe); el MSI queda disponible para instalación manual.
  */
-export function publicarVersion(subida: SubidaVersion): VersionVigente {
+export function publicarVersion(subida: SubidaVersion, base?: string): VersionVigente {
   const version = subida.version.trim();
   if (!SEMVER.test(version)) {
     throw httpError('La versión debe tener formato semver (ej. 0.1.4)', 400);
@@ -344,12 +398,12 @@ export function publicarVersion(subida: SubidaVersion): VersionVigente {
     platforms: {
       'windows-x86_64': {
         signature: firma,
-        url: `${basePublica()}/api/updates/archivos/v${version}/${subida.setup.nombre}`,
+        url: `${basePublica(base)}/api/updates/archivos/v${version}/${subida.setup.nombre}`,
       },
     },
   };
 
   fs.writeFileSync(PATH_LATEST, JSON.stringify(latest, null, 2) + '\n');
 
-  return estadoActual();
+  return estadoActual(base);
 }

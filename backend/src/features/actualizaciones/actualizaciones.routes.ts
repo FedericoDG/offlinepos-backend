@@ -4,6 +4,7 @@ import multer from 'multer';
 import path from 'path';
 import { authenticateJWT, requireAdmin } from '../../middlewares/auth.middleware';
 import { handleApiError } from '../../utils/api-error';
+import { resolverBasePublica } from '../../utils/base-publica';
 import { dirUpdates, estadoActual, eliminarArchivoVersion, eliminarVersion, listarVersiones, publicarVersion } from './actualizaciones.service';
 import type { ArchivoSubido } from './actualizaciones.service';
 
@@ -39,9 +40,10 @@ const subida = multer({
 router.use(authenticateJWT, requireAdmin);
 
 /** Versión vigente publicada (lo que ven los POS) + historial de versiones. */
-router.get('/actual', async (_req, res) => {
+router.get('/actual', async (req, res) => {
   try {
-    res.status(200).json({ ...estadoActual(), versiones: listarVersiones() });
+    const base = resolverBasePublica(req);
+    res.status(200).json({ ...estadoActual(base), versiones: listarVersiones(base) });
   } catch (error: any) {
     handleApiError(error, res, 'Error al consultar la versión vigente');
   }
@@ -75,16 +77,21 @@ router.post(
       const msi = tomar('msi');
       const msiFirma = tomar('msiFirma');
 
-      const resultado = publicarVersion({
-        version: String(req.body?.version ?? ''),
-        notas: String(req.body?.notas ?? ''),
-        setup,
-        // Las firmas se guardan como "<instalador>.sig" para que el panel
-        // y el updater las encuentren junto a su archivo.
-        setupSig: setupFirma && setup ? { tmp: setupFirma.tmp, nombre: `${setup.nombre}.sig` } : undefined,
-        msi,
-        msiSig: msiFirma && msi ? { tmp: msiFirma.tmp, nombre: `${msi.nombre}.sig` } : undefined,
-      });
+      const resultado = publicarVersion(
+        {
+          version: String(req.body?.version ?? ''),
+          notas: String(req.body?.notas ?? ''),
+          setup,
+          // Las firmas se guardan como "<instalador>.sig" para que el panel
+          // y el updater las encuentren junto a su archivo.
+          setupSig: setupFirma && setup ? { tmp: setupFirma.tmp, nombre: `${setup.nombre}.sig` } : undefined,
+          msi,
+          msiSig: msiFirma && msi ? { tmp: msiFirma.tmp, nombre: `${msi.nombre}.sig` } : undefined,
+        },
+        // El latest.json recién escrito debe llevar el origen del request (o
+        // PUBLIC_BASE_URL), nunca el localhost por defecto.
+        resolverBasePublica(req),
+      );
 
       res.status(201).json({
         message: `Versión ${resultado.version} publicada correctamente`,
@@ -111,10 +118,11 @@ router.post(
 router.delete('/versiones/:version/archivos/:nombre', async (req, res) => {
   try {
     const r = eliminarArchivoVersion(req.params.version as string, req.params.nombre as string);
+    const base = resolverBasePublica(req);
     res.status(200).json({
       message: `Archivo ${r.nombre} eliminado de la versión ${r.version}`,
-      ...estadoActual(),
-      versiones: listarVersiones(),
+      ...estadoActual(base),
+      versiones: listarVersiones(base),
     });
   } catch (error: any) {
     handleApiError(error, res, 'Error al eliminar el archivo');
@@ -128,10 +136,11 @@ router.delete('/versiones/:version/archivos/:nombre', async (req, res) => {
 router.delete('/versiones/:version', async (req, res) => {
   try {
     const r = eliminarVersion(req.params.version as string);
+    const base = resolverBasePublica(req);
     res.status(200).json({
       message: `Versión ${r.version} eliminada por completo`,
-      ...estadoActual(),
-      versiones: listarVersiones(),
+      ...estadoActual(base),
+      versiones: listarVersiones(base),
     });
   } catch (error: any) {
     handleApiError(error, res, 'Error al eliminar la versión');

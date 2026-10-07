@@ -1,7 +1,7 @@
-import os from 'os';
 import { Request, Response } from 'express';
 import { env } from '../../config/env';
 import { handleApiError } from '../../utils/api-error';
+import { resolverBasePublica } from '../../utils/base-publica';
 import { PreguntarDTO, ResultadoConsultaDTO, UsoConsultaDTO, FacturaOcrRequestDTO, PreguntarAgenteDTO, ContinuarAgenteDTO, BriefDTO, InformeDTO } from './chat.dtos';
 import { ChatService, type EventoAgenteServicio } from './chat.service';
 import {
@@ -22,71 +22,11 @@ import { llamarLLMStream } from './chat.llm';
 
 const chatService = new ChatService();
 
-function resolverBaseUrlParaMovil(req: Request): string {
-  // 1. Si existe PUBLIC_BASE_URL configurada en el servidor y no es localhost, usarla directamente
-  if (env.PUBLIC_BASE_URL && !env.PUBLIC_BASE_URL.includes('localhost') && !env.PUBLIC_BASE_URL.includes('127.0.0.1')) {
-    return env.PUBLIC_BASE_URL.replace(/\/$/, '');
-  }
-
-  // 2. Si el cliente envió un host explícito por query o body (ej: si se configuró una IP específica)
-  const hostParam = (req.query?.host as string) || (req.body?.host as string);
-  if (hostParam && !hostParam.includes('localhost') && !hostParam.includes('127.0.0.1')) {
-    const protocol = hostParam.startsWith('http') ? '' : 'http://';
-    return `${protocol}${hostParam}`.replace(/\/$/, '');
-  }
-
-  // 3. Si el host de la petición entrante es un dominio real externo o IP remota (no localhost)
-  const reqHost = req.get('x-forwarded-host') || req.get('host') || '';
-  if (reqHost && !reqHost.includes('localhost') && !reqHost.includes('127.0.0.1')) {
-    const protocol = req.get('x-forwarded-proto') || req.protocol || 'http';
-    return `${protocol}://${reqHost}`;
-  }
-
-  // 4. Si la petición provino de localhost/127.0.0.1 (caso de la app desktop en la misma PC):
-  // El teléfono no puede resolver "localhost" porque se conectaría a sí mismo.
-  // Buscamos la IP local de la computadora en la red Wi-Fi o Ethernet para que el celular en la misma red pueda acceder.
-  const nets = os.networkInterfaces();
-  const candidatas: string[] = [];
-
-  for (const name of Object.keys(nets)) {
-    const lower = name.toLowerCase();
-    // Descartar interfaces virtuales de Docker, puentes de red y máquinas virtuales
-    if (
-      lower.startsWith('br-') ||
-      lower.startsWith('docker') ||
-      lower.startsWith('veth') ||
-      lower.startsWith('virbr') ||
-      lower.startsWith('vmnet')
-    ) {
-      continue;
-    }
-    for (const net of nets[name] || []) {
-      if ((net.family === 'IPv4' || (net.family as any) === 4) && !net.internal) {
-        candidatas.push(net.address);
-      }
-    }
-  }
-
-  // Priorizar rangos típicos de red de área local (Wi-Fi o LAN comercial)
-  const ipLocal =
-    candidatas.find((ip) => ip.startsWith('192.168.')) ||
-    candidatas.find((ip) => ip.startsWith('10.')) ||
-    candidatas[0];
-
-  if (ipLocal) {
-    return `http://${ipLocal}:${env.PORT}`;
-  }
-
-  // Fallback si la máquina no tuviera ninguna interfaz de red externa
-  const protocol = req.get('x-forwarded-proto') || req.protocol || 'http';
-  return `${protocol}://${reqHost || 'localhost:4000'}`;
-}
-
 export class ChatController {
   async crearSesionMovil(req: Request, res: Response): Promise<void> {
     try {
       const sesion = crearSesionMovil();
-      const baseUrl = resolverBaseUrlParaMovil(req);
+      const baseUrl = resolverBasePublica(req);
       const urlMovil = `${baseUrl}/api/chat/movil-factura/${sesion.sessionId}`;
       res.json({
         sessionId: sesion.sessionId,

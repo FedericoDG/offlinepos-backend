@@ -13,7 +13,8 @@ import pagoRoutes from './features/pago/pago.routes';
 import estadisticaRoutes from './features/estadistica/estadistica.routes';
 import chatRoutes from './features/chat/chat.routes';
 import actualizacionesRoutes from './features/actualizaciones/actualizaciones.routes';
-import { dirUpdates } from './features/actualizaciones/actualizaciones.service';
+import { dirUpdates, repararLatest } from './features/actualizaciones/actualizaciones.service';
+import { resolverBasePublica } from './utils/base-publica';
 
 const app = express();
 
@@ -105,6 +106,20 @@ app.use('/api/estadisticas', estadisticaRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/updates/admin', actualizacionesRoutes);
 
+// Auto-reparación de latest.json: un archivo publicado antes de configurar
+// PUBLIC_BASE_URL puede tener URLs con localhost. Antes de servir el estático,
+// reescribimos sus platforms[*].url con el origen de ESTE request. Es seguro
+// porque la firma minisign cubre el artefacto descargado, no la URL. Si el
+// archivo no existe, seguimos al static, que devuelve 404 como siempre.
+app.get('/api/updates/latest.json', (req, res, next) => {
+  try {
+    repararLatest(resolverBasePublica(req));
+  } catch {
+    /* si la reparación falla, servimos lo que haya sin romper la descarga */
+  }
+  next();
+});
+
 // Descarga de versiones del POS (pública: el updater hace GET sin auth;
 // la confianza viene de la firma minisign embebida en el binario).
 app.use('/api/updates', express.static(dirUpdates(), {
@@ -116,6 +131,20 @@ app.use('/api/updates', express.static(dirUpdates(), {
     }
   },
 }));
+
+// Aviso de configuración en producción: sin PUBLIC_BASE_URL real, las URLs
+// absolutas (descargas del updater y link móvil del chat) quedan atadas al
+// host del request, que detrás de un proxy puede no ser el correcto.
+if (
+  env.NODE_ENV === 'production' &&
+  (env.PUBLIC_BASE_URL.includes('localhost') || env.PUBLIC_BASE_URL.includes('127.0.0.1'))
+) {
+  console.warn(
+    '[Config] NODE_ENV=production pero PUBLIC_BASE_URL es localhost/127.0.0.1: ' +
+      'las URLs absolutas de descarga y del link móvil van a depender del host del request. ' +
+      'Configurá PUBLIC_BASE_URL con el dominio público real (ej. https://vps1-binario.duckdns.org).',
+  );
+}
 
 app.listen(env.PORT, () => {
   console.log(`Servidor corriendo en http://localhost:${env.PORT}`);

@@ -37,7 +37,6 @@ const INCLUDE_COMPLETO = {
       precio_mensual: true,
       precio_anual: true,
       max_servidores: true,
-      max_clientes: true,
     },
   },
   pagos: {
@@ -92,10 +91,10 @@ export class SuscripcionService {
         ? Number(plan.precio_anual ?? Number(plan.precio_mensual) * 12)
         : Number(plan.precio_mensual);
 
-    // Contratar el plan es lo que materializa las licencias: el cupo que
-    // declara el plan (1 servidor para Basico, 1 servidor + 2 clientes para
-    // Pro) se emite aca. Va en la misma transaccion que la suscripcion porque
-    // un comercio con contrato y sin claves no puede abrir la caja.
+    // Contratar el plan es lo que materializa las licencias: el cupo de
+    // servidores que declara el plan se emite aca. Va en la misma transaccion
+    // que la suscripcion porque un comercio con contrato y sin claves no puede
+    // abrir la caja.
     const { suscripcion, ajuste } = await this.db.$transaction(async (tx) => {
       const creada = await tx.suscripcion.create({
         data: {

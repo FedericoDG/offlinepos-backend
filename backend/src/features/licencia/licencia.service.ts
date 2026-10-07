@@ -68,7 +68,7 @@ export class LicenciaService {
     }
 
     // El cupo del plan manda: no se emiten licencias que el contrato no cubre.
-    await verificarCupoDisponible(prisma, comercio.id, data.rol);
+    await verificarCupoDisponible(prisma, comercio.id);
 
     let clave = (data.clave ?? '').trim();
     if (clave) {
@@ -86,7 +86,7 @@ export class LicenciaService {
         comercio_id: comercio.id,
         clave_hash: encrypt(clave),
         clave_busqueda: hmacBusqueda(clave),
-        rol: data.rol,
+        rol: 'SERVIDOR',
         estado: 'activa',
         max_activaciones: data.max_activaciones,
       },
@@ -102,7 +102,7 @@ export class LicenciaService {
       licencia: {
         id: licencia.id,
         clave,
-        rol: licencia.rol as 'SERVIDOR' | 'CLIENTE',
+        rol: licencia.rol,
         estado: licencia.estado,
         max_activaciones: licencia.max_activaciones,
         comercio: { id: comercio.id, nombre: comercio.nombre },
@@ -126,7 +126,7 @@ export class LicenciaService {
           comercio_id: null,
           clave_hash: encrypt(clave),
           clave_busqueda: hmacBusqueda(clave),
-          rol: data.rol,
+          rol: 'SERVIDOR',
           estado: 'activa',
           max_activaciones: 1,
         },
@@ -135,7 +135,7 @@ export class LicenciaService {
       licencias.push({
         id: creada.id,
         clave,
-        rol: creada.rol as 'SERVIDOR' | 'CLIENTE',
+        rol: creada.rol,
         estado: creada.estado,
         max_activaciones: creada.max_activaciones,
       });

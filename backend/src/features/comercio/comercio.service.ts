@@ -32,7 +32,7 @@ export class ComercioService {
         ? {
             create: {
               clave_hash: encrypt(data.licencia.clave),
-              rol: data.licencia.rol,
+              rol: 'SERVIDOR' as const,
               max_activaciones: data.licencia.max_activaciones,
               estado: data.licencia.estado,
             },
@@ -98,7 +98,7 @@ export class ComercioService {
     tx: ClientePrisma,
     comercioId: string,
     licenciaIds: string[]
-  ): Promise<{ id: string; rol: 'SERVIDOR' | 'CLIENTE' }[]> {
+  ): Promise<{ id: string }[]> {
     const unicas = Array.from(new Set(licenciaIds));
     if (unicas.length === 0) return [];
 
@@ -114,20 +114,14 @@ export class ComercioService {
 
     // El cupo se controla al asignar: se cuentan las claves que ya son del
     // comercio mas las que vienen en esta operacion.
-    await validarCupoAsignacion(tx, comercioId, {
-      servidores: licencias.filter((licencia) => licencia.rol === 'SERVIDOR').length,
-      clientes: licencias.filter((licencia) => licencia.rol === 'CLIENTE').length,
-    });
+    await validarCupoAsignacion(tx, comercioId, { servidores: licencias.length });
 
     await tx.licencia.updateMany({
       where: { id: { in: unicas } },
       data: { comercio_id: comercioId },
     });
 
-    return licencias.map((licencia) => ({
-      id: licencia.id,
-      rol: licencia.rol as 'SERVIDOR' | 'CLIENTE',
-    }));
+    return licencias.map((licencia) => ({ id: licencia.id }));
   }
 
   async getAll() {
@@ -414,7 +408,6 @@ export class ComercioService {
             precio_mensual: Number(comercio.plan.precio_mensual),
             precio_anual: comercio.plan.precio_anual != null ? Number(comercio.plan.precio_anual) : null,
             max_servidores: comercio.plan.max_servidores,
-            max_clientes: comercio.plan.max_clientes,
             chat_mensajes_mes: comercio.plan.chat_mensajes_mes,
           }
         : null,

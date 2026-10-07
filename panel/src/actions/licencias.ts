@@ -2,8 +2,8 @@
 
 import { revalidatePath } from 'next/cache';
 import { api, esRedireccion, mensajeDeError } from '@/lib/api';
-import { ejecutar, leerNumero, leerTexto, type EstadoAccion } from './comun';
-import type { ClaveGenerada, RolLicencia } from '@/lib/tipos';
+import { ejecutar, leerNumero, type EstadoAccion } from './comun';
+import type { ClaveGenerada } from '@/lib/tipos';
 
 /** Claves libres recién generadas, en texto plano para copiar y entregar. */
 export interface GenerarClavesEstado extends EstadoAccion {
@@ -16,12 +16,10 @@ export interface GenerarClavesEstado extends EstadoAccion {
  * clave libre todavía no pertenece a nadie.
  */
 export async function generarClaves(_estado: GenerarClavesEstado, datos: FormData): Promise<GenerarClavesEstado> {
-  const rol = (leerTexto(datos, 'rol') ?? 'SERVIDOR') as RolLicencia;
   const cantidad = leerNumero(datos, 'cantidad') ?? 1;
 
   try {
     const respuesta = await api.post<{ message: string; licencias: ClaveGenerada[] }>('/api/licencias', {
-      rol,
       cantidad,
     });
 

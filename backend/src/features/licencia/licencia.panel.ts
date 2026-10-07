@@ -20,7 +20,6 @@ export const FiltroLicenciaDTO = z.object({
   /** Busca por nombre de comercio, sin distinguir mayusculas ni acentos de mas. */
   q: z.string().trim().max(120).optional(),
   comercio_id: z.string().trim().min(1).optional(),
-  rol: z.enum(['SERVIDOR', 'CLIENTE']).optional(),
   estado: z.string().trim().min(1).optional(),
   /** `?libres=1` devuelve solo las claves sin comercio, para asignarlas al alta. */
   libres: z.enum(['1', 'true']).optional(),
@@ -59,7 +58,6 @@ export class LicenciaPanelService {
     const where: any = {};
     if (filtro.comercio_id) where.comercio_id = filtro.comercio_id;
     else if (filtro.libres) where.comercio_id = null;
-    if (filtro.rol) where.rol = filtro.rol;
     if (filtro.estado) where.estado = filtro.estado;
     if (filtro.q) {
       where.comercio = { nombre: { contains: filtro.q, mode: 'insensitive' } };

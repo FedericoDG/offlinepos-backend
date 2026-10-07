@@ -14,11 +14,9 @@ import { COMERCIO_DEMO_1_ID } from './comercios.seed';
  */
 export const LICENCIA_LIBRE_SEED_ID = 'demo-licencia-libre';
 export const LICENCIA_SERVIDOR_SEED_ID = 'demo-licencia-servidor';
-export const LICENCIA_CLIENTE_SEED_ID = 'demo-licencia-cliente';
 
 export const CLAVE_LICENCIA_LIBRE_RAW = 'K7M2-Q9LP-4XZR';
 export const CLAVE_LICENCIA_SERVIDOR_RAW = 'B4TN-7QWM-2XKP';
-export const CLAVE_LICENCIA_CLIENTE_RAW = 'C8LZ-3RKV-6MNT';
 
 // Aliases historicos para imports existentes.
 export const LICENCIA_SEED_ID = LICENCIA_SERVIDOR_SEED_ID;
@@ -48,7 +46,6 @@ export async function seedLicencias(prisma: PrismaClient) {
     // Clave suelta (comercio null): existe pero no es activable hasta asignarla.
     { id: LICENCIA_LIBRE_SEED_ID, clave: CLAVE_LICENCIA_LIBRE_RAW, comercio_id: null, rol: RolLicencia.SERVIDOR, max: 1 },
     { id: LICENCIA_SERVIDOR_SEED_ID, clave: CLAVE_LICENCIA_SERVIDOR_RAW, comercio_id: COMERCIO_DEMO_1_ID, rol: RolLicencia.SERVIDOR, max: 3 },
-    { id: LICENCIA_CLIENTE_SEED_ID, clave: CLAVE_LICENCIA_CLIENTE_RAW, comercio_id: COMERCIO_DEMO_1_ID, rol: RolLicencia.CLIENTE, max: 5 },
   ];
 
   for (const def of definiciones) {
@@ -63,5 +60,4 @@ export async function seedLicencias(prisma: PrismaClient) {
   console.log('  Claves demo:');
   console.log(`    Libre    : ${CLAVE_LICENCIA_LIBRE_RAW} (sin comercio)`);
   console.log(`    Servidor : ${CLAVE_LICENCIA_SERVIDOR_RAW} (${COMERCIO_DEMO_1_ID})`);
-  console.log(`    Cliente  : ${CLAVE_LICENCIA_CLIENTE_RAW} (${COMERCIO_DEMO_1_ID})`);
 }

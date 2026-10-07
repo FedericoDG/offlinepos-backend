@@ -9,7 +9,8 @@ export interface Paginado<T> {
   paginas: number;
 }
 
-export type RolLicencia = 'SERVIDOR' | 'CLIENTE';
+/** Único tipo de licencia que queda: la caja (servidor). El cliente ya no existe. */
+export type RolLicencia = 'SERVIDOR';
 export type CicloFacturacion = 'MENSUAL' | 'ANUAL';
 export type EstadoSuscripcion = 'ACTIVA' | 'EN_GRACIA' | 'VENCIDA' | 'CANCELADA';
 export type MetodoPago = 'EFECTIVO' | 'TRANSFERENCIA' | 'MERCADO_PAGO' | 'TARJETA' | 'OTRO';
@@ -86,7 +87,6 @@ export interface ComercioDetallePlan {
   precio_mensual: number;
   precio_anual: number | null;
   max_servidores: number;
-  max_clientes: number;
   chat_mensajes_mes: number;
 }
 
@@ -180,7 +180,6 @@ export interface ClaveGenerada {
 /** Resumen de una clave que se asignó a un comercio en el alta. */
 export interface ClaveAsignada {
   id: string;
-  rol: RolLicencia;
 }
 
 export interface Plan {
@@ -192,7 +191,6 @@ export interface Plan {
   precio_anual: number | null;
   moneda: string;
   max_servidores: number;
-  max_clientes: number;
   chat_mensajes_mes: number;
   activo: boolean;
   comercios_con_plan: number;
@@ -239,7 +237,7 @@ export interface Suscripcion {
   cancelada_en: string | null;
   nota: string | null;
   comercio: { id: string; nombre: string };
-  plan: { id: string; codigo: string; nombre: string; precio_mensual: number; precio_anual: number | null; max_servidores: number; max_clientes: number } | null;
+  plan: { id: string; codigo: string; nombre: string; precio_mensual: number; precio_anual: number | null; max_servidores: number } | null;
   pagos: PagoResumido[];
   ajuste_licencias?: AjusteLicencias;
   createdAt: string;

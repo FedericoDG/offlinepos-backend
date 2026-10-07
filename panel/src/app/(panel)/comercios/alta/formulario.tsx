@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useActionState, useMemo, useState } from 'react';
+import { useActionState, useState } from 'react';
 import { CheckCircle2, KeyRound, Plus } from 'lucide-react';
 import { crearComercioConClaves, type CrearComercioConClavesEstado } from '@/actions/comercios';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -10,12 +10,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Field, FieldGroup, FieldRow } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import type { LicenciaListada, Plan, RolLicencia } from '@/lib/tipos';
-
-const ETIQUETA_ROL: Record<RolLicencia, string> = {
-  SERVIDOR: 'Servidor (la caja)',
-  CLIENTE: 'Cliente (terminal)',
-};
+import type { LicenciaListada, Plan } from '@/lib/tipos';
 
 /**
  * Alta con la forma real del negocio: primero se generan las claves sueltas y
@@ -31,14 +26,6 @@ export function FormularioAltaComercio({ planes, claves }: { planes: Plan[]; cla
     {}
   );
   const [seleccion, setSeleccion] = useState<Set<string>>(new Set());
-
-  const grupos = useMemo(
-    () => ({
-      SERVIDOR: claves.filter((clave) => clave.rol === 'SERVIDOR'),
-      CLIENTE: claves.filter((clave) => clave.rol === 'CLIENTE'),
-    }),
-    [claves]
-  );
 
   const alternar = (id: string) => (marcado: boolean) => {
     setSeleccion((actual) => {
@@ -68,7 +55,7 @@ export function FormularioAltaComercio({ planes, claves }: { planes: Plan[]; cla
             </Field>
           </FieldRow>
 
-          <Field label="Plan" description="Define el cupo de claves servidor y cliente que el comercio puede tener.">
+          <Field label="Plan" description="Define el cupo de claves servidor que el comercio puede tener.">
             <Select name="plan_id" required>
               <SelectTrigger>
                 <SelectValue placeholder="Elegí un plan" />
@@ -76,8 +63,7 @@ export function FormularioAltaComercio({ planes, claves }: { planes: Plan[]; cla
               <SelectContent>
                 {planes.map((plan) => (
                   <SelectItem key={plan.id} value={plan.id}>
-                    {plan.nombre} — {plan.max_servidores} servidor{plan.max_servidores === 1 ? '' : 'es'} /{' '}
-                    {plan.max_clientes} cliente{plan.max_clientes === 1 ? '' : 's'}
+                    {plan.nombre} — {plan.max_servidores} servidor{plan.max_servidores === 1 ? '' : 'es'}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -97,35 +83,25 @@ export function FormularioAltaComercio({ planes, claves }: { planes: Plan[]; cla
                 .
               </p>
             ) : (
-              <div className="space-y-4">
-                {(Object.keys(grupos) as RolLicencia[]).map((rol) =>
-                  grupos[rol].length === 0 ? null : (
-                    <div key={rol} className="space-y-2">
-                      <p className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
-                        {ETIQUETA_ROL[rol]} (
-                        {grupos[rol].filter((clave) => seleccion.has(clave.id)).length} de {grupos[rol].length})
-                      </p>
-                      <ul className="divide-y rounded-md border">
-                        {grupos[rol].map((clave) => (
-                          <li key={clave.id} className="flex items-center gap-3 px-3 py-2">
-                            <Checkbox
-                              id={`clave-${clave.id}`}
-                              checked={seleccion.has(clave.id)}
-                              onCheckedChange={(marcado) => alternar(clave.id)(marcado === true)}
-                            />
-                            <label
-                              htmlFor={`clave-${clave.id}`}
-                              className="flex-1 cursor-pointer font-mono text-sm"
-                            >
-                              {clave.clave_original ?? '(no disponible)'}
-                            </label>
-                            <KeyRound className="text-muted-foreground size-3.5" />
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )
-                )}
+              <div className="space-y-2">
+                <p className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
+                  Claves de servidor ({claves.filter((clave) => seleccion.has(clave.id)).length} de {claves.length})
+                </p>
+                <ul className="divide-y rounded-md border">
+                  {claves.map((clave) => (
+                    <li key={clave.id} className="flex items-center gap-3 px-3 py-2">
+                      <Checkbox
+                        id={`clave-${clave.id}`}
+                        checked={seleccion.has(clave.id)}
+                        onCheckedChange={(marcado) => alternar(clave.id)(marcado === true)}
+                      />
+                      <label htmlFor={`clave-${clave.id}`} className="flex-1 cursor-pointer font-mono text-sm">
+                        {clave.clave_original ?? '(no disponible)'}
+                      </label>
+                      <KeyRound className="text-muted-foreground size-3.5" />
+                    </li>
+                  ))}
+                </ul>
               </div>
             )}
           </Field>

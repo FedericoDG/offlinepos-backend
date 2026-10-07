@@ -12,9 +12,8 @@ import {
 } from '@/actions/licencias';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
-import { Field, FieldGroup, FieldRow } from '@/components/ui/field';
+import { Field, FieldGroup } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { BotonAccion } from '@/components/ui/boton-accion';
 import {
   Dialog,
@@ -26,7 +25,7 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 import { fecha } from '@/lib/formato';
-import type { LicenciaListada, RolLicencia } from '@/lib/tipos';
+import type { LicenciaListada } from '@/lib/tipos';
 
 /**
  * Genera claves sueltas ("libres"). Todavía no pertenecen a un comercio: se
@@ -35,7 +34,6 @@ import type { LicenciaListada, RolLicencia } from '@/lib/tipos';
  */
 export function GenerarClaves() {
   const [abierto, setAbierto] = useState(false);
-  const [rol, setRol] = useState<RolLicencia>('SERVIDOR');
   const [estado, accion, pendiente] = useActionState<GenerarClavesEstado, FormData>(generarClaves, {});
 
   // Al terminar una generación exitosa: aviso y cierre del modal. El error
@@ -68,22 +66,13 @@ export function GenerarClaves() {
 
         <form action={accion} className="grid gap-6">
           <FieldGroup>
-            <FieldRow>
-              <Field label="Rol">
-                <Select name="rol" value={rol} onValueChange={(valor) => setRol(valor as RolLicencia)}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="SERVIDOR">Servidor (la caja)</SelectItem>
-                    <SelectItem value="CLIENTE">Cliente (terminal)</SelectItem>
-                  </SelectContent>
-                </Select>
-              </Field>
-              <Field label="Cantidad" htmlFor="cantidad" description="Hasta 50 por tanda.">
-                <Input id="cantidad" name="cantidad" type="number" min={1} max={50} defaultValue={1} required />
-              </Field>
-            </FieldRow>
+            <Field
+              label="Cantidad"
+              htmlFor="cantidad"
+              description="Hasta 50 por tanda. Todas las claves son de servidor."
+            >
+              <Input id="cantidad" name="cantidad" type="number" min={1} max={50} defaultValue={1} required />
+            </Field>
           </FieldGroup>
 
           {estado.error && (

@@ -29,7 +29,7 @@ function CamposPlan({ plan }: { plan?: Plan }) {
           id="descripcion"
           name="descripcion"
           defaultValue={plan?.descripcion ?? ''}
-          placeholder="Un servidor y hasta dos clientes conectados a él."
+          placeholder="Un servidor y su caja."
         />
       </Field>
 
@@ -57,30 +57,17 @@ function CamposPlan({ plan }: { plan?: Plan }) {
         </Field>
       </FieldRow>
 
-      <FieldRow>
-        <Field label="Servidores" htmlFor="max_servidores" description="Licencias con rol SERVIDOR.">
-          <Input
-            id="max_servidores"
-            name="max_servidores"
-            type="number"
-            min={0}
-            max={50}
-            defaultValue={plan?.max_servidores ?? 1}
-            required
-          />
-        </Field>
-        <Field label="Clientes" htmlFor="max_clientes" description="Licencias con rol CLIENTE. Básico = 0, Pro = 2.">
-          <Input
-            id="max_clientes"
-            name="max_clientes"
-            type="number"
-            min={0}
-            max={200}
-            defaultValue={plan?.max_clientes ?? 0}
-            required
-          />
-        </Field>
-      </FieldRow>
+      <Field label="Servidores" htmlFor="max_servidores" description="Licencias servidor (cajas) que incluye el plan.">
+        <Input
+          id="max_servidores"
+          name="max_servidores"
+          type="number"
+          min={0}
+          max={50}
+          defaultValue={plan?.max_servidores ?? 1}
+          required
+        />
+      </Field>
 
       <Field label="Mensajes chat mensuales" htmlFor="chat_mensajes_mes" description="0 = ilimitado. Si no se define plan, usa el default del sistema.">
         <Input

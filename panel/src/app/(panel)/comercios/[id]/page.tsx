@@ -16,7 +16,7 @@ import { consultas } from '@/lib/consultas';
 import { fecha, fechaLarga, numero, plata } from '@/lib/formato';
 import { cn } from '@/lib/utils';
 import { EncabezadoPagina } from '@/components/panel/encabezado';
-import { BadgeDeuda, BadgeEstadoClave, BadgePlan, BadgeRolClave } from '@/components/panel/estado-badge';
+import { BadgeDeuda, BadgeEstadoClave, BadgePlan } from '@/components/panel/estado-badge';
 import { Kpi } from '@/components/dashboard/kpi';
 import { Button } from '@/components/ui/button';
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -68,8 +68,6 @@ export default async function PaginaDetalleComercio({ params }: { params: Promis
   const { comercio, plan, claves, consumo_chat: consumo, pagos, deuda } = detalle;
 
   const clavesActivas = claves.filter((clave) => clave.estado === 'activa');
-  const servidores = clavesActivas.filter((clave) => clave.rol === 'SERVIDOR').length;
-  const clientes = clavesActivas.filter((clave) => clave.rol === 'CLIENTE').length;
 
   const ilimitado = consumo.cupo === 0;
   const pct = ilimitado ? 0 : Math.min(100, Math.round((consumo.total_mensajes / consumo.cupo) * 100));
@@ -138,8 +136,8 @@ export default async function PaginaDetalleComercio({ params }: { params: Promis
           etiqueta="Claves activas"
           valor={clavesActivas.length}
           tono="acento"
-          detalle={`${servidores} servidor · ${clientes} cliente${
-            plan ? ` · cupo ${plan.max_servidores} servidor / ${plan.max_clientes} cliente` : ''
+          detalle={`${clavesActivas.length} servidor${clavesActivas.length === 1 ? '' : 'es'}${
+            plan ? ` · cupo ${plan.max_servidores}` : ''
           }`}
         />
         <Kpi
@@ -203,7 +201,6 @@ export default async function PaginaDetalleComercio({ params }: { params: Promis
               <TableHeader>
                 <TableRow>
                   <TableHead>Clave</TableHead>
-                  <TableHead>Rol</TableHead>
                   <TableHead className="text-right">Mensajes</TableHead>
                   <TableHead className="text-right">Tokens</TableHead>
                 </TableRow>
@@ -212,9 +209,6 @@ export default async function PaginaDetalleComercio({ params }: { params: Promis
                 {consumo.por_clave.map((fila, indice) => (
                   <TableRow key={`${fila.clave_mascara ?? 'clave'}-${indice}`}>
                     <TableCell className="font-mono text-xs">{fila.clave_mascara ?? '(no disponible)'}</TableCell>
-                    <TableCell>
-                      <BadgeRolClave rol={fila.rol} />
-                    </TableCell>
                     <TableCell className="cifra text-right tabular-nums">{numero(fila.mensajes)}</TableCell>
                     <TableCell className="cifra text-right tabular-nums">{numero(fila.tokens)}</TableCell>
                   </TableRow>
@@ -255,7 +249,6 @@ export default async function PaginaDetalleComercio({ params }: { params: Promis
               <TableHeader>
                 <TableRow>
                   <TableHead className="pl-6">Clave</TableHead>
-                  <TableHead>Rol</TableHead>
                   <TableHead>Estado</TableHead>
                   <TableHead>Activaciones</TableHead>
                   <TableHead>Última activación</TableHead>
@@ -266,9 +259,6 @@ export default async function PaginaDetalleComercio({ params }: { params: Promis
                 {claves.map((clave) => (
                   <TableRow key={clave.id}>
                     <TableCell className="pl-6 font-mono text-xs">{clave.clave_mascara ?? '(no disponible)'}</TableCell>
-                    <TableCell>
-                      <BadgeRolClave rol={clave.rol} />
-                    </TableCell>
                     <TableCell>
                       <BadgeEstadoClave estado={clave.estado} />
                     </TableCell>

@@ -1,11 +1,9 @@
 import { z } from 'zod';
 
 /**
- * Un plan es lo que se vende. Arrancamos con dos:
- *   BASICO -> 1 servidor, 0 clientes
- *   PRO    -> 1 servidor, 2 clientes
- * Los cupos son editables porque manana puede aparecer un tercero; lo que no
- * es editable es el `codigo`, que es la referencia estable del plan.
+ * Un plan es lo que se vende. El cupo que declara es el de licencias servidor
+ * (la caja). Los cupos son editables porque manana puede aparecer otro; lo que
+ * no es editable es el `codigo`, que es la referencia estable del plan.
  */
 export const CrearPlanDTO = z.object({
   codigo: z
@@ -40,12 +38,6 @@ export const CrearPlanDTO = z.object({
     .min(0, 'max_servidores no puede ser negativo')
     .max(50, 'max_servidores no puede superar 50')
     .default(1),
-  max_clientes: z
-    .number({ message: 'max_clientes debe ser un número entero' })
-    .int()
-    .min(0, 'max_clientes no puede ser negativo')
-    .max(200, 'max_clientes no puede superar 200')
-    .default(0),
   chat_mensajes_mes: z
     .number({ message: 'chat_mensajes_mes debe ser un número entero' })
     .int()
@@ -71,7 +63,6 @@ export interface PlanDTO {
   precio_anual: number | null;
   moneda: string;
   max_servidores: number;
-  max_clientes: number;
   chat_mensajes_mes: number;
   activo: boolean;
   /** Comercios que hoy tienen este plan asignado directo (Comercio.plan_id). */

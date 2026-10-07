@@ -8,10 +8,10 @@ import { httpError } from '../../utils/api-error';
  * Aprovisionamiento de licencias a partir del cupo del plan.
  *
  * La regla es una sola: las licencias activas de un comercio tienen que
- * coincidir con lo que declara su plan (`max_servidores` y `max_clientes`).
- * Todo lo de abajo existe para sostener esa igualdad cuando se contrata un
- * plan o cuando se cambia de plan, sin que nadie tenga que acordarse de emitir
- * o dar de baja claves a mano.
+ * coincidir con lo que declara su plan (`max_servidores`). Todo lo de abajo
+ * existe para sostener esa igualdad cuando se contrata un plan o cuando se
+ * cambia de plan, sin que nadie tenga que acordarse de emitir o dar de baja
+ * claves a mano.
  *
  * Se trabaja siempre con el cliente de la transaccion que abre el llamador:
  * emitir licencias y crear la suscripcion tienen que pasar juntos o no pasar.
@@ -42,7 +42,6 @@ export function huboAjuste(ajuste: AjusteLicencias): boolean {
 
 export interface CupoPlan {
   max_servidores: number;
-  max_clientes: number;
 }
 
 function generarClave(): string {
@@ -95,16 +94,16 @@ function descifrarSeguro(cifrada: string): string {
 }
 
 /**
- * Deja las licencias del comercio en linea con el cupo del plan, por rol.
+ * Deja las licencias del comercio en linea con el cupo de servidores del plan.
  *
  * Faltan licencias -> primero se reactivan las que se habian suspendido por un
  * cambio de plan anterior (asi el comercio recupera la clave que ya tenia
  * anotada en vez de recibir una nueva), y recien despues se emiten nuevas.
  *
  * Sobran licencias -> se suspenden, pero eligiendo con criterio: primero las
- * que nunca se activaron, y entre las activadas, las mas nuevas. Bajar de Pro
- * a Basico tiene que apagar la terminal que se sumo ultima, no la caja que el
- * comercio viene usando hace un año.
+ * que nunca se activaron, y entre las activadas, las mas nuevas. Bajar de plan
+ * tiene que apagar la caja que se sumo ultima, no la que el comercio viene
+ * usando hace un año.
  */
 export async function sincronizarLicenciasConPlan(
   tx: ClientePrisma,
@@ -112,83 +111,74 @@ export async function sincronizarLicenciasConPlan(
   plan: CupoPlan
 ): Promise<AjusteLicencias> {
   const ajuste: AjusteLicencias = { emitidas: [], reactivadas: [], suspendidas: [] };
+  const rol: RolLicencia = 'SERVIDOR';
+  const cupo = plan.max_servidores;
 
-  const objetivos: { rol: RolLicencia; cupo: number }[] = [
-    { rol: 'SERVIDOR', cupo: plan.max_servidores },
-    { rol: 'CLIENTE', cupo: plan.max_clientes },
-  ];
+  const licencias = await tx.licencia.findMany({
+    where: { comercio_id: comercioId },
+    include: { activaciones: { select: { id: true } } },
+    orderBy: { createdAt: 'asc' },
+  });
 
-  for (const { rol, cupo } of objetivos) {
-    const licencias = await tx.licencia.findMany({
-      where: { comercio_id: comercioId, rol },
-      include: { activaciones: { select: { id: true } } },
-      orderBy: { createdAt: 'asc' },
+  const activas = licencias.filter((licencia) => licencia.estado === 'activa');
+
+  if (activas.length < cupo) {
+    let faltan = cupo - activas.length;
+
+    const suspendidas = licencias.filter((licencia) => licencia.estado !== 'activa');
+    for (const licencia of suspendidas.slice(0, faltan)) {
+      await tx.licencia.update({ where: { id: licencia.id }, data: { estado: 'activa' } });
+      ajuste.reactivadas.push({ id: licencia.id, clave: descifrarSeguro(licencia.clave_hash), rol });
+      faltan -= 1;
+    }
+
+    for (let i = 0; i < faltan; i++) {
+      const clave = await generarClaveUnica(tx);
+      const creada = await tx.licencia.create({
+        data: {
+          comercio_id: comercioId,
+          clave_hash: encrypt(clave),
+          clave_busqueda: hmacBusqueda(clave),
+          rol,
+          estado: 'activa',
+          // Una licencia habilita un puesto. Reinstalar la misma maquina no
+          // consume cupo: el backend reconoce el instalacion_id.
+          max_activaciones: 1,
+        },
+      });
+      ajuste.emitidas.push({ id: creada.id, clave, rol });
+    }
+  } else if (activas.length > cupo) {
+    const sobran = activas.length - cupo;
+
+    const candidatas = [...activas].sort((a, b) => {
+      const porUso = a.activaciones.length - b.activaciones.length;
+      if (porUso !== 0) return porUso;
+      return b.createdAt.getTime() - a.createdAt.getTime();
     });
 
-    const activas = licencias.filter((licencia) => licencia.estado === 'activa');
-
-    if (activas.length < cupo) {
-      let faltan = cupo - activas.length;
-
-      const suspendidas = licencias.filter((licencia) => licencia.estado !== 'activa');
-      for (const licencia of suspendidas.slice(0, faltan)) {
-        await tx.licencia.update({ where: { id: licencia.id }, data: { estado: 'activa' } });
-        ajuste.reactivadas.push({ id: licencia.id, clave: descifrarSeguro(licencia.clave_hash), rol });
-        faltan -= 1;
-      }
-
-      for (let i = 0; i < faltan; i++) {
-        const clave = await generarClaveUnica(tx);
-        const creada = await tx.licencia.create({
-          data: {
-            comercio_id: comercioId,
-            clave_hash: encrypt(clave),
-            clave_busqueda: hmacBusqueda(clave),
-            rol,
-            estado: 'activa',
-            // Una licencia habilita un puesto. Reinstalar la misma maquina no
-            // consume cupo: el backend reconoce el instalacion_id.
-            max_activaciones: 1,
-          },
-        });
-        ajuste.emitidas.push({ id: creada.id, clave, rol });
-      }
-    } else if (activas.length > cupo) {
-      const sobran = activas.length - cupo;
-
-      const candidatas = [...activas].sort((a, b) => {
-        const porUso = a.activaciones.length - b.activaciones.length;
-        if (porUso !== 0) return porUso;
-        return b.createdAt.getTime() - a.createdAt.getTime();
+    for (const licencia of candidatas.slice(0, sobran)) {
+      await tx.licencia.update({
+        where: { id: licencia.id },
+        data: { estado: ESTADO_FUERA_DE_PLAN },
       });
-
-      for (const licencia of candidatas.slice(0, sobran)) {
-        await tx.licencia.update({
-          where: { id: licencia.id },
-          data: { estado: ESTADO_FUERA_DE_PLAN },
-        });
-        ajuste.suspendidas.push({ id: licencia.id, clave: descifrarSeguro(licencia.clave_hash), rol });
-      }
+      ajuste.suspendidas.push({ id: licencia.id, clave: descifrarSeguro(licencia.clave_hash), rol });
     }
   }
 
   return ajuste;
 }
 
-/** Cuenta las licencias activas del comercio por rol, para mostrar el cupo usado. */
+/** Cuenta las licencias activas del comercio, para mostrar el cupo usado. */
 export async function contarLicenciasActivas(
   tx: ClientePrisma,
   comercioId: string
-): Promise<{ servidores: number; clientes: number }> {
-  const licencias = await tx.licencia.findMany({
+): Promise<{ servidores: number }> {
+  const servidores = await tx.licencia.count({
     where: { comercio_id: comercioId, estado: 'activa' },
-    select: { rol: true },
   });
 
-  return {
-    servidores: licencias.filter((l) => l.rol === 'SERVIDOR').length,
-    clientes: licencias.filter((l) => l.rol === 'CLIENTE').length,
-  };
+  return { servidores };
 }
 
 /**
@@ -230,36 +220,31 @@ async function resolverPlan(
  * Frena la emision manual de una licencia que el plan contratado no cubre.
  *
  * El cupo del plan es la unica fuente de verdad: si el comercio esta en Basico
- * no puede tener terminales, y en Pro no puede tener una tercera. La salida no
- * es emitir igual, es venderle el plan que corresponde — por eso el mensaje
- * dice que hay que mejorar el plan y no solo que no se puede.
+ * no puede tener una segunda caja. La salida no es emitir igual, es venderle el
+ * plan que corresponde — por eso el mensaje dice que hay que mejorar el plan y
+ * no solo que no se puede.
  */
 export async function verificarCupoDisponible(
   tx: ClientePrisma,
-  comercioId: string,
-  rol: RolLicencia
+  comercioId: string
 ): Promise<void> {
   const plan = await resolverPlan(tx, comercioId);
-
-  const esServidor = rol === 'SERVIDOR';
-  const cupo = esServidor ? plan.max_servidores : plan.max_clientes;
-  const etiqueta = esServidor ? 'servidor' : 'cliente';
-  const plural = esServidor ? 'servidores' : 'clientes';
+  const cupo = plan.max_servidores;
 
   const activas = await tx.licencia.count({
-    where: { comercio_id: comercioId, rol, estado: 'activa' },
+    where: { comercio_id: comercioId, estado: 'activa' },
   });
 
   if (cupo === 0) {
     throw httpError(
-      `El plan ${plan.nombre} no incluye licencias de ${etiqueta}. Mejora el plan del comercio para habilitarlas.`,
+      `El plan ${plan.nombre} no incluye licencias de servidor. Mejora el plan del comercio para habilitarlas.`,
       409
     );
   }
 
   if (activas >= cupo) {
     throw httpError(
-      `El plan ${plan.nombre} cubre ${cupo} ${cupo === 1 ? etiqueta : plural} y el comercio ya ${
+      `El plan ${plan.nombre} cubre ${cupo} ${cupo === 1 ? 'servidor' : 'servidores'} y el comercio ya ${
         activas === 1 ? 'tiene 1 activa' : `tiene ${activas} activas`
       }. Mejora el plan para sumar otra.`,
       409
@@ -267,14 +252,13 @@ export async function verificarCupoDisponible(
   }
 }
 
-/** Cuantas claves se pretenden asignar a un comercio, por rol. */
+/** Cuantas claves se pretenden asignar a un comercio. */
 export interface CupoAsignacion {
   servidores: number;
-  clientes: number;
 }
 
 /**
- * Valida que asignar estas claves no supere el cupo del plan del comercio.
+ * Valida que asignar estas claves no supere el cupo de servidores del plan.
  *
  * A diferencia de `verificarCupoDisponible`, que frena la emision de a una, aca
  * el panel asigna varias claves sueltas en la misma operacion: la cuenta es
@@ -288,33 +272,27 @@ export async function validarCupoAsignacion(
   asignar: CupoAsignacion
 ): Promise<void> {
   const plan = await resolverPlan(tx, comercioId);
+  const cupo = plan.max_servidores;
+  const cantidad = asignar.servidores;
+  if (cantidad <= 0) return;
 
-  const objetivos: { rol: RolLicencia; cantidad: number; cupo: number; etiqueta: string; plural: string }[] = [
-    { rol: 'SERVIDOR', cantidad: asignar.servidores, cupo: plan.max_servidores, etiqueta: 'servidor', plural: 'servidores' },
-    { rol: 'CLIENTE', cantidad: asignar.clientes, cupo: plan.max_clientes, etiqueta: 'cliente', plural: 'clientes' },
-  ];
+  if (cupo === 0) {
+    throw httpError(
+      `El plan ${plan.nombre} no incluye licencias de servidor. Mejora el plan del comercio para habilitarlas.`,
+      409
+    );
+  }
 
-  for (const { rol, cantidad, cupo, etiqueta, plural } of objetivos) {
-    if (cantidad <= 0) continue;
+  const asignadas = await tx.licencia.count({
+    where: { comercio_id: comercioId, estado: 'activa' },
+  });
 
-    if (cupo === 0) {
-      throw httpError(
-        `El plan ${plan.nombre} no incluye licencias de ${etiqueta}. Mejora el plan del comercio para habilitarlas.`,
-        409
-      );
-    }
-
-    const asignadas = await tx.licencia.count({
-      where: { comercio_id: comercioId, rol, estado: 'activa' },
-    });
-
-    if (asignadas + cantidad > cupo) {
-      throw httpError(
-        `El plan ${plan.nombre} cubre ${cupo} ${cupo === 1 ? etiqueta : plural} y el comercio ya tiene ${asignadas} ${
-          asignadas === 1 ? 'asignada' : 'asignadas'
-        }. Estas queriendo sumar ${cantidad} mas. Mejora el plan para sumarlas.`,
-        409
-      );
-    }
+  if (asignadas + cantidad > cupo) {
+    throw httpError(
+      `El plan ${plan.nombre} cubre ${cupo} ${cupo === 1 ? 'servidor' : 'servidores'} y el comercio ya tiene ${asignadas} ${
+        asignadas === 1 ? 'asignada' : 'asignadas'
+      }. Estas queriendo sumar ${cantidad} mas. Mejora el plan para sumarlas.`,
+      409
+    );
   }
 }

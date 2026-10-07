@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { MessageSquare, Monitor, MonitorSmartphone } from 'lucide-react';
+import { MessageSquare, Monitor } from 'lucide-react';
 import { EncabezadoPagina } from '@/components/panel/encabezado';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardAction, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
@@ -18,7 +18,7 @@ export default async function PaginaPlanes() {
     <>
       <EncabezadoPagina
         titulo="Tipos de suscripción"
-        descripcion="Lo que se vende. El cupo de servidores y clientes de cada plan es el que después limita cuántas licencias se le emiten al comercio."
+        descripcion="Lo que se vende. El cupo de servidores de cada plan es el que después limita cuántas licencias se le emiten al comercio."
         accion={<NuevoPlan />}
       />
 
@@ -66,11 +66,6 @@ export default async function PaginaPlanes() {
                     <span className="text-muted-foreground">
                       {plan.max_servidores === 1 ? 'servidor' : 'servidores'}
                     </span>
-                  </div>
-                  <div className="flex items-center gap-2.5">
-                    <MonitorSmartphone className="text-primary size-4" />
-                    <span className="cifra font-medium tabular-nums">{plan.max_clientes}</span>
-                    <span className="text-muted-foreground">{plan.max_clientes === 1 ? 'cliente' : 'clientes'}</span>
                   </div>
                   <div className="flex items-center gap-2.5">
                     <MessageSquare className="text-primary size-4" />

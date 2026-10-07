@@ -47,7 +47,7 @@ export default async function PaginaDashboard() {
         <Kpi
           etiqueta="Licencias servidor activas"
           valor={servidoresActivos}
-          detalle="las cajas de cada comercio; las terminales cliente se cuentan en Claves"
+          detalle="las cajas activas de cada comercio"
         />
         <Kpi
           etiqueta="Planes activos"
@@ -89,7 +89,6 @@ export default async function PaginaDashboard() {
                   <TableHead className="pl-6">Comercio</TableHead>
                   <TableHead>Plan</TableHead>
                   <TableHead>Licencias servidor</TableHead>
-                  <TableHead>Licencias cliente</TableHead>
                   <TableHead>Alta</TableHead>
                   <TableHead className="pr-6 text-right">Acciones</TableHead>
                 </TableRow>
@@ -97,7 +96,7 @@ export default async function PaginaDashboard() {
               <TableBody>
                 {comercios.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-muted-foreground h-28 text-center">
+                    <TableCell colSpan={5} className="text-muted-foreground h-28 text-center">
                       Todavía no hay comercios cargados.
                     </TableCell>
                   </TableRow>
@@ -106,11 +105,8 @@ export default async function PaginaDashboard() {
                     const plan = comercio.plan_id ? porId.get(comercio.plan_id) : undefined;
                     const activas = comercio.licencias.filter((l) => l.estado === 'activa');
                     const servidores = activas.filter((l) => l.rol === 'SERVIDOR').length;
-                    const clientes = activas.filter((l) => l.rol === 'CLIENTE').length;
                     const cupoServidores = plan?.max_servidores ?? '—';
-                    const cupoClientes = plan?.max_clientes ?? '—';
                     const excedeServidores = typeof cupoServidores === 'number' && servidores > cupoServidores;
-                    const excedeClientes = typeof cupoClientes === 'number' && clientes > cupoClientes;
 
                     return (
                       <TableRow key={comercio.id}>
@@ -127,16 +123,6 @@ export default async function PaginaDashboard() {
                             {servidores} / {cupoServidores}
                           </span>
                           {excedeServidores && (
-                            <Badge variant="danger" className="ml-2">
-                              sobre cupo
-                            </Badge>
-                          )}
-                        </TableCell>
-                        <TableCell className="whitespace-nowrap">
-                          <span className="cifra tabular-nums">
-                            {clientes} / {cupoClientes}
-                          </span>
-                          {excedeClientes && (
                             <Badge variant="danger" className="ml-2">
                               sobre cupo
                             </Badge>

@@ -133,7 +133,7 @@ export function AjustarCupoBinny({ comercio }: { comercio: Comercio }) {
         </Button>
       }
       titulo={`Cupo de Binny — ${comercio.nombre}`}
-      descripcion="El cupo es del comercio: se comparte entre todas sus claves (servidor y clientes). Vacío = usa el cupo del plan contratado. 0 = ilimitado solo para este comercio. Entero >0 = límite mensual custom. Se aplica de inmediato al próximo mensaje."
+      descripcion="El cupo es del comercio: se comparte entre todas sus claves. Vacío = usa el cupo del plan contratado. 0 = ilimitado solo para este comercio. Entero >0 = límite mensual custom. Se aplica de inmediato al próximo mensaje."
       accion={ajustarCupoBinny}
       textoGuardar="Guardar cupo"
     >

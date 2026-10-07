@@ -45,7 +45,7 @@ export const consultas = {
   },
 
   /** Listado paginado de licencias. `q` busca por nombre de comercio; `libres=1` trae solo las claves sin asignar. */
-  licencias: (filtros: { q?: string; comercio_id?: string; rol?: string; estado?: string; libres?: 1; pagina?: number; limite?: number } = {}) =>
+  licencias: (filtros: { q?: string; comercio_id?: string; estado?: string; libres?: 1; pagina?: number; limite?: number } = {}) =>
     api.get<Paginado<LicenciaListada>>(`/api/licencias${query({ ...filtros })}`),
 
   chatConsumo: (periodo?: string) =>

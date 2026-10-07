@@ -3,7 +3,6 @@ import Link from 'next/link';
 import { ArrowRight, Mail, Phone, Store } from 'lucide-react';
 import { EncabezadoPagina } from '@/components/panel/encabezado';
 import { BadgeDeuda, BadgePlan } from '@/components/panel/estado-badge';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -72,7 +71,6 @@ export default async function PaginaComercios() {
                   const nombrePlan = comercio.plan?.nombre ?? plan?.nombre;
                   const activas = comercio.licencias.filter((l) => l.estado === 'activa');
                   const servidores = activas.filter((l) => l.rol === 'SERVIDOR').length;
-                  const clientes = activas.filter((l) => l.rol === 'CLIENTE').length;
                   const periodos = comercio.deuda_periodos ?? 0;
 
                   return (
@@ -104,12 +102,9 @@ export default async function PaginaComercios() {
                         <BadgePlan nombre={nombrePlan} />
                       </TableCell>
                       <TableCell>
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          <span className="cifra text-sm tabular-nums">
-                            {servidores}/{plan?.max_servidores ?? '—'} servidor
-                          </span>
-                          <Badge variant="secondary">{clientes} cliente</Badge>
-                        </div>
+                        <span className="cifra text-sm tabular-nums">
+                          {servidores}/{plan?.max_servidores ?? '—'} servidor
+                        </span>
                       </TableCell>
                       <TableCell>
                         <BadgeDeuda alDia={periodos === 0} periodos={periodos} />

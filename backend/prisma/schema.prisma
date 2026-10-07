@@ -56,7 +56,6 @@ model Comercio {
 
 enum RolLicencia {
   SERVIDOR
-  CLIENTE
 }
 
 model Licencia {
@@ -154,8 +153,6 @@ model Plan {
   moneda         String   @default("ARS")
   /// Cupo de licencias con rol SERVIDOR que habilita el plan.
   max_servidores Int      @default(1)
-  /// Cupo de licencias con rol CLIENTE. BASICO = 0, PRO = 2.
-  max_clientes   Int      @default(0)
   /// Mensajes mensuales del chat. 0 = ilimitado.
   chat_mensajes_mes Int  @default(400)
   /// Baja logica. Un plan discontinuado deja de ofrecerse pero las

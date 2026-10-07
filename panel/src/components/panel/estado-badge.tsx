@@ -1,5 +1,4 @@
 import { Badge } from '@/components/ui/badge';
-import type { RolLicencia } from '@/lib/tipos';
 
 /**
  * Badges de estado del panel. Viven juntos para que el mismo concepto se lea
@@ -11,11 +10,6 @@ import type { RolLicencia } from '@/lib/tipos';
 export function BadgeEstadoClave({ estado }: { estado: string }) {
   const activa = estado === 'activa';
   return <Badge variant={activa ? 'success' : 'warning'}>{activa ? 'activa' : 'suspendida'}</Badge>;
-}
-
-/** Rol de la clave: el servidor es la caja; el cliente, una terminal. */
-export function BadgeRolClave({ rol }: { rol: RolLicencia }) {
-  return <Badge variant={rol === 'SERVIDOR' ? 'info' : 'secondary'}>{rol === 'SERVIDOR' ? 'Servidor' : 'Cliente'}</Badge>;
 }
 
 /** Deuda estimada: al día en verde, con períodos en rojo. */

@@ -58,7 +58,6 @@ export default async function PaginaClaves({
               <TableRow>
                 <TableHead className="pl-6">Clave</TableHead>
                 <TableHead>Comercio</TableHead>
-                <TableHead>Rol</TableHead>
                 <TableHead>Estado</TableHead>
                 <TableHead>Activaciones</TableHead>
                 <TableHead>Generada</TableHead>
@@ -68,7 +67,7 @@ export default async function PaginaClaves({
             <TableBody>
               {licencias.datos.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-muted-foreground h-28 text-center">
+                  <TableCell colSpan={6} className="text-muted-foreground h-28 text-center">
                     {q
                       ? `Ningún comercio que coincida con «${q}» tiene claves asignadas.`
                       : 'Todavía no se generó ninguna clave.'}
@@ -101,9 +100,6 @@ export default async function PaginaClaves({
                     </TableCell>
                     <TableCell className="font-medium whitespace-nowrap">
                       {licencia.comercio?.nombre ?? <span className="text-muted-foreground font-normal">—</span>}
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={licencia.rol === 'SERVIDOR' ? 'info' : 'secondary'}>{licencia.rol}</Badge>
                     </TableCell>
                     <TableCell>
                       {licencia.comercio ? (

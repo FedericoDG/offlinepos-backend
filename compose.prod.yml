@@ -1,0 +1,49 @@
+# Stack de produccion POS offline en el VPS.
+#
+# - Sin Postgres local: DATABASE_URL apunta a Neon (Postgres gestionado).
+# - Sin `ports:` publicados: solo nginx (repo vps-nginx, red vps-net) expone
+#   80/443 y proxea a estos contenedores por nombre de servicio.
+# - Variables: cada servicio lee su archivo en el VPS
+#   (/root/apps/offlinepos/deploy/env/*.env, NO versionados; ver
+#   deploy/.env.production.example). BACKEND_URL no es confidencial y va
+#   fijo abajo (nombre de servicio interno).
+
+services:
+  panel-backend:
+    build:
+      context: .
+      dockerfile: ./backend/Dockerfile
+    container_name: offlinepos-backend
+    restart: unless-stopped
+    env_file:
+      - ./deploy/env/backend.env
+    environment:
+      PORT: "4000"
+      NODE_ENV: production
+    volumes:
+      - pos-updates:/app/updates
+    networks:
+      - vps-net
+
+  panel-web:
+    build:
+      context: .
+      dockerfile: ./panel/Dockerfile
+    container_name: offlinepos-panel
+    restart: unless-stopped
+    env_file:
+      - ./deploy/env/panel.env
+    environment:
+      BACKEND_URL: http://panel-backend:4000
+    depends_on:
+      panel-backend:
+        condition: service_started
+    networks:
+      - vps-net
+
+networks:
+  vps-net:
+    external: true
+
+volumes:
+  pos-updates:

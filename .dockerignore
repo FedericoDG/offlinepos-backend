@@ -1,0 +1,19 @@
+# Contexto de build = raiz del repo (compose.prod.yml usa `context: .`).
+node_modules
+.git
+.github
+# Variables de entorno reales: nunca entran en la imagen.
+.env*
+# Instaladores publicados + carpetas de trabajo/volumenes: persisten en el
+# volumen pos-updates del VPS, no se copian a la imagen.
+updates/
+archivos/
+tmp/
+# Build outputs: se regeneran dentro de la imagen.
+backend/dist
+backend/node_modules
+panel/node_modules
+panel/.next
+# Gestion del proyecto: no hace falta en runtime.
+odd/
+*.md

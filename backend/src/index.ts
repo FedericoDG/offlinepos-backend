@@ -67,7 +67,24 @@ app.use(compression({
 app.use(express.json({ limit: '25mb' }));
 app.use(express.urlencoded({ extended: true, limit: '25mb' }));
 
-// /health sin límite: lo patean healthchecks de Docker/negroni.
+// Salud del backend. Se expone DOS veces:
+// - `/health`: para healthchecks de Docker/negroni, sin límite de tasa.
+// - `/api/health`: el POS desktop valida conectividad contra
+//   `{BACKEND_URL}/health`, y en produccion `BACKEND_URL` ya incluye el
+//   prefijo del API (nginx reescribe `/api-pos-offline/` → `/api/`).
+// Por eso se registra ANTES de los limiters: el POS lo consulta cada 5s y no
+// debe consumir la cuota general.
+const salud = async (_req: express.Request, res: express.Response) => {
+  try {
+    // Verifica que Postgres responda
+    await prisma.$queryRaw`SELECT 1`;
+    res.json({ status: 'ok', db: 'connected', env: env.NODE_ENV });
+  } catch {
+    res.status(503).json({ status: 'error', db: 'disconnected', env: env.NODE_ENV });
+  }
+};
+app.get('/health', salud);
+app.get('/api/health', salud);
 
 // Aplicar límites antes de las rutas (orden importa).
 app.use('/api/licencias/activar', limiterActivar);
@@ -99,16 +116,6 @@ app.use('/api/updates', express.static(dirUpdates(), {
     }
   },
 }));
-
-app.get('/health', async (_req, res) => {
-  try {
-    // Verifica que Postgres responda
-    await prisma.$queryRaw`SELECT 1`;
-    res.json({ status: 'ok', db: 'connected', env: env.NODE_ENV });
-  } catch {
-    res.status(503).json({ status: 'error', db: 'disconnected', env: env.NODE_ENV });
-  }
-});
 
 app.listen(env.PORT, () => {
   console.log(`Servidor corriendo en http://localhost:${env.PORT}`);

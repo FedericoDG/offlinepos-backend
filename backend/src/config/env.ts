@@ -40,7 +40,14 @@ const envSchema = z.object({
   LICENCIA_SIGN_PRIV_KEY: z.string().min(1).optional(),
   // URL pública del backend (dominio ngrok en producción): las descargas del
   // updater llevan URLs absolutas y detrás de un túnel el host local no sirve.
-  PUBLIC_BASE_URL: z.string().url('PUBLIC_BASE_URL debe ser una URL válida').default('http://localhost:4000'),
+  // Debe ser SOLO el origen: el código ya agrega "/api/...". Si viniera con un
+  // path (ej. /api-pos-offline), las URLs saldrían con doble /api; abajo se
+  // normaliza con un aviso en vez de no arrancar (un error de config no debe
+  // tumbar el backend en producción).
+  PUBLIC_BASE_URL: z
+    .string()
+    .url('PUBLIC_BASE_URL debe ser una URL válida')
+    .default('http://localhost:4000'),
   // Secreto para el índice determinista de claves (clave_busqueda). Por defecto
   // usa ENCRYPTION_KEY: siempre estable, evita requerir otro secret.
   LOOKUP_SECRET: z.string().min(1).optional(),
@@ -54,3 +61,23 @@ if (!_env.success) {
 }
 
 export const env = _env.data;
+
+/**
+ * PUBLIC_BASE_URL es SOLO el origen (sin path): el código arma las URLs
+ * absolutas como `{PUBLIC_BASE_URL}/api/...`. Si alguien le configura un
+ * prefijo (p. ej. `/api-pos-offline`), saldrían con doble `/api` y romperían
+ * el updater y el link móvil. Se normaliza acá con un aviso fuerte: preferimos
+ * arrancar y avisar antes que dejar el backend caído por un env mal puesto.
+ */
+try {
+  const publica = new URL(env.PUBLIC_BASE_URL);
+  if (publica.pathname !== '/') {
+    console.warn(
+      `[Config] PUBLIC_BASE_URL traía path ("${publica.pathname}"): se usa solo el origen "${publica.origin}". ` +
+        'Debería ser únicamente el origen (sin /api ni prefijos).',
+    );
+    env.PUBLIC_BASE_URL = publica.origin;
+  }
+} catch {
+  /* ya validado por zod: si el URL no parsea, el parseo falló antes. */
+}

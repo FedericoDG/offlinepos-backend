@@ -1,11 +1,18 @@
 'use client';
 
-import { useMemo, useState } from 'react';
-import { Check, Copy, MonitorX, Plus } from 'lucide-react';
-import { emitirLicencia, liberarActivacion } from '@/actions/licencias';
-import { AccionModal } from '@/components/ui/accion-modal';
+import { useEffect, useActionState, useState } from 'react';
+import { toast } from 'sonner';
+import { Check, Copy, MonitorX, Plus, Power, PowerOff, Trash2 } from 'lucide-react';
+import {
+  cambiarEstadoLicencia,
+  eliminarLicencia,
+  generarClaves,
+  liberarActivacion,
+  type GenerarClavesEstado,
+} from '@/actions/licencias';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
-import { Field, FieldRow } from '@/components/ui/field';
+import { Field, FieldGroup, FieldRow } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { BotonAccion } from '@/components/ui/boton-accion';
@@ -13,114 +20,89 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
 import { fecha } from '@/lib/formato';
-import type { Comercio, LicenciaListada, RolLicencia, Suscripcion } from '@/lib/tipos';
+import type { LicenciaListada, RolLicencia } from '@/lib/tipos';
 
 /**
- * Emisión manual, para casos excepcionales: reponer una clave que se perdió,
- * o habilitar un puesto fuera de plan a propósito. El camino normal es
- * contratar el plan, que emite el cupo solo.
+ * Genera claves sueltas ("libres"). Todavía no pertenecen a un comercio: se
+ * asignan al dar de alta uno. Al confirmar, el modal se cierra y las claves
+ * quedan listas para copiar desde la tabla (ahí vive el botón de copiado).
  */
-export function EmitirLicencia({
-  comercios,
-  suscripciones,
-}: {
-  comercios: Comercio[];
-  suscripciones: Suscripcion[];
-}) {
-  const [comercioId, setComercioId] = useState('');
+export function GenerarClaves() {
+  const [abierto, setAbierto] = useState(false);
   const [rol, setRol] = useState<RolLicencia>('SERVIDOR');
+  const [estado, accion, pendiente] = useActionState<GenerarClavesEstado, FormData>(generarClaves, {});
 
-  /**
-   * El mismo cálculo que hace el backend, adelantado acá. No reemplaza a la
-   * validación del servidor —esa es la que manda— pero evita mandar un
-   * formulario que ya sabemos que va a volver rechazado.
-   */
-  const bloqueo = useMemo(() => {
-    if (!comercioId) return undefined;
-
-    const comercio = comercios.find((c) => c.id === comercioId);
-    const suscripcion = suscripciones.find((s) => s.comercio.id === comercioId && s.estado !== 'CANCELADA');
-    if (!comercio) return undefined;
-
-    if (!suscripcion?.plan) {
-      return 'Este comercio no tiene un plan contratado. Contratale un plan desde Suscripciones y las licencias se emiten solas.';
-    }
-
-    const esServidor = rol === 'SERVIDOR';
-    const cupo = esServidor ? suscripcion.plan.max_servidores : suscripcion.plan.max_clientes;
-    const etiqueta = esServidor ? 'servidor' : 'cliente';
-    const plural = esServidor ? 'servidores' : 'clientes';
-    const activas = comercio.licencias.filter((l) => l.estado === 'activa' && l.rol === rol).length;
-
-    if (cupo === 0) {
-      return `El plan ${suscripcion.plan.nombre} no incluye licencias de ${etiqueta}. Mejorá el plan del comercio para habilitarlas.`;
-    }
-
-    if (activas >= cupo) {
-      return `El plan ${suscripcion.plan.nombre} cubre ${cupo} ${cupo === 1 ? etiqueta : plural} y el comercio ya tiene ${activas} ${activas === 1 ? 'activa' : 'activas'}. Mejorá el plan para sumar otra.`;
-    }
-
-    return undefined;
-  }, [comercioId, rol, comercios, suscripciones]);
+  // Al terminar una generación exitosa: aviso y cierre del modal. El error
+  // (si lo hay) se muestra adentro y el modal queda abierto para corregir.
+  useEffect(() => {
+    if (!estado.licencias?.length) return;
+    toast.success(
+      estado.licencias.length === 1
+        ? 'Clave generada. Ya podés copiarla desde la tabla.'
+        : `${estado.licencias.length} claves generadas. Ya podés copiarlas desde la tabla.`,
+    );
+    setAbierto(false);
+  }, [estado]);
 
   return (
-    <AccionModal
-      disparador={
-        <Button variant="outline" disabled={comercios.length === 0}>
-          <Plus /> Emitir licencia suelta
+    <Dialog open={abierto} onOpenChange={setAbierto}>
+      <DialogTrigger asChild>
+        <Button>
+          <Plus /> Generar claves
         </Button>
-      }
-      titulo="Emitir licencia suelta"
-      descripcion="Fuera del cupo del plan. Para el alta normal, contratá el plan desde Suscripciones y las licencias salen solas."
-      accion={emitirLicencia}
-      textoGuardar="Emitir"
-      bloqueo={bloqueo}
-    >
-      <Field label="Comercio">
-        <Select name="comercio_id" required value={comercioId} onValueChange={setComercioId}>
-          <SelectTrigger>
-            <SelectValue placeholder="Elegí un comercio" />
-          </SelectTrigger>
-          <SelectContent>
-            {comercios.map((comercio) => (
-              <SelectItem key={comercio.id} value={comercio.id}>
-                {comercio.nombre}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </Field>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Generar claves</DialogTitle>
+          <DialogDescription>
+            Las claves quedan libres hasta que las asignes al crear un comercio. El cupo del plan se controla en ese
+            momento, no acá.
+          </DialogDescription>
+        </DialogHeader>
 
-      <FieldRow>
-        <Field label="Rol">
-          <Select name="rol" value={rol} onValueChange={(v) => setRol(v as RolLicencia)}>
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="SERVIDOR">Servidor (la caja)</SelectItem>
-              <SelectItem value="CLIENTE">Cliente (terminal)</SelectItem>
-            </SelectContent>
-          </Select>
-        </Field>
-        <Field
-          label="Activaciones"
-          htmlFor="max_activaciones"
-          description="Se descuenta una por cada instalación nueva."
-        >
-          <Input id="max_activaciones" name="max_activaciones" type="number" min={1} max={1000} defaultValue={1} required />
-        </Field>
-      </FieldRow>
+        <form action={accion} className="grid gap-6">
+          <FieldGroup>
+            <FieldRow>
+              <Field label="Rol">
+                <Select name="rol" value={rol} onValueChange={(valor) => setRol(valor as RolLicencia)}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="SERVIDOR">Servidor (la caja)</SelectItem>
+                    <SelectItem value="CLIENTE">Cliente (terminal)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </Field>
+              <Field label="Cantidad" htmlFor="cantidad" description="Hasta 50 por tanda.">
+                <Input id="cantidad" name="cantidad" type="number" min={1} max={50} defaultValue={1} required />
+              </Field>
+            </FieldRow>
+          </FieldGroup>
 
-      <Field label="Clave" htmlFor="clave" description="Vacía = la genera el backend, única y con el formato de siempre.">
-        <Input id="clave" name="clave" className="font-mono uppercase" placeholder="LIC-2026-XXXX-XXXX" minLength={6} />
-      </Field>
-    </AccionModal>
+          {estado.error && (
+            <Alert variant="destructive">
+              <AlertDescription>{estado.error}</AlertDescription>
+            </Alert>
+          )}
+
+          <DialogFooter>
+            <Button type="button" variant="ghost" onClick={() => setAbierto(false)}>
+              Cerrar
+            </Button>
+            <Button type="submit" disabled={pendiente}>
+              {pendiente ? 'Generando...' : 'Generar'}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -152,6 +134,38 @@ export function CopiarClave({ clave }: { clave: string }) {
 }
 
 /**
+ * Acciones de fila: desactivar/reactivar y borrar. Desactivar es la salida
+ * cuando la clave tiene historial; borrar solo procede si está libre de
+ * referencias, y si no, el 409 del backend explica por qué.
+ */
+export function AccionesLicencia({ licencia }: { licencia: LicenciaListada }) {
+  const activa = licencia.estado === 'activa';
+
+  return (
+    <div className="flex flex-wrap justify-end gap-2">
+      <BotonAccion
+        variant="ghost"
+        size="sm"
+        accion={() => cambiarEstadoLicencia(licencia.id, activa ? 'suspendida' : 'activa')}
+        confirmacion={activa ? 'Confirmar' : undefined}
+      >
+        {activa ? <PowerOff /> : <Power />}
+        {activa ? 'Desactivar' : 'Activar'}
+      </BotonAccion>
+      <BotonAccion
+        variant="ghost"
+        size="sm"
+        className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+        accion={() => eliminarLicencia(licencia.id)}
+        confirmacion="Confirmar"
+      >
+        <Trash2 /> Borrar
+      </BotonAccion>
+    </div>
+  );
+}
+
+/**
  * Cambio de PC, que es el pedido de soporte más común.
  *
  * Muestra qué máquinas ocupan la licencia y permite soltar la que ya no está.
@@ -160,6 +174,8 @@ export function CopiarClave({ clave }: { clave: string }) {
  */
 export function LiberarActivaciones({ licencia }: { licencia: LicenciaListada }) {
   if (licencia.activaciones.length === 0) return null;
+
+  const comercio = licencia.comercio?.nombre ?? 'la clave';
 
   return (
     <Dialog>
@@ -170,10 +186,11 @@ export function LiberarActivaciones({ licencia }: { licencia: LicenciaListada })
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Instalaciones de {licencia.comercio.nombre}</DialogTitle>
+          <DialogTitle>Instalaciones de {comercio}</DialogTitle>
           <DialogDescription>
             Si el comercio cambió de PC, liberá la vieja: el puesto queda libre y puede activar{' '}
-            <span className="text-foreground font-mono text-xs">{licencia.clave_original}</span> en la máquina nueva.
+            <span className="text-foreground font-mono text-xs">{licencia.clave_original ?? '(no disponible)'}</span> en
+            la máquina nueva.
           </DialogDescription>
         </DialogHeader>
 

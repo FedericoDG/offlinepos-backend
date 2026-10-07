@@ -1,7 +1,12 @@
 import { Request, Response } from 'express';
 import { ComercioService } from './comercio.service';
-import { CreateComercioConLicenciaDTO, UpdateComercioDTO } from './comercio.dtos';
+import {
+  CreateComercioConLicenciaDTO,
+  RegistrarPagoDirectoDTO,
+  UpdateComercioDTO,
+} from './comercio.dtos';
 import { ZodError } from 'zod';
+import { handleApiError } from '../../utils/api-error';
 
 const comercioService = new ComercioService();
 
@@ -12,7 +17,9 @@ export class ComercioController {
       const result = await comercioService.createConLicencia(validatedData);
       res.status(201).json(result);
     } catch (error: any) {
-      this.handleError(error, res);
+      // Los httpError del service (404 del plan, 409 del cupo o de una clave ya
+      // asignada) viajan con el codigo HTTP correcto.
+      handleApiError(error, res, 'Error al crear el comercio');
     }
   }
 
@@ -43,6 +50,29 @@ export class ComercioController {
       res.status(200).json(updated);
     } catch (error: any) {
       this.handleError(error, res);
+    }
+  }
+
+  /** GET /api/comercios/:id/detalle — todo lo de la pantalla de detalle en una vuelta. */
+  async getDetalle(req: Request, res: Response): Promise<void> {
+    try {
+      const id = req.params.id as string;
+      const detalle = await comercioService.getDetalle(id);
+      res.status(200).json(detalle);
+    } catch (error: any) {
+      handleApiError(error, res, 'Error al obtener el detalle del comercio');
+    }
+  }
+
+  /** POST /api/comercios/:id/pagos — pago directo, sin Suscripcion. */
+  async registrarPago(req: Request, res: Response): Promise<void> {
+    try {
+      const id = req.params.id as string;
+      const data = RegistrarPagoDirectoDTO.parse(req.body);
+      const pago = await comercioService.registrarPago(id, data);
+      res.status(201).json(pago);
+    } catch (error: any) {
+      handleApiError(error, res, 'Error al registrar el pago');
     }
   }
 

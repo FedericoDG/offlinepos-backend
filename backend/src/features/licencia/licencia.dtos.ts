@@ -31,12 +31,27 @@ export interface ActivarLicenciaResponseDTO {
   };
 }
 
+/**
+ * Alta de licencias desde el panel.
+ *
+ * Con `comercio_id` se emite una clave sobre un comercio puntual (camino viejo,
+ * con validacion de cupo). Sin `comercio_id` se generan `cantidad` claves
+ * sueltas —"libres"— que todavia no pertenecen a nadie y se asignan despues al
+ * dar de alta un comercio. El cupo se controla al asignar, no al generar.
+ */
 export const CrearLicenciaDTO = z.object({
   comercio_id: z
-    .string({ message: 'El comercio es obligatorio' })
+    .string({ message: 'El comercio debe ser una cadena de texto' })
     .trim()
-    .min(1, 'El comercio es obligatorio'),
+    .min(1, 'El comercio no puede ser vacío')
+    .optional(),
   rol: z.enum(['SERVIDOR', 'CLIENTE']).default('SERVIDOR'),
+  cantidad: z
+    .number({ message: 'cantidad debe ser un número entero' })
+    .int()
+    .positive('cantidad debe ser mayor a 0')
+    .max(50, 'cantidad no puede superar 50')
+    .default(1),
   max_activaciones: z
     .number({ message: 'max_activaciones debe ser un número entero' })
     .int()
@@ -65,4 +80,18 @@ export interface CrearLicenciaResponseDTO {
       nombre: string;
     };
   };
+}
+
+/** Una clave libre recien generada, con su texto plano para entregar. */
+export interface ClaveGeneradaDTO {
+  id: string;
+  clave: string;
+  rol: 'SERVIDOR' | 'CLIENTE';
+  estado: string;
+  max_activaciones: number;
+}
+
+export interface GenerarClavesResponseDTO {
+  message: string;
+  licencias: ClaveGeneradaDTO[];
 }

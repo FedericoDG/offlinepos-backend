@@ -6,7 +6,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { consultas } from '@/lib/consultas';
 import { fecha } from '@/lib/formato';
-import { EliminarVersion, PublicarVersion } from './formularios';
+import { EliminarArchivo, EliminarVersion, PublicarVersion } from './formularios';
 
 export const metadata: Metadata = { title: 'Actualizaciones' };
 export const dynamic = 'force-dynamic';
@@ -50,6 +50,7 @@ export default async function PaginaActualizaciones() {
                     <TableHead>Archivo</TableHead>
                     <TableHead>Tamaño</TableHead>
                     <TableHead>Descarga</TableHead>
+                    <TableHead className="w-24 text-right">Acciones</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -64,6 +65,9 @@ export default async function PaginaActualizaciones() {
                         >
                           <Download className="size-3.5" /> Descargar
                         </a>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <EliminarArchivo version={vigente.version!} nombre={a.nombre} esVigente />
                       </TableCell>
                     </TableRow>
                   ))}

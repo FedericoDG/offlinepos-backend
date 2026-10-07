@@ -41,7 +41,7 @@ export const metadata: Metadata = {
     default: 'Binario Dev Labs — Panel',
     template: '%s · Binario Dev Labs',
   },
-  description: 'Administración de licencias, suscripciones y cobranza del sistema POS.',
+  description: 'Administración de comercios, licencias, planes y consumo de chat del sistema POS.',
   icons: { icon: '/logo-mark.svg' },
 };
 

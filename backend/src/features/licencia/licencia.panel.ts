@@ -22,11 +22,22 @@ export const FiltroLicenciaDTO = z.object({
   comercio_id: z.string().trim().min(1).optional(),
   rol: z.enum(['SERVIDOR', 'CLIENTE']).optional(),
   estado: z.string().trim().min(1).optional(),
+  /** `?libres=1` devuelve solo las claves sin comercio, para asignarlas al alta. */
+  libres: z.enum(['1', 'true']).optional(),
   pagina: z.coerce.number().int().min(1).default(1),
   limite: z.coerce.number().int().min(1).max(100).default(20),
 });
 
 export type FiltroLicenciaDTO = z.infer<typeof FiltroLicenciaDTO>;
+
+/** Unica via valida para "desactivar" una clave sin borrarla. */
+export const CambiarEstadoLicenciaDTO = z.object({
+  estado: z.enum(['activa', 'suspendida'], {
+    message: 'El estado debe ser "activa" o "suspendida"',
+  }),
+});
+
+export type CambiarEstadoLicenciaDTO = z.infer<typeof CambiarEstadoLicenciaDTO>;
 
 export interface Paginado<T> {
   datos: T[];
@@ -47,6 +58,7 @@ export class LicenciaPanelService {
   async listar(filtro: FiltroLicenciaDTO) {
     const where: any = {};
     if (filtro.comercio_id) where.comercio_id = filtro.comercio_id;
+    else if (filtro.libres) where.comercio_id = null;
     if (filtro.rol) where.rol = filtro.rol;
     if (filtro.estado) where.estado = filtro.estado;
     if (filtro.q) {
@@ -137,6 +149,68 @@ export class LicenciaPanelService {
         },
       };
     });
+  }
+
+  /**
+   * Borra una clave. Nunca en cascada: si tiene referencias, se rechaza con
+   * 409 y el mensaje dice cual, para que la persona elija entre liberar la
+   * activacion o desactivar la clave.
+   */
+  async eliminar(licenciaId: string) {
+    const licencia = await this.db.licencia.findUnique({ where: { id: licenciaId } });
+    if (!licencia) {
+      throw httpError('Licencia no encontrada', 404);
+    }
+
+    const [activaciones, consumosChat] = await Promise.all([
+      this.db.activacion.count({ where: { licencia_id: licenciaId } }),
+      this.db.chatConsumo.count({ where: { licencia_id: licenciaId } }),
+    ]);
+
+    if (activaciones > 0) {
+      throw httpError(
+        'La clave tiene activaciones registradas. Liberá las activaciones o desactivala en lugar de borrarla.',
+        409
+      );
+    }
+
+    if (consumosChat > 0) {
+      throw httpError(
+        'La clave tiene consumos de chat registrados. Desactivala en lugar de borrarla.',
+        409
+      );
+    }
+
+    await this.db.licencia.delete({ where: { id: licenciaId } });
+
+    return { message: 'Clave eliminada correctamente' };
+  }
+
+  /**
+   * Alternativa a borrar: pone la clave en `suspendida` (o la reactiva). El
+   * escritorio rechaza la activacion con 403 mientras siga suspendida, pero la
+   * clave y su historial quedan intactos.
+   */
+  async cambiarEstado(licenciaId: string, estado: 'activa' | 'suspendida') {
+    const licencia = await this.db.licencia.findUnique({ where: { id: licenciaId } });
+    if (!licencia) {
+      throw httpError('Licencia no encontrada', 404);
+    }
+
+    const actualizada = await this.db.licencia.update({
+      where: { id: licenciaId },
+      data: { estado },
+      include: { comercio: { select: { id: true, nombre: true } } },
+    });
+
+    return {
+      message: estado === 'activa' ? 'Clave activada correctamente' : 'Clave desactivada correctamente',
+      licencia: {
+        id: actualizada.id,
+        estado: actualizada.estado,
+        comercio: actualizada.comercio,
+      },
+    };
   }
 
   private descifrarSeguro(cifrada: string): string | null {

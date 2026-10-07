@@ -15,6 +15,7 @@ export function BotonAccion({
   accion,
   confirmacion,
   children,
+  disabled,
   ...props
 }: React.ComponentProps<typeof Button> & {
   accion: () => Promise<EstadoAccion>;
@@ -43,7 +44,7 @@ export function BotonAccion({
   }
 
   return (
-    <Button {...props} disabled={cargando} onClick={correr}>
+    <Button {...props} disabled={disabled || cargando} onClick={correr}>
       {cargando ? '...' : confirmando ? confirmacion : children}
     </Button>
   );

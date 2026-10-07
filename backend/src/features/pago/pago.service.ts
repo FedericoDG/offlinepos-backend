@@ -119,6 +119,16 @@ export class PagoService {
   async eliminar(id: string) {
     const pago = await this.db.pago.findUnique({ where: { id } });
     if (!pago) throw httpError('Pago no encontrado', 404);
+
+    // Los pagos viejos cuelgan de una Suscripcion: borrarlos por aca dejaria el
+    // contrato sin respaldo. Solo se eliminan los pagos directos del comercio.
+    if (pago.suscripcion_id) {
+      throw httpError(
+        'Este pago pertenece a una suscripción y no se elimina desde acá.',
+        409
+      );
+    }
+
     await this.db.pago.delete({ where: { id } });
   }
 

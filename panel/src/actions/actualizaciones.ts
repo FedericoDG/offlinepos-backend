@@ -57,3 +57,24 @@ export async function eliminarVersion(version: string): Promise<EstadoAccion> {
 
   return resultado;
 }
+
+/**
+ * Elimina un instalador suelto de una versión (y su .sig). Si era parte de la
+ * versión publicada, el backend lo saca de latest.json para que las cajas
+ * dejen de ofrecerlo.
+ */
+export async function eliminarArchivoVersion(version: string, nombre: string): Promise<EstadoAccion> {
+  const resultado = await ejecutar(
+    `Archivo ${nombre} eliminado de la versión ${version}`,
+    () =>
+      api.delete(
+        `/api/updates/admin/versiones/${encodeURIComponent(version)}/archivos/${encodeURIComponent(nombre)}`
+      )
+  );
+
+  if (resultado.ok) {
+    revalidatePath('/actualizaciones');
+  }
+
+  return resultado;
+}

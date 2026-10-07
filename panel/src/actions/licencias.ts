@@ -1,32 +1,41 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { api } from '@/lib/api';
+import { api, esRedireccion, mensajeDeError } from '@/lib/api';
 import { ejecutar, leerNumero, leerTexto, type EstadoAccion } from './comun';
+import type { ClaveGenerada, RolLicencia } from '@/lib/tipos';
+
+/** Claves libres recién generadas, en texto plano para copiar y entregar. */
+export interface GenerarClavesEstado extends EstadoAccion {
+  licencias?: ClaveGenerada[];
+}
 
 /**
- * Emite una licencia sobre un comercio que ya existe. Si no se escribe la
- * clave, el backend genera una unica con el formato LIC-AAAA-XXXX-XXXX.
+ * Genera claves sueltas ("libres"): quedan sin comercio hasta que el alta de un
+ * comercio las asigne. No valida cupo — eso pasa al asignarlas — porque una
+ * clave libre todavía no pertenece a nadie.
  */
-export async function emitirLicencia(_estado: EstadoAccion, datos: FormData): Promise<EstadoAccion> {
-  const clave = leerTexto(datos, 'clave');
+export async function generarClaves(_estado: GenerarClavesEstado, datos: FormData): Promise<GenerarClavesEstado> {
+  const rol = (leerTexto(datos, 'rol') ?? 'SERVIDOR') as RolLicencia;
+  const cantidad = leerNumero(datos, 'cantidad') ?? 1;
 
-  const resultado = await ejecutar('Licencia emitida', () =>
-    api.post('/api/licencias', {
-      comercio_id: leerTexto(datos, 'comercio_id'),
-      rol: (leerTexto(datos, 'rol') ?? 'SERVIDOR') as 'SERVIDOR' | 'CLIENTE',
-      max_activaciones: leerNumero(datos, 'max_activaciones') ?? 1,
-      ...(clave ? { clave } : {}),
-    })
-  );
+  try {
+    const respuesta = await api.post<{ message: string; licencias: ClaveGenerada[] }>('/api/licencias', {
+      rol,
+      cantidad,
+    });
 
-  if (resultado.ok) {
     revalidatePath('/licencias');
-    revalidatePath('/comercios');
-    revalidatePath('/dashboard');
-  }
 
-  return resultado;
+    return {
+      ok: true,
+      mensaje: respuesta.message ?? 'Claves generadas',
+      licencias: respuesta.licencias,
+    };
+  } catch (error) {
+    if (esRedireccion(error)) throw error;
+    return { ok: false, error: mensajeDeError(error) };
+  }
 }
 
 /**
@@ -44,6 +53,43 @@ export async function liberarActivacion(licenciaId: string, activacionId: string
   if (resultado.ok) {
     revalidatePath('/licencias');
     revalidatePath('/comercios');
+  }
+
+  return resultado;
+}
+
+/**
+ * Desactivar/reactivar una clave sin perderla. El escritorio rechaza la
+ * activación con 403 mientras siga suspendida; es la alternativa a borrarla.
+ */
+export async function cambiarEstadoLicencia(
+  licenciaId: string,
+  estado: 'activa' | 'suspendida',
+  comercioId?: string
+): Promise<EstadoAccion> {
+  const resultado = await ejecutar(estado === 'activa' ? 'Clave activada' : 'Clave desactivada', () =>
+    api.patch(`/api/licencias/${licenciaId}/estado`, { estado })
+  );
+
+  if (resultado.ok) {
+    revalidatePath('/licencias');
+    // La acción también se usa desde el detalle del comercio: hay que refrescarlo.
+    if (comercioId) revalidatePath(`/comercios/${comercioId}`);
+  }
+
+  return resultado;
+}
+
+/**
+ * Borra una clave sin referencias. Si tiene activaciones o consumos de chat el
+ * backend responde 409 con el motivo, y ese mensaje llega tal cual al toast.
+ */
+export async function eliminarLicencia(licenciaId: string, comercioId?: string): Promise<EstadoAccion> {
+  const resultado = await ejecutar('Clave eliminada', () => api.delete(`/api/licencias/${licenciaId}`));
+
+  if (resultado.ok) {
+    revalidatePath('/licencias');
+    if (comercioId) revalidatePath(`/comercios/${comercioId}`);
   }
 
   return resultado;

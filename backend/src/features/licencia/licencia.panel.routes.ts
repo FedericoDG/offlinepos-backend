@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { FiltroLicenciaDTO, LicenciaPanelService } from './licencia.panel';
+import { CambiarEstadoLicenciaDTO, FiltroLicenciaDTO, LicenciaPanelService } from './licencia.panel';
 import { authenticateJWT, requireAdmin } from '../../middlewares/auth.middleware';
 import { handleApiError } from '../../utils/api-error';
 
@@ -35,6 +35,26 @@ router.delete('/:id/activaciones/:activacionId', async (req, res) => {
     res.status(200).json(resultado);
   } catch (error: any) {
     handleApiError(error, res, 'Error al liberar la instalacion');
+  }
+});
+
+/** Desactivar/reactivar la clave sin perderla: la alternativa a borrarla. */
+router.patch('/:id/estado', async (req, res) => {
+  try {
+    const { estado } = CambiarEstadoLicenciaDTO.parse(req.body);
+    res.status(200).json(await servicio.cambiarEstado(req.params.id as string, estado));
+  } catch (error: any) {
+    handleApiError(error, res, 'Error al cambiar el estado de la clave');
+  }
+});
+
+/** Borra una clave sin referencias. Nunca en cascada: con activaciones o consumos, 409. */
+router.delete('/:id', async (req, res) => {
+  try {
+    const resultado = await servicio.eliminar(req.params.id as string);
+    res.status(200).json(resultado);
+  } catch (error: any) {
+    handleApiError(error, res, 'Error al eliminar la clave');
   }
 });
 

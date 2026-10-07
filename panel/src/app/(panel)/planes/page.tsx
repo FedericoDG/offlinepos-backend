@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { Monitor, MonitorSmartphone } from 'lucide-react';
+import { MessageSquare, Monitor, MonitorSmartphone } from 'lucide-react';
 import { EncabezadoPagina } from '@/components/panel/encabezado';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardAction, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
@@ -37,7 +37,9 @@ export default async function PaginaPlanes() {
           {planes.map((plan) => (
             <Card key={plan.id} className={cn('gap-4', !plan.activo && 'opacity-60')}>
               <CardHeader>
-                <CardTitle className="text-lg">{plan.nombre}</CardTitle>
+                <CardTitle className="truncate text-lg" title={plan.nombre}>
+                  {plan.nombre}
+                </CardTitle>
                 <p className="text-muted-foreground font-mono text-xs">{plan.codigo}</p>
                 <CardAction>
                   <Badge variant={plan.activo ? 'success' : 'secondary'}>
@@ -70,12 +72,21 @@ export default async function PaginaPlanes() {
                     <span className="cifra font-medium tabular-nums">{plan.max_clientes}</span>
                     <span className="text-muted-foreground">{plan.max_clientes === 1 ? 'cliente' : 'clientes'}</span>
                   </div>
+                  <div className="flex items-center gap-2.5">
+                    <MessageSquare className="text-primary size-4" />
+                    {plan.chat_mensajes_mes === 0 ? (
+                      <span className="font-medium">Ilimitados</span>
+                    ) : (
+                      <span className="cifra font-medium tabular-nums">{plan.chat_mensajes_mes}</span>
+                    )}
+                    <span className="text-muted-foreground">mensajes de Binny / mes</span>
+                  </div>
                 </div>
               </CardContent>
 
               <CardFooter className="justify-between border-t">
                 <span className="text-muted-foreground text-xs">
-                  {plan.suscripciones_activas} {plan.suscripciones_activas === 1 ? 'comercio' : 'comercios'}
+                  {plan.comercios_con_plan} {plan.comercios_con_plan === 1 ? 'comercio con este plan' : 'comercios con este plan'}
                 </span>
                 <div className="flex gap-2">
                   <AlternarPlan plan={plan} />

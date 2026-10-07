@@ -13,7 +13,7 @@
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:seed": "tsx prisma/seed.ts",
-    "db:reset": "prisma migrate reset --force",
+    "db:reset": "tsx prisma/reset.ts",
     "db:studio": "prisma studio",
     "licencia:generar-claves": "node scripts/generar-claves-licencia.mjs",
     "licencia:backfill-busqueda": "tsx scripts/backfill-clave-busqueda.mts"

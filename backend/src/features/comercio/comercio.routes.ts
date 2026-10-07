@@ -10,6 +10,8 @@ router.use(authenticateJWT, requireAdmin);
 
 router.post('/', (req, res) => comercioController.create(req, res));
 router.get('/', (req, res) => comercioController.getAll(req, res));
+router.get('/:id/detalle', (req, res) => comercioController.getDetalle(req, res));
+router.post('/:id/pagos', (req, res) => comercioController.registrarPago(req, res));
 router.get('/:id', (req, res) => comercioController.getById(req, res));
 router.put('/:id', (req, res) => comercioController.update(req, res));
 router.delete('/:id', (req, res) => comercioController.delete(req, res));

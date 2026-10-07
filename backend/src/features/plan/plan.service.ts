@@ -31,7 +31,7 @@ export class PlanService {
         chat_mensajes_mes: data.chat_mensajes_mes,
         activo: data.activo,
       },
-      include: { _count: { select: { suscripciones: true } } },
+      include: { _count: { select: { suscripciones: true, comercios: true } } },
     });
 
     return this.serializar(plan);
@@ -40,7 +40,7 @@ export class PlanService {
   async getAll(soloActivos = false): Promise<PlanDTO[]> {
     const planes = await this.db.plan.findMany({
       where: soloActivos ? { activo: true } : undefined,
-      include: { _count: { select: { suscripciones: true } } },
+      include: { _count: { select: { suscripciones: true, comercios: true } } },
       orderBy: { precio_mensual: 'asc' },
     });
 
@@ -50,7 +50,7 @@ export class PlanService {
   async getById(id: string): Promise<PlanDTO> {
     const plan = await this.db.plan.findUnique({
       where: { id },
-      include: { _count: { select: { suscripciones: true } } },
+      include: { _count: { select: { suscripciones: true, comercios: true } } },
     });
 
     if (!plan) {
@@ -78,7 +78,7 @@ export class PlanService {
         ...(data.chat_mensajes_mes !== undefined && { chat_mensajes_mes: data.chat_mensajes_mes }),
         ...(data.activo !== undefined && { activo: data.activo }),
       },
-      include: { _count: { select: { suscripciones: true } } },
+      include: { _count: { select: { suscripciones: true, comercios: true } } },
     });
 
     return this.serializar(plan);
@@ -95,7 +95,7 @@ export class PlanService {
     const plan = await this.db.plan.update({
       where: { id },
       data: { activo: false },
-      include: { _count: { select: { suscripciones: true } } },
+      include: { _count: { select: { suscripciones: true, comercios: true } } },
     });
 
     return this.serializar(plan);
@@ -128,6 +128,7 @@ export class PlanService {
       max_clientes: plan.max_clientes,
       chat_mensajes_mes: plan.chat_mensajes_mes,
       activo: plan.activo,
+      comercios_con_plan: plan._count?.comercios ?? 0,
       suscripciones_activas: plan._count?.suscripciones ?? 0,
       createdAt: plan.createdAt,
       updatedAt: plan.updatedAt,

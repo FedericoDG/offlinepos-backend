@@ -7,7 +7,6 @@ import { ejecutar, leerNumero, leerTexto, type EstadoAccion } from './comun';
 function refrescar() {
   revalidatePath('/planes');
   revalidatePath('/dashboard');
-  revalidatePath('/suscripciones');
 }
 
 export async function crearPlan(_estado: EstadoAccion, datos: FormData): Promise<EstadoAccion> {

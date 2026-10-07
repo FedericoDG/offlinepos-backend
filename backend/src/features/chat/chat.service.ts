@@ -65,13 +65,27 @@ interface UsoChat {
   mensajes_limite: number;
 }
 
-async function obtenerLimiteChat(licenciaId: string): Promise<number> {
+/**
+ * Cupo resuelto de una licencia + el comercio dueño, para poder imputar el
+ * consumo a nivel comercio (el cupo es del comercio, no de la clave).
+ */
+interface CupoChat {
+  comercioId: string | null;
+  limite: number;
+}
+
+/**
+ * Resuelve el cupo de Binny y el comercio dueño en una sola lectura.
+ * Orden: override del comercio (0 = ilimitado) > plan directo > suscripcion > env.
+ */
+async function resolverCupoChat(licenciaId: string): Promise<CupoChat> {
   // Buscar la suscripcion activa del comercio dueño de esta licencia
   const licencia = await prisma.licencia.findUnique({
     where: { id: licenciaId },
     include: {
       comercio: {
         include: {
+          plan: true,
           suscripciones: {
             where: { estado: 'ACTIVA' },
             orderBy: { inicia_en: 'desc' },
@@ -83,27 +97,52 @@ async function obtenerLimiteChat(licenciaId: string): Promise<number> {
     },
   });
 
-  // Override por comercio: si está definido (0 = ilimitado), tiene prioridad sobre el plan/env
-  const override = (licencia?.comercio as unknown as { chat_mensajes_override?: number | null })?.chat_mensajes_override;
-  if (override != null) return override;
+  const comercio = licencia?.comercio ?? null;
+  const comercioId = comercio?.id ?? null;
 
-  const plan = licencia?.comercio?.suscripciones?.[0]?.plan;
-  if (!plan) return env.CHAT_MENSAJES_MES;
+  // Override por comercio: si está definido (0 = ilimitado), tiene prioridad sobre el plan/env
+  const override = (comercio as unknown as { chat_mensajes_override?: number | null } | null)?.chat_mensajes_override;
+  if (override != null) return { comercioId, limite: override };
+
+  // Primero el plan asignado directo al comercio; si no tiene, cae a la suscripcion.
+  const plan = comercio?.plan ?? comercio?.suscripciones?.[0]?.plan;
+  if (!plan) return { comercioId, limite: env.CHAT_MENSAJES_MES };
 
   // 0 = ilimitado
-  return plan.chat_mensajes_mes;
+  return { comercioId, limite: plan.chat_mensajes_mes };
 }
 
-async function obtenerUso(licenciaId: string): Promise<UsoChat> {
+async function obtenerLimiteChat(licenciaId: string): Promise<number> {
+  return (await resolverCupoChat(licenciaId)).limite;
+}
+
+/**
+ * Mensajes usados en el periodo. Si la licencia pertenece a un comercio, cuenta
+ * el contador del comercio (compartido por todas sus claves); si es una clave
+ * libre (sin comercio), cae al contador por licencia.
+ */
+async function leerMensajesUsados(licenciaId: string, comercioId: string | null): Promise<number> {
   const periodo = periodoActual();
+  if (comercioId) {
+    const consumo = await prisma.chatConsumoComercio.findUnique({
+      where: { comercio_id_periodo: { comercio_id: comercioId, periodo } },
+    });
+    return consumo?.mensajes ?? 0;
+  }
   const consumo = await prisma.chatConsumo.findUnique({
     where: { licencia_id_periodo: { licencia_id: licenciaId, periodo } },
   });
-  const limite = await obtenerLimiteChat(licenciaId);
-  return {
-    mensajes_usados: consumo?.mensajes ?? 0,
-    mensajes_limite: limite,
-  };
+  return consumo?.mensajes ?? 0;
+}
+
+/**
+ * Uso de chat de una licencia. Acepta el cupo ya resuelto para evitar releer la
+ * licencia cuando el llamador ya lo tiene. Exportado para pruebas y smoke.
+ */
+export async function obtenerUso(licenciaId: string, cupo?: CupoChat): Promise<UsoChat> {
+  const { comercioId, limite } = cupo ?? (await resolverCupoChat(licenciaId));
+  const mensajes_usados = await leerMensajesUsados(licenciaId, comercioId);
+  return { mensajes_usados, mensajes_limite: limite };
 }
 
 function mensajeCuotaSistema(uso: UsoChat): string {
@@ -116,20 +155,65 @@ function mensajeCuotaSistema(uso: UsoChat): string {
 
 /**
  * Incrementa el contador de mensajes SOLO si no se superó el límite.
- * Retorna el uso actualizado. Si el límite fue alcanzado, retorna null.
+ * El gate se aplica al COMERCIO: el cupo es del comercio y se comparte entre
+ * todas sus claves. Retorna el uso actualizado. Si el límite fue alcanzado,
+ * retorna null.
  */
 async function incrementarMensajes(licenciaId: string, cantidad: number = 1): Promise<UsoChat | null> {
   const periodo = periodoActual();
-  const limite = await obtenerLimiteChat(licenciaId);
+  const cupo = await resolverCupoChat(licenciaId);
 
-  // Si limite es 0 (ilimitado), solo incrementar sin restriccion
-  if (limite === 0) {
+  if (cupo.comercioId) {
+    const comercioId = cupo.comercioId;
+
+    // Intentar crear el registro del comercio si no existe
+    await prisma.chatConsumoComercio.upsert({
+      where: { comercio_id_periodo: { comercio_id: comercioId, periodo } },
+      create: { comercio_id: comercioId, periodo, mensajes: 0 },
+      update: {},
+    });
+
+    if (cupo.limite === 0) {
+      // Si limite es 0 (ilimitado), solo incrementar sin restriccion
+      await prisma.chatConsumoComercio.updateMany({
+        where: { comercio_id: comercioId, periodo },
+        data: { mensajes: { increment: cantidad } },
+      });
+    } else {
+      // Incremento atómico condicional sobre el comercio: solo si
+      // mensajes + cantidad <= limite (cupo compartido entre las claves)
+      const result = await prisma.chatConsumoComercio.updateMany({
+        where: {
+          comercio_id: comercioId,
+          periodo,
+          mensajes: { lte: cupo.limite - cantidad },
+        },
+        data: { mensajes: { increment: cantidad } },
+      });
+
+      if (result.count === 0) {
+        return null;
+      }
+    }
+
+    // Desglose por clave (estadisticas del panel, sin gate propio)
     await prisma.chatConsumo.upsert({
       where: { licencia_id_periodo: { licencia_id: licenciaId, periodo } },
       create: { licencia_id: licenciaId, periodo, mensajes: cantidad },
       update: { mensajes: { increment: cantidad } },
     });
-    return obtenerUso(licenciaId);
+
+    return obtenerUso(licenciaId, cupo);
+  }
+
+  // Licencia libre (sin comercio): se conserva el contador por clave.
+  if (cupo.limite === 0) {
+    await prisma.chatConsumo.upsert({
+      where: { licencia_id_periodo: { licencia_id: licenciaId, periodo } },
+      create: { licencia_id: licenciaId, periodo, mensajes: cantidad },
+      update: { mensajes: { increment: cantidad } },
+    });
+    return obtenerUso(licenciaId, cupo);
   }
 
   // Intentar crear el registro si no existe
@@ -144,7 +228,7 @@ async function incrementarMensajes(licenciaId: string, cantidad: number = 1): Pr
     where: {
       licencia_id: licenciaId,
       periodo,
-      mensajes: { lte: limite - cantidad },
+      mensajes: { lte: cupo.limite - cantidad },
     },
     data: { mensajes: { increment: cantidad } },
   });
@@ -153,11 +237,32 @@ async function incrementarMensajes(licenciaId: string, cantidad: number = 1): Pr
     return null;
   }
 
-  return obtenerUso(licenciaId);
+  return obtenerUso(licenciaId, cupo);
 }
 
+/**
+ * Punto de entrada exportado para pruebas y smoke: registra consumo de Binny
+ * sobre la licencia indicada aplicando el gate a nivel comercio.
+ */
+export async function registrarUsoChat(licenciaId: string, cantidad: number = 1): Promise<UsoChat | null> {
+  return incrementarMensajes(licenciaId, cantidad);
+}
+
+/**
+ * Reembolsa mensajes de los caminos de error: descuenta el contador del
+ * comercio y el desglose por clave.
+ */
 async function decrementarMensajes(licenciaId: string, cantidad: number = 1): Promise<void> {
   const periodo = periodoActual();
+  const { comercioId } = await resolverCupoChat(licenciaId);
+
+  if (comercioId) {
+    await prisma.chatConsumoComercio.updateMany({
+      where: { comercio_id: comercioId, periodo, mensajes: { gte: cantidad } },
+      data: { mensajes: { decrement: cantidad } },
+    });
+  }
+
   await prisma.chatConsumo.updateMany({
     where: { licencia_id: licenciaId, periodo, mensajes: { gte: cantidad } },
     data: { mensajes: { decrement: cantidad } },

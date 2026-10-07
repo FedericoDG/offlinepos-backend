@@ -20,6 +20,15 @@ export interface Administrador {
   rol: string;
 }
 
+/** Fila del ABM de administradores: nunca trae la contraseña. */
+export interface AdministradorListado {
+  id: string;
+  email: string;
+  rol: string;
+  activo: boolean;
+  createdAt: string;
+}
+
 export interface Activacion {
   id: string;
   instalacion_id: string;
@@ -44,10 +53,104 @@ export interface Licencia {
 export interface Comercio {
   id: string;
   nombre: string;
+  /** Contacto opcional. Cadena vacía se guarda como null. */
+  telefono?: string | null;
+  email?: string | null;
+  /** Plan asignado en directo (alta en un paso). */
+  plan_id?: string | null;
+  /**
+   * Plan anidado liviano que ya trae el listado (`nombre` y `precio_mensual`).
+   * `null` = comercio sin plan. Se conserva `plan_id` para cruzarlo con el
+   * catálogo cuando hace falta el cupo de claves.
+   */
+  plan?: { id: string; nombre: string; precio_mensual: number; chat_mensajes_mes: number } | null;
+  /** Cuántas claves del comercio están en estado activa. */
+  claves_activas?: number;
+  /** Períodos impagos estimados al momento de listar (0 = al día). */
+  deuda_periodos?: number;
   chat_mensajes_override?: number | null;
   licencias: Licencia[];
   createdAt: string;
   updatedAt: string;
+}
+
+/* --------------------------------------------------------------------------
+   Detalle de un comercio: todo lo de la pantalla `/comercios/[id]` en una
+   sola respuesta de `GET /api/comercios/:id/detalle`.
+   -------------------------------------------------------------------------- */
+
+/** Plan tal como lo expone el detalle, con el cupo que necesita el panel. */
+export interface ComercioDetallePlan {
+  id: string;
+  nombre: string;
+  precio_mensual: number;
+  precio_anual: number | null;
+  max_servidores: number;
+  max_clientes: number;
+  chat_mensajes_mes: number;
+}
+
+/** Clave del comercio ya enmascarada: el detalle nunca devuelve la clave entera. */
+export interface ComercioDetalleClave {
+  id: string;
+  rol: RolLicencia;
+  estado: string;
+  activaciones: number;
+  ultima_activacion: string | null;
+  clave_mascara: string | null;
+}
+
+export interface ComercioConsumoPorClave {
+  clave_mascara: string | null;
+  rol: RolLicencia;
+  mensajes: number;
+  tokens: number;
+}
+
+/** Consumo de chat del período en curso, con su cupo resuelto. */
+export interface ComercioConsumoChat {
+  periodo_actual: string;
+  total_mensajes: number;
+  total_tokens: number;
+  /** 0 = ilimitado. */
+  cupo: number;
+  por_clave: ComercioConsumoPorClave[];
+}
+
+/** Pago directo del comercio, tal como lo devuelve el detalle. */
+export interface ComercioPago {
+  id: string;
+  monto: number;
+  moneda: string;
+  metodo: MetodoPago;
+  pagado_en: string;
+  periodo_desde: string;
+  periodo_hasta: string;
+  nota: string | null;
+}
+
+/** Deuda estimada: el panel la muestra como estimación, nunca como exacta. */
+export interface ComercioDeuda {
+  al_dia: boolean;
+  periodos_impagos: number;
+  monto_estimado: number;
+  desde: string;
+  regla: string;
+}
+
+export interface ComercioDetalle {
+  comercio: {
+    id: string;
+    nombre: string;
+    telefono: string | null;
+    email: string | null;
+    createdAt: string;
+  };
+  plan: ComercioDetallePlan | null;
+  claves: ComercioDetalleClave[];
+  consumo_chat: ComercioConsumoChat;
+  pagos: ComercioPago[];
+  deuda: ComercioDeuda;
 }
 
 /** Licencia tal como la devuelve el listado paginado, con su comercio adentro. */
@@ -59,9 +162,25 @@ export interface LicenciaListada {
   max_activaciones: number;
   activado_en: string | null;
   activaciones: { id: string; instalacion_id: string; ultima_validacion: string }[];
-  comercio: { id: string; nombre: string };
+  /** `null` = clave libre, todavía sin asignar a un comercio. */
+  comercio: { id: string; nombre: string } | null;
   createdAt: string;
   updatedAt: string;
+}
+
+/** Clave libre recién generada, con su texto plano para entregar. */
+export interface ClaveGenerada {
+  id: string;
+  clave: string;
+  rol: RolLicencia;
+  estado: string;
+  max_activaciones: number;
+}
+
+/** Resumen de una clave que se asignó a un comercio en el alta. */
+export interface ClaveAsignada {
+  id: string;
+  rol: RolLicencia;
 }
 
 export interface Plan {
@@ -76,6 +195,7 @@ export interface Plan {
   max_clientes: number;
   chat_mensajes_mes: number;
   activo: boolean;
+  comercios_con_plan: number;
   suscripciones_activas: number;
   createdAt: string;
   updatedAt: string;

@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { Rocket, Trash2 } from 'lucide-react';
-import { eliminarVersion, publicarVersion } from '@/actions/actualizaciones';
+import { eliminarArchivoVersion, eliminarVersion, publicarVersion } from '@/actions/actualizaciones';
 import { AccionModal } from '@/components/ui/accion-modal';
 import { Button } from '@/components/ui/button';
 import { Field, FieldGroup } from '@/components/ui/field';
@@ -121,6 +121,73 @@ export function EliminarVersion({ version, esVigente }: { version: string; esVig
             {esVigente
               ? ' Como es la versión vigente, también se borra latest.json: las cajas dejarán de ver actualizaciones hasta que publiques una nueva.'
               : ' La versión vigente no se toca.'}
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button type="button" variant="ghost" onClick={() => setAbierto(false)}>
+            Cancelar
+          </Button>
+          <Button variant="destructive" onClick={confirmar} disabled={borrando}>
+            {borrando ? 'Eliminando…' : 'Sí, eliminar'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/**
+ * Elimina un instalador suelto de la versión vigente, con su firma .sig.
+ * El backend lo saca de latest.json; si era el último, las cajas dejan de
+ * recibir actualizaciones hasta que se publique otra versión.
+ */
+export function EliminarArchivo({
+  version,
+  nombre,
+  esVigente,
+}: {
+  version: string;
+  nombre: string;
+  esVigente: boolean;
+}) {
+  const [abierto, setAbierto] = useState(false);
+  const [borrando, setBorrando] = useState(false);
+
+  async function confirmar() {
+    setBorrando(true);
+    try {
+      const r = await eliminarArchivoVersion(version, nombre);
+      if (r.ok) {
+        toast.success(r.mensaje ?? `Archivo ${nombre} eliminado`);
+        setAbierto(false);
+      } else {
+        toast.error(r.error ?? 'No se pudo eliminar');
+      }
+    } finally {
+      setBorrando(false);
+    }
+  }
+
+  return (
+    <Dialog open={abierto} onOpenChange={setAbierto}>
+      <DialogTrigger asChild>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
+          title={`Eliminar ${nombre}`}
+        >
+          <Trash2 className="size-3.5" />
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>¿Eliminar {nombre}?</DialogTitle>
+          <DialogDescription>
+            Se borra el instalador del disco y su firma (.sig) si la tiene.
+            {esVigente
+              ? ' Es parte de la versión publicada: las cajas dejarán de recibir ese instalador (y su firma).'
+              : ' La versión publicada no se toca.'}
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>

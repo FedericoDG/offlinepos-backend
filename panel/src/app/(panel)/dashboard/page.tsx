@@ -2,132 +2,82 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { ArrowRight } from 'lucide-react';
 import { EncabezadoPagina } from '@/components/panel/encabezado';
-import { EstadoDeSuscripcion } from '@/components/panel/estado-suscripcion';
 import { Kpi } from '@/components/dashboard/kpi';
-import { GraficoIngresos } from '@/components/dashboard/grafico-ingresos';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { consultas } from '@/lib/consultas';
-import { fecha, plata, porcentaje, vencimiento } from '@/lib/formato';
-import { cn } from '@/lib/utils';
+import { fecha } from '@/lib/formato';
 
 export const metadata: Metadata = { title: 'Dashboard' };
 export const dynamic = 'force-dynamic';
 
 export default async function PaginaDashboard() {
-  const [resumen, ingresos, porPlan, vencimientos] = await Promise.all([
-    consultas.resumen(),
-    consultas.ingresosMensuales(12),
-    consultas.ingresosPorPlan(12),
-    consultas.proximosVencimientos(45),
+  const [comercios, planes, consumo] = await Promise.all([
+    consultas.comercios(),
+    consultas.planes(true),
+    consultas.chatConsumo().catch(() => ({
+      resumen: { total_mensajes: 0, total_tokens: 0, total_costo_usd: 0, comercios_activos: 0 },
+      detalle: [],
+    })),
   ]);
 
-  const totalPorPlan = porPlan.reduce((suma, fila) => suma + fila.total, 0);
-  const criticos = vencimientos.filter((v) => v.vencida).length;
+  const porId = new Map(planes.map((plan) => [plan.id, plan]));
+  const planesEnUso = new Set(comercios.map((c) => c.plan_id).filter((id): id is string => Boolean(id)));
+  const servidoresActivos = comercios.reduce(
+    (suma, c) => suma + c.licencias.filter((l) => l.estado === 'activa' && l.rol === 'SERVIDOR').length,
+    0
+  );
 
   return (
     <>
       <EncabezadoPagina
-        titulo="Cómo viene el mes"
-        descripcion="Lo cobrado, lo que está por vencer y lo que ya se pasó de fecha."
+        titulo="Cómo están los comercios"
+        descripcion="Qué comercios hay, qué plan usa cada uno y cuánto consume el chat IA. Claves en detalle en su sección."
       />
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Kpi
-          etiqueta="Cobrado este mes"
-          valor={plata(resumen.ingreso_mes)}
+          etiqueta="Comercios"
+          valor={comercios.length}
           tono="acento"
+          detalle={`${planesEnUso.size} ${planesEnUso.size === 1 ? 'plan distinto en uso' : 'planes distintos en uso'}`}
+        />
+        <Kpi
+          etiqueta="Licencias servidor activas"
+          valor={servidoresActivos}
+          detalle="las cajas de cada comercio; las terminales cliente se cuentan en Claves"
+        />
+        <Kpi
+          etiqueta="Planes activos"
+          valor={planes.length}
+          detalle="los que se pueden asignar en el alta de un comercio"
+        />
+        <Kpi
+          etiqueta="Consumo chat del mes"
+          valor={consumo.resumen.total_mensajes}
           detalle={
-            <span>
-              {resumen.pagos_mes} {resumen.pagos_mes === 1 ? 'cobro' : 'cobros'} &middot;{' '}
-              <span
-                className={
-                  resumen.variacion_mensual && resumen.variacion_mensual < 0 ? 'text-destructive' : 'text-[var(--success)]'
-                }
-              >
-                {porcentaje(resumen.variacion_mensual)}
-              </span>{' '}
-              vs. mes anterior
-            </span>
+            consumo.resumen.comercios_activos > 0
+              ? `${consumo.resumen.comercios_activos} ${
+                  consumo.resumen.comercios_activos === 1 ? 'comercio lo usó' : 'comercios lo usaron'
+                } · ${consumo.resumen.total_tokens.toLocaleString('es-AR')} tokens`
+              : 'sin uso este mes'
           }
         />
-        <Kpi
-          etiqueta="Ingreso recurrente (MRR)"
-          valor={plata(resumen.mrr)}
-          detalle={`${resumen.suscripciones.activas} suscripciones al día`}
-        />
-        <Kpi
-          etiqueta="Vencen en 30 días"
-          valor={resumen.por_vencer_30_dias}
-          tono={resumen.por_vencer_30_dias > 0 ? 'alerta' : 'neutro'}
-          detalle={`${resumen.suscripciones.en_gracia} en período de gracia (${resumen.dias_gracia} días)`}
-        />
-        <Kpi
-          etiqueta="Vencidas"
-          valor={resumen.suscripciones.vencidas}
-          tono={resumen.suscripciones.vencidas > 0 ? 'critico' : 'neutro'}
-          detalle={`de ${resumen.suscripciones.total} suscripciones · ${resumen.comercios} comercios`}
-        />
-      </section>
-
-      <section className="mt-4 grid gap-4 xl:grid-cols-[1.9fr_1fr]">
-        <Card>
-          <CardHeader>
-            <CardTitle>Ingreso mensual</CardTitle>
-            <CardDescription>Últimos doce meses, por fecha de cobro.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <GraficoIngresos datos={ingresos} />
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Reparto por plan</CardTitle>
-            <CardDescription>Del cobrado en el mismo período.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {porPlan.length === 0 ? (
-              <p className="text-muted-foreground py-10 text-center text-sm">Todavía no hay cobros para repartir.</p>
-            ) : (
-              <ul className="space-y-5">
-                {porPlan.map((fila) => {
-                  const proporcion = totalPorPlan === 0 ? 0 : Math.round((fila.total / totalPorPlan) * 100);
-                  return (
-                    <li key={fila.plan_id} className="space-y-2">
-                      <div className="flex items-baseline justify-between gap-3">
-                        <span className="text-sm font-medium">{fila.nombre}</span>
-                        <span className="cifra text-sm tabular-nums">{plata(fila.total)}</span>
-                      </div>
-                      <div className="bg-muted h-2 w-full overflow-hidden rounded-full">
-                        <div className="bg-primary h-full rounded-full" style={{ width: `${proporcion}%` }} />
-                      </div>
-                      <p className="text-muted-foreground text-xs">
-                        {proporcion}% &middot; {fila.cantidad} {fila.cantidad === 1 ? 'pago' : 'pagos'}
-                      </p>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </CardContent>
-        </Card>
       </section>
 
       <section className="mt-4">
         <Card className="gap-0">
           <CardHeader className="border-b">
-            <CardTitle>Próximos vencimientos</CardTitle>
+            <CardTitle>Comercios y estado de su plan</CardTitle>
             <CardDescription>
-              {criticos > 0
-                ? `${criticos} ${criticos === 1 ? 'suscripción ya venció' : 'suscripciones ya vencieron'}. Los próximos 45 días, de más urgente a menos.`
-                : 'Los próximos 45 días, de más urgente a menos.'}
+              El plan es el asignado al comercio, no una suscripción. El cupo de claves sale de lo que declara ese plan.
             </CardDescription>
             <CardAction>
               <Button asChild variant="ghost" size="sm">
-                <Link href="/suscripciones">
-                  Ver todas <ArrowRight />
+                <Link href="/comercios">
+                  Ver todos <ArrowRight />
                 </Link>
               </Button>
             </CardAction>
@@ -138,50 +88,71 @@ export default async function PaginaDashboard() {
                 <TableRow>
                   <TableHead className="pl-6">Comercio</TableHead>
                   <TableHead>Plan</TableHead>
-                  <TableHead>Vence</TableHead>
-                  <TableHead>Estado</TableHead>
-                  <TableHead className="text-right">Importe</TableHead>
-                  <TableHead className="pr-6">Último pago</TableHead>
+                  <TableHead>Licencias servidor</TableHead>
+                  <TableHead>Licencias cliente</TableHead>
+                  <TableHead>Alta</TableHead>
+                  <TableHead className="pr-6 text-right">Acciones</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {vencimientos.length === 0 ? (
+                {comercios.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={6} className="text-muted-foreground h-28 text-center">
-                      No hay vencimientos en los próximos 45 días.
+                      Todavía no hay comercios cargados.
                     </TableCell>
                   </TableRow>
                 ) : (
-                  vencimientos.map((item) => (
-                    <TableRow key={item.id}>
-                      <TableCell className="pl-6 font-medium">{item.comercio.nombre}</TableCell>
-                      <TableCell className="text-muted-foreground">{item.plan?.nombre ?? '—'}</TableCell>
-                      <TableCell>
-                        <span className="cifra tabular-nums">{fecha(item.vence_en)}</span>
-                        <span
-                          className={cn(
-                            'ml-2 text-xs',
-                            item.vencida
-                              ? 'text-destructive'
-                              : item.dias_restantes <= 7
-                                ? 'text-[var(--warning)]'
-                                : 'text-muted-foreground'
+                  comercios.map((comercio) => {
+                    const plan = comercio.plan_id ? porId.get(comercio.plan_id) : undefined;
+                    const activas = comercio.licencias.filter((l) => l.estado === 'activa');
+                    const servidores = activas.filter((l) => l.rol === 'SERVIDOR').length;
+                    const clientes = activas.filter((l) => l.rol === 'CLIENTE').length;
+                    const cupoServidores = plan?.max_servidores ?? '—';
+                    const cupoClientes = plan?.max_clientes ?? '—';
+                    const excedeServidores = typeof cupoServidores === 'number' && servidores > cupoServidores;
+                    const excedeClientes = typeof cupoClientes === 'number' && clientes > cupoClientes;
+
+                    return (
+                      <TableRow key={comercio.id}>
+                        <TableCell className="pl-6 font-medium">{comercio.nombre}</TableCell>
+                        <TableCell>
+                          {plan ? (
+                            <Badge variant="info">{plan.nombre}</Badge>
+                          ) : (
+                            <span className="text-[var(--warning)] text-sm">sin plan asignado</span>
                           )}
-                        >
-                          {vencimiento(item.dias_restantes)}
-                        </span>
-                      </TableCell>
-                      <TableCell>
-                        <EstadoDeSuscripcion
-                          estado={item.vencida ? (item.en_gracia ? 'EN_GRACIA' : 'VENCIDA') : 'ACTIVA'}
-                        />
-                      </TableCell>
-                      <TableCell className="cifra text-right tabular-nums">{plata(item.precio_pactado)}</TableCell>
-                      <TableCell className="cifra text-muted-foreground pr-6 tabular-nums">
-                        {item.ultimo_pago ? fecha(item.ultimo_pago.pagado_en) : 'nunca'}
-                      </TableCell>
-                    </TableRow>
-                  ))
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap">
+                          <span className="cifra tabular-nums">
+                            {servidores} / {cupoServidores}
+                          </span>
+                          {excedeServidores && (
+                            <Badge variant="danger" className="ml-2">
+                              sobre cupo
+                            </Badge>
+                          )}
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap">
+                          <span className="cifra tabular-nums">
+                            {clientes} / {cupoClientes}
+                          </span>
+                          {excedeClientes && (
+                            <Badge variant="danger" className="ml-2">
+                              sobre cupo
+                            </Badge>
+                          )}
+                        </TableCell>
+                        <TableCell className="cifra text-muted-foreground tabular-nums">
+                          {fecha(comercio.createdAt)}
+                        </TableCell>
+                        <TableCell className="pr-6 text-right">
+                          <Button asChild variant="outline" size="sm">
+                            <Link href={`/licencias?q=${encodeURIComponent(comercio.nombre)}`}>Ver claves</Link>
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })
                 )}
               </TableBody>
             </Table>

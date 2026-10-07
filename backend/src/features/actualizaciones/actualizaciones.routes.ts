@@ -4,7 +4,7 @@ import multer from 'multer';
 import path from 'path';
 import { authenticateJWT, requireAdmin } from '../../middlewares/auth.middleware';
 import { handleApiError } from '../../utils/api-error';
-import { dirUpdates, estadoActual, eliminarVersion, listarVersiones, publicarVersion } from './actualizaciones.service';
+import { dirUpdates, estadoActual, eliminarArchivoVersion, eliminarVersion, listarVersiones, publicarVersion } from './actualizaciones.service';
 import type { ArchivoSubido } from './actualizaciones.service';
 
 /**
@@ -102,6 +102,24 @@ router.post(
     }
   }
 );
+
+/**
+ * Elimina un instalador suelto de una version (y su .sig). Si era parte de
+ * la version publicada, se quita su plataforma de latest.json; si no queda
+ * ninguna, latest.json se borra y las cajas dejan de ver actualizaciones.
+ */
+router.delete('/versiones/:version/archivos/:nombre', async (req, res) => {
+  try {
+    const r = eliminarArchivoVersion(req.params.version as string, req.params.nombre as string);
+    res.status(200).json({
+      message: `Archivo ${r.nombre} eliminado de la versión ${r.version}`,
+      ...estadoActual(),
+      versiones: listarVersiones(),
+    });
+  } catch (error: any) {
+    handleApiError(error, res, 'Error al eliminar el archivo');
+  }
+});
 
 /**
  * Elimina una versión completa del disco. Si era la vigente, también se

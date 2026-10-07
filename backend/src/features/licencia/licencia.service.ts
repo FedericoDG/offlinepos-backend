@@ -37,12 +37,26 @@ import {
   ActivarLicenciaResponseDTO,
   CrearLicenciaDTO,
   CrearLicenciaResponseDTO,
+  GenerarClavesResponseDTO,
 } from './licencia.dtos';
 
-const CARACTERES_CLAVE = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+// Alfabeto sin caracteres ambiguos (sin I, O, 0, 1): la clave se dicta y se
+// tipea a mano, y confundir una O con un cero es un ticket de soporte.
+const CARACTERES_CLAVE = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
 export class LicenciaService {
-  async crear(data: CrearLicenciaDTO): Promise<CrearLicenciaResponseDTO> {
+  /**
+   * Alta de licencias. Dos caminos sobre el mismo endpoint:
+   *
+   * - con `comercio_id`: emite una clave sobre ese comercio (valida cupo).
+   * - sin `comercio_id`: genera `cantidad` claves sueltas, libres, que todavia
+   *   no pertenecen a ningun comercio. Se asignan al dar de alta un comercio.
+   */
+  async crear(data: CrearLicenciaDTO): Promise<CrearLicenciaResponseDTO | GenerarClavesResponseDTO> {
+    if (!data.comercio_id) {
+      return this.generarLibres(data);
+    }
+
     const comercio = await prisma.comercio.findUnique({
       where: { id: data.comercio_id },
     });
@@ -91,18 +105,60 @@ export class LicenciaService {
         rol: licencia.rol as 'SERVIDOR' | 'CLIENTE',
         estado: licencia.estado,
         max_activaciones: licencia.max_activaciones,
-        comercio: licencia.comercio,
+        comercio: { id: comercio.id, nombre: comercio.nombre },
       },
     };
   }
 
+  /**
+   * Genera claves sueltas (sin comercio) reusando exactamente el mismo formato
+   * y el mismo par cifrado/indice que la emision sobre un comercio: una clave
+   * libre es una `Licencia` mas, con `comercio_id` en null.
+   */
+  private async generarLibres(data: CrearLicenciaDTO): Promise<GenerarClavesResponseDTO> {
+    const cantidad = data.cantidad ?? 1;
+    const licencias: GenerarClavesResponseDTO['licencias'] = [];
+
+    for (let i = 0; i < cantidad; i++) {
+      const clave = await this.generarClaveUnica();
+      const creada = await prisma.licencia.create({
+        data: {
+          comercio_id: null,
+          clave_hash: encrypt(clave),
+          clave_busqueda: hmacBusqueda(clave),
+          rol: data.rol,
+          estado: 'activa',
+          max_activaciones: 1,
+        },
+      });
+
+      licencias.push({
+        id: creada.id,
+        clave,
+        rol: creada.rol as 'SERVIDOR' | 'CLIENTE',
+        estado: creada.estado,
+        max_activaciones: creada.max_activaciones,
+      });
+    }
+
+    return {
+      message: cantidad === 1 ? 'Clave generada correctamente' : `${cantidad} claves generadas correctamente`,
+      licencias,
+    };
+  }
+
+  /**
+   * Clave aleatoria en tres grupos de cuatro (`X7KP-2MQA-9L4T`), en mayusculas.
+   * El formato viejo `LIC-AAAA-bbbb-cccc` se sigue resolviendo en la busqueda:
+   * aca solo se cambia lo que se emite, no lo que se acepta.
+   */
   private generarClave(): string {
     const aleatorio = (cantidad: number): string =>
       Array.from(crypto.randomBytes(cantidad))
         .map((byte) => CARACTERES_CLAVE[byte % CARACTERES_CLAVE.length])
         .join('');
 
-    return `LIC-${new Date().getFullYear()}-${aleatorio(4)}-${aleatorio(4)}`;
+    return [aleatorio(4), aleatorio(4), aleatorio(4)].join('-');
   }
 
   private async claveEnUso(clave: string): Promise<boolean> {
@@ -140,6 +196,14 @@ export class LicenciaService {
     if (!licenciaEncontrada) {
       const error: any = new Error('Licencia no encontrada');
       error.statusCode = 404;
+      throw error;
+    }
+
+    // Clave libre: existe pero todavia no se asignó a ningun comercio. No es
+    // activable hasta que el alta de un comercio la tome.
+    if (!licenciaEncontrada.comercio) {
+      const error: any = new Error('La clave todavía no está asignada a un comercio');
+      error.statusCode = 409;
       throw error;
     }
 
@@ -229,8 +293,8 @@ export class LicenciaService {
         licenciaActualizada.id,
         data.instalacion_id,
         licenciaActualizada.rol,
-        licenciaActualizada.comercio.id,
-        licenciaActualizada.comercio.nombre
+        licenciaEncontrada.comercio.id,
+        licenciaEncontrada.comercio.nombre
       ),
       licencia: {
         id: licenciaActualizada.id,
@@ -238,7 +302,7 @@ export class LicenciaService {
         estado: licenciaActualizada.estado,
         activado_en: licenciaActualizada.activado_en,
         max_activaciones_restantes: licenciaActualizada.max_activaciones,
-        comercio: licenciaActualizada.comercio,
+        comercio: { id: licenciaEncontrada.comercio.id, nombre: licenciaEncontrada.comercio.nombre },
       },
     };
   }

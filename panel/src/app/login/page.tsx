@@ -33,7 +33,7 @@ export default async function PaginaLogin({
         <Card>
           <CardHeader>
             <CardTitle>Entrar al panel</CardTitle>
-            <CardDescription>Licencias, suscripciones y cobranza del sistema POS.</CardDescription>
+            <CardDescription>Comercios, licencias y planes del sistema POS.</CardDescription>
           </CardHeader>
           <CardContent>
             <FormularioLogin volver={volver} />

@@ -2,18 +2,17 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { BarChart3, Building2, CreditCard, KeyRound, Layers, MessageSquare, Receipt, Rocket } from 'lucide-react';
+import { BarChart3, Building2, KeyRound, Layers, MessageSquare, Rocket, Users } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const SECCIONES = [
   { href: '/dashboard', etiqueta: 'Dashboard', icono: BarChart3 },
   { href: '/comercios', etiqueta: 'Comercios', icono: Building2 },
-  { href: '/licencias', etiqueta: 'Licencias', icono: KeyRound },
-  { href: '/suscripciones', etiqueta: 'Suscripciones', icono: CreditCard },
+  { href: '/licencias', etiqueta: 'Claves', icono: KeyRound },
   { href: '/planes', etiqueta: 'Planes', icono: Layers },
-  { href: '/pagos', etiqueta: 'Pagos', icono: Receipt },
   { href: '/chat', etiqueta: 'Consumo Chat', icono: MessageSquare },
   { href: '/actualizaciones', etiqueta: 'Actualizaciones', icono: Rocket },
+  { href: '/administradores', etiqueta: 'Administradores', icono: Users },
 ];
 
 export function Navegacion({ horizontal = false }: { horizontal?: boolean }) {

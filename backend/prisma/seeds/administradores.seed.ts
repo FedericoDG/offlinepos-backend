@@ -1,28 +1,34 @@
 import { PrismaClient, Rol } from '@prisma/client';
 import bcrypt from 'bcrypt';
 
+/** Mismo costo que usa el login (`bcrypt.compare` contra este hash). */
+const SALT_ROUNDS = 10;
+
 export async function seedAdministradores(prisma: PrismaClient) {
-  console.log('Creando administradores...');
+  console.log('Sembrando administradores...');
 
-  const saltRounds = 10;
-  const hashedPassword = await bcrypt.hash('123456', saltRounds);
+  // Hash bcrypt: el login valida con `bcrypt.compare`, nunca con texto plano.
+  const password = await bcrypt.hash('123456', SALT_ROUNDS);
 
-  const administradores = await prisma.administrador.createMany({
-    data: [
-      {
-        id: '94957cba-2d67-488e-9da1-059463dc3c66',
-        email: 'federico@mail.com',
-        password: hashedPassword,
+  const definiciones = [
+    { id: '94957cba-2d67-488e-9da1-059463dc3c66', email: 'federico@mail.com' },
+  ];
+
+  for (const admin of definiciones) {
+    await prisma.administrador.upsert({
+      where: { email: admin.email },
+      create: {
+        id: admin.id,
+        email: admin.email,
+        password,
         rol: Rol.ADMINISTRADOR,
+        activo: true,
       },
-      {
-        id: '939037dc-bce8-441a-99dd-6d404c596a90',
-        email: 'joaquin@mail.com',
-        password: hashedPassword,
-        rol: Rol.ADMINISTRADOR,
-      },
-    ],
-  });
+      // No se pisa la contrasena existente: un re-seed no debe resetear un
+      // cambio hecho desde el panel.
+      update: {},
+    });
+  }
 
-  return administradores;
+  console.log(`  ${definiciones.length} administradores listos (password demo: 123456).`);
 }

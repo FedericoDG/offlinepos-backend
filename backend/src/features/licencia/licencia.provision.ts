@@ -192,6 +192,41 @@ export async function contarLicenciasActivas(
 }
 
 /**
+ * Resuelve el plan vigente de un comercio. Primero el plan asignado directo al
+ * comercio (alta en un paso); si no tiene, cae al camino viejo de la
+ * suscripcion no cancelada. Es la unica fuente de verdad del cupo, y la
+ * comparten la emision suelta y la asignacion de claves.
+ */
+async function resolverPlan(
+  tx: ClientePrisma,
+  comercioId: string
+): Promise<CupoPlan & { nombre: string }> {
+  const comercio = await tx.comercio.findUnique({
+    where: { id: comercioId },
+    select: { plan: true },
+  });
+
+  let plan: CupoPlan & { nombre: string } | null = comercio?.plan ?? null;
+  if (!plan) {
+    const suscripcion = await tx.suscripcion.findFirst({
+      where: { comercio_id: comercioId, estado: { not: 'CANCELADA' } },
+      include: { plan: true },
+    });
+
+    if (!suscripcion) {
+      throw httpError(
+        'El comercio no tiene un plan contratado. Contratale un plan desde Suscripciones y las licencias se emiten solas.',
+        409
+      );
+    }
+
+    plan = suscripcion.plan;
+  }
+
+  return plan;
+}
+
+/**
  * Frena la emision manual de una licencia que el plan contratado no cubre.
  *
  * El cupo del plan es la unica fuente de verdad: si el comercio esta en Basico
@@ -204,19 +239,8 @@ export async function verificarCupoDisponible(
   comercioId: string,
   rol: RolLicencia
 ): Promise<void> {
-  const suscripcion = await tx.suscripcion.findFirst({
-    where: { comercio_id: comercioId, estado: { not: 'CANCELADA' } },
-    include: { plan: true },
-  });
+  const plan = await resolverPlan(tx, comercioId);
 
-  if (!suscripcion) {
-    throw httpError(
-      'El comercio no tiene un plan contratado. Contratale un plan desde Suscripciones y las licencias se emiten solas.',
-      409
-    );
-  }
-
-  const plan = suscripcion.plan;
   const esServidor = rol === 'SERVIDOR';
   const cupo = esServidor ? plan.max_servidores : plan.max_clientes;
   const etiqueta = esServidor ? 'servidor' : 'cliente';
@@ -240,5 +264,57 @@ export async function verificarCupoDisponible(
       }. Mejora el plan para sumar otra.`,
       409
     );
+  }
+}
+
+/** Cuantas claves se pretenden asignar a un comercio, por rol. */
+export interface CupoAsignacion {
+  servidores: number;
+  clientes: number;
+}
+
+/**
+ * Valida que asignar estas claves no supere el cupo del plan del comercio.
+ *
+ * A diferencia de `verificarCupoDisponible`, que frena la emision de a una, aca
+ * el panel asigna varias claves sueltas en la misma operacion: la cuenta es
+ * `asignadas + las que vienen` contra el cupo, y por eso no alcanza con mirar
+ * si ya esta lleno. El cupo se controla al asignar y no al generar: una clave
+ * libre todavia no pertenece a nadie, asi que no ocupa lugar.
+ */
+export async function validarCupoAsignacion(
+  tx: ClientePrisma,
+  comercioId: string,
+  asignar: CupoAsignacion
+): Promise<void> {
+  const plan = await resolverPlan(tx, comercioId);
+
+  const objetivos: { rol: RolLicencia; cantidad: number; cupo: number; etiqueta: string; plural: string }[] = [
+    { rol: 'SERVIDOR', cantidad: asignar.servidores, cupo: plan.max_servidores, etiqueta: 'servidor', plural: 'servidores' },
+    { rol: 'CLIENTE', cantidad: asignar.clientes, cupo: plan.max_clientes, etiqueta: 'cliente', plural: 'clientes' },
+  ];
+
+  for (const { rol, cantidad, cupo, etiqueta, plural } of objetivos) {
+    if (cantidad <= 0) continue;
+
+    if (cupo === 0) {
+      throw httpError(
+        `El plan ${plan.nombre} no incluye licencias de ${etiqueta}. Mejora el plan del comercio para habilitarlas.`,
+        409
+      );
+    }
+
+    const asignadas = await tx.licencia.count({
+      where: { comercio_id: comercioId, rol, estado: 'activa' },
+    });
+
+    if (asignadas + cantidad > cupo) {
+      throw httpError(
+        `El plan ${plan.nombre} cubre ${cupo} ${cupo === 1 ? etiqueta : plural} y el comercio ya tiene ${asignadas} ${
+          asignadas === 1 ? 'asignada' : 'asignadas'
+        }. Estas queriendo sumar ${cantidad} mas. Mejora el plan para sumarlas.`,
+        409
+      );
+    }
   }
 }

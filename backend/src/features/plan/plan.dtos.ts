@@ -19,7 +19,12 @@ export const CrearPlanDTO = z.object({
     .string({ message: 'El nombre del plan debe ser una cadena de texto' })
     .trim()
     .min(2, 'El nombre debe tener al menos 2 caracteres'),
-  descripcion: z.string().trim().max(500, 'La descripción no puede superar los 500 caracteres').optional(),
+  descripcion: z
+    .string()
+    .trim()
+    .max(500, 'La descripción no puede superar los 500 caracteres')
+    .nullable()
+    .optional(),
   precio_mensual: z
     .number({ message: 'El precio mensual debe ser un número' })
     .nonnegative('El precio mensual no puede ser negativo'),
@@ -69,6 +74,9 @@ export interface PlanDTO {
   max_clientes: number;
   chat_mensajes_mes: number;
   activo: boolean;
+  /** Comercios que hoy tienen este plan asignado directo (Comercio.plan_id). */
+  comercios_con_plan: number;
+  /** @deprecated el alta nueva asigna Comercio.plan_id: usar comercios_con_plan. */
   suscripciones_activas: number;
   createdAt: Date;
   updatedAt: Date;

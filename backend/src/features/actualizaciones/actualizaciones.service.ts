@@ -191,6 +191,96 @@ export function eliminarVersion(versionCruda: string): { eliminado: boolean; ver
   return { eliminado: true, version };
 }
 
+export interface ArchivoEliminado {
+  eliminado: boolean;
+  version: string;
+  nombre: string;
+}
+
+/**
+ * Elimina un instalador suelto de una version, junto a su firma `.sig`.
+ *
+ * Si la version es la publicada, se reescribe latest.json quitando toda
+ * plataforma que apunte a ese archivo: las cajas dejan de recibir ese
+ * instalador (y su firma) sin caer en un loop de actualizacion. Si ya no
+ * queda ninguna plataforma, latest.json se borra entero (nada publicado).
+ * Cuando la carpeta de la version queda vacia, tambien se elimina para que
+ * desaparezca del historial del panel.
+ */
+export function eliminarArchivoVersion(versionCruda: string, nombreCrudo: string): ArchivoEliminado {
+  const version = versionCruda.trim();
+  if (!SEMVER.test(version)) {
+    throw httpError('Versión inválida', 400);
+  }
+
+  // El nombre tiene que ser un basename simple: sin separadores ni escapes de
+  // directorio. Se compara contra path.basename para rechazar rutas armadas.
+  const nombre = nombreCrudo.trim();
+  if (
+    !nombre ||
+    nombre.includes('/') ||
+    nombre.includes('\\') ||
+    nombre.includes('..') ||
+    nombre !== path.basename(nombre)
+  ) {
+    throw httpError('Nombre de archivo inválido', 400);
+  }
+  if (nombre.endsWith('.sig')) {
+    throw httpError('Las firmas (.sig) se borran junto a su instalador', 400);
+  }
+
+  const dirVersion = path.join(DIR_ARCHIVOS, `v${version}`);
+  const rutaArchivo = path.join(dirVersion, nombre);
+  let existe = false;
+  try {
+    existe = fs.statSync(rutaArchivo).isFile();
+  } catch {
+    existe = false;
+  }
+  if (!existe) {
+    throw httpError(`El archivo ${nombre} no existe en la versión ${version}`, 404);
+  }
+
+  fs.unlinkSync(rutaArchivo);
+  try {
+    fs.unlinkSync(`${rutaArchivo}.sig`);
+  } catch {
+    /* el archivo no tenía firma */
+  }
+
+  const latest = leerLatest();
+  if (latest?.version === version) {
+    const sufijo = `/v${version}/${nombre}`;
+    const platforms: Record<string, any> = { ...(latest.platforms ?? {}) };
+    for (const target of Object.keys(platforms)) {
+      const url = platforms[target]?.url;
+      if (typeof url === 'string' && url.endsWith(sufijo)) {
+        delete platforms[target];
+      }
+    }
+
+    if (Object.keys(platforms).length === 0) {
+      try {
+        fs.unlinkSync(PATH_LATEST);
+      } catch {
+        /* ya no estaba */
+      }
+    } else {
+      fs.writeFileSync(PATH_LATEST, JSON.stringify({ ...latest, platforms }, null, 2) + '\n');
+    }
+  }
+
+  try {
+    if (fs.readdirSync(dirVersion).length === 0) {
+      fs.rmdirSync(dirVersion);
+    }
+  } catch {
+    /* la carpeta ya no está */
+  }
+
+  return { eliminado: true, version, nombre };
+}
+
 export interface ArchivoSubido {
   /** Ruta temporal donde lo dejó multer. */
   tmp: string;

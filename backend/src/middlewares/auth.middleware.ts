@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { env } from '../config/env';
+import prisma from '../config/prisma';
 import { Rol } from '@prisma/client';
 
 export interface AuthUserPayload {
@@ -17,11 +18,11 @@ declare global {
   }
 }
 
-export const authenticateJWT = (
+export const authenticateJWT = async (
   req: Request,
   res: Response,
   next: NextFunction
-): void => {
+): Promise<void> => {
   const authHeader = req.headers.authorization;
 
   if (!authHeader) {
@@ -33,13 +34,38 @@ export const authenticateJWT = (
     ? authHeader.slice(7)
     : authHeader;
 
+  let decoded: AuthUserPayload;
   try {
-    const decoded = jwt.verify(token, env.JWT_SECRET) as AuthUserPayload;
-    req.user = decoded;
-    next();
+    decoded = jwt.verify(token, env.JWT_SECRET) as AuthUserPayload;
   } catch (error) {
     res.status(401).json({ message: 'Token de autenticación inválido o expirado' });
+    return;
   }
+
+  try {
+    // Re-chequeo por request: un administrador borrado o desactivado no puede
+    // seguir usando un token que todavia no venció.
+    const admin = await prisma.administrador.findUnique({
+      where: { id: decoded.id },
+      select: { activo: true },
+    });
+
+    if (!admin) {
+      res.status(401).json({ message: 'Token de autenticación inválido o expirado' });
+      return;
+    }
+
+    if (!admin.activo) {
+      res.status(403).json({ message: 'Usuario desactivado' });
+      return;
+    }
+  } catch {
+    res.status(401).json({ message: 'Token de autenticación inválido o expirado' });
+    return;
+  }
+
+  req.user = decoded;
+  next();
 };
 
 export const requireRole = (allowedRoles: Rol | Rol[]) => {

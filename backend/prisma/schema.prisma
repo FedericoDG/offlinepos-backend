@@ -19,6 +19,9 @@ model Administrador {
   email    String @unique
   password String
   rol      Rol    @default(ADMINISTRADOR)
+  /// Baja logica: un administrador desactivado no puede iniciar sesion y su
+  /// token vivo deja de servir (el middleware re-chequea este campo).
+  activo   Boolean @default(true)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -27,10 +30,25 @@ model Administrador {
 model Comercio {
   id        String     @id @default(uuid())
   nombre    String
+  /// Datos de contacto del comercio. Opcionales: un comercio puede existir sin
+  /// telefono ni email cargados (alta rapida, datos que se completan despues).
+  telefono  String?
+  email     String?
   /// Override por comercio del cupo de Binny. null = usa el plan / env; 0 = ilimitado solo para este comercio.
   chat_mensajes_override Int?
+  /// Plan asignado directo al comercio (alta en un paso). Opcional: si el
+  /// comercio sigue el camino viejo, vive solo su Suscripcion y aca es null.
+  plan_id String?
   licencias     Licencia[]
+  /// Consumo de Binny a nivel comercio: el cupo es del comercio y se comparte
+  /// entre todas sus claves. Una fila por comercio + periodo.
+  chatConsumosComercio ChatConsumoComercio[]
   suscripciones Suscripcion[]
+  /// Pagos directos del comercio, sin Suscripcion de por medio (camino nuevo).
+  pagos         Pago[]
+  plan          Plan?       @relation(fields: [plan_id], references: [id], onDelete: SetNull)
+
+  @@index([plan_id])
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -43,8 +61,10 @@ enum RolLicencia {
 
 model Licencia {
   id               String       @id @default(uuid())
-  comercio_id      String
-  comercio         Comercio     @relation(fields: [comercio_id], references: [id], onDelete: Cascade)
+  /// Null = la clave todavía no está asignada a ningún comercio ("libre").
+  /// Se genera suelta y recién se asigna al dar de alta un comercio.
+  comercio_id      String?
+  comercio         Comercio?    @relation(fields: [comercio_id], references: [id], onDelete: SetNull)
   clave_hash       String
   clave_busqueda   String?        @unique
   rol              RolLicencia  @default(SERVIDOR)
@@ -88,6 +108,24 @@ model ChatConsumo {
   @@unique([licencia_id, periodo])
 }
 
+/// Contador de mensajes de Binny a nivel comercio. El cupo se comparte entre
+/// todas las licencias del comercio: 2 claves con cupo 600 consumen 600 en
+/// total, no 600 cada una. La fila por licencia (ChatConsumo) se conserva solo
+/// como desglose de estadisticas y para los contadores de tokens.
+model ChatConsumoComercio {
+  id          String   @id @default(uuid())
+  comercio_id String
+  comercio    Comercio @relation(fields: [comercio_id], references: [id], onDelete: Cascade)
+  periodo     String   // "2026-09"
+  mensajes    Int      @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([comercio_id, periodo])
+  @@map("chat_consumo_comercio")
+}
+
 
 // ============================================================================
 // Panel de administracion — Binario Dev Labs
@@ -125,6 +163,8 @@ model Plan {
   activo         Boolean  @default(true)
 
   suscripciones Suscripcion[]
+  /// Comercios que tienen este plan asignado directo, sin suscripcion de por medio.
+  comercios Comercio[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -177,9 +217,16 @@ enum MetodoPago {
 }
 
 model Pago {
-  id             String      @id @default(uuid())
-  suscripcion_id String
-  suscripcion    Suscripcion @relation(fields: [suscripcion_id], references: [id], onDelete: Cascade)
+  id             String       @id @default(uuid())
+  /// Camino viejo: el pago cuelga de una Suscripcion. Queda nullable para
+  /// convivir con los pagos directos, que cuelgan del Comercio.
+  suscripcion_id String?
+  suscripcion    Suscripcion? @relation(fields: [suscripcion_id], references: [id], onDelete: Cascade)
+
+  /// Camino nuevo: pago directo del comercio (sin Suscripcion). Cascade: dar de
+  /// baja un comercio se lleva sus pagos, que no tienen sentido sin el.
+  comercio_id String?
+  comercio    Comercio? @relation(fields: [comercio_id], references: [id], onDelete: Cascade)
 
   monto  Decimal    @db.Decimal(12, 2)
   moneda String     @default("ARS")
@@ -201,4 +248,5 @@ model Pago {
 
   @@index([pagado_en])
   @@index([suscripcion_id])
+  @@index([comercio_id])
 }

@@ -1,49 +1,67 @@
 import { PrismaClient, RolLicencia } from '@prisma/client';
-import { encrypt } from '../../src/utils/encryption';
-import { COMERCIO_SEED_ID } from './comercios.seed';
+import { encrypt, hmacBusqueda } from '../../src/utils/encryption';
+import { COMERCIO_DEMO_1_ID } from './comercios.seed';
 
-export const LICENCIA_SERVIDOR_SEED_ID = 'b2c3d4e5-f6a7-8b9c-0d1e-2f3a4b5c6d7e';
-export const LICENCIA_CLIENTE_SEED_ID = 'c3d4e5f6-a7b8-9c0d-1e2f-3a4b5c6d7e8f';
+/**
+ * Licencias demo. Se guardan las DOS columnas que usa el servicio: `clave_hash`
+ * (AES, reversible para poder mostrar la clave) y `clave_busqueda` (HMAC, indice
+ * unico para el lookup O(1) de activacion). Saltear el HMAC deja la clave
+ * invisible para el camino rapido.
+ *
+ * Las claves son FIJAS a proposito: si se generaran al azar, cada corrida del
+ * seed invalidaria la clave que alguien ya tiene anotada. Formato actual: tres
+ * grupos de cuatro, alfabeto sin caracteres ambiguos (sin I, O, 0, 1).
+ */
+export const LICENCIA_LIBRE_SEED_ID = 'demo-licencia-libre';
+export const LICENCIA_SERVIDOR_SEED_ID = 'demo-licencia-servidor';
+export const LICENCIA_CLIENTE_SEED_ID = 'demo-licencia-cliente';
 
-export const CLAVE_LICENCIA_SERVIDOR_RAW = 'LIC-2026-POS-DEMO-KEY';
-export const CLAVE_LICENCIA_CLIENTE_RAW = 'LIC-2026-CLI-DEMO-KEY';
+export const CLAVE_LICENCIA_LIBRE_RAW = 'K7M2-Q9LP-4XZR';
+export const CLAVE_LICENCIA_SERVIDOR_RAW = 'B4TN-7QWM-2XKP';
+export const CLAVE_LICENCIA_CLIENTE_RAW = 'C8LZ-3RKV-6MNT';
 
-// Aliases para compatibilidad con imports existentes
+// Aliases historicos para imports existentes.
 export const LICENCIA_SEED_ID = LICENCIA_SERVIDOR_SEED_ID;
 export const CLAVE_LICENCIA_RAW = CLAVE_LICENCIA_SERVIDOR_RAW;
 
+function datosLicencia(
+  clave: string,
+  comercioId: string | null,
+  rol: RolLicencia,
+  maxActivaciones: number
+) {
+  return {
+    comercio_id: comercioId,
+    clave_hash: encrypt(clave),
+    clave_busqueda: hmacBusqueda(clave),
+    rol,
+    estado: 'activa',
+    activado_en: comercioId ? new Date() : null,
+    max_activaciones: maxActivaciones,
+  };
+}
+
 export async function seedLicencias(prisma: PrismaClient) {
-  console.log('Creando licencias...');
+  console.log('Sembrando licencias demo...');
 
-  const claveServidorCifrada = encrypt(CLAVE_LICENCIA_SERVIDOR_RAW);
-  const claveClienteCifrada = encrypt(CLAVE_LICENCIA_CLIENTE_RAW);
+  const definiciones = [
+    // Clave suelta (comercio null): existe pero no es activable hasta asignarla.
+    { id: LICENCIA_LIBRE_SEED_ID, clave: CLAVE_LICENCIA_LIBRE_RAW, comercio_id: null, rol: RolLicencia.SERVIDOR, max: 1 },
+    { id: LICENCIA_SERVIDOR_SEED_ID, clave: CLAVE_LICENCIA_SERVIDOR_RAW, comercio_id: COMERCIO_DEMO_1_ID, rol: RolLicencia.SERVIDOR, max: 3 },
+    { id: LICENCIA_CLIENTE_SEED_ID, clave: CLAVE_LICENCIA_CLIENTE_RAW, comercio_id: COMERCIO_DEMO_1_ID, rol: RolLicencia.CLIENTE, max: 5 },
+  ];
 
-  const licencias = await prisma.licencia.createMany({
-    data: [
-      {
-        id: LICENCIA_SERVIDOR_SEED_ID,
-        comercio_id: COMERCIO_SEED_ID,
-        clave_hash: claveServidorCifrada,
-        rol: RolLicencia.SERVIDOR,
-        estado: 'activa',
-        activado_en: new Date(),
-        max_activaciones: 3,
-      },
-      {
-        id: LICENCIA_CLIENTE_SEED_ID,
-        comercio_id: COMERCIO_SEED_ID,
-        clave_hash: claveClienteCifrada,
-        rol: RolLicencia.CLIENTE,
-        estado: 'activa',
-        activado_en: new Date(),
-        max_activaciones: 5,
-      },
-    ],
-  });
+  for (const def of definiciones) {
+    const data = datosLicencia(def.clave, def.comercio_id, def.rol, def.max);
+    await prisma.licencia.upsert({
+      where: { id: def.id },
+      create: { id: def.id, ...data },
+      update: data,
+    });
+  }
 
-  console.log(`Claves demo disponibles:`);
-  console.log(`  Servidor: ${CLAVE_LICENCIA_SERVIDOR_RAW}`);
-  console.log(`  Cliente : ${CLAVE_LICENCIA_CLIENTE_RAW}`);
-
-  return licencias;
+  console.log('  Claves demo:');
+  console.log(`    Libre    : ${CLAVE_LICENCIA_LIBRE_RAW} (sin comercio)`);
+  console.log(`    Servidor : ${CLAVE_LICENCIA_SERVIDOR_RAW} (${COMERCIO_DEMO_1_ID})`);
+  console.log(`    Cliente  : ${CLAVE_LICENCIA_CLIENTE_RAW} (${COMERCIO_DEMO_1_ID})`);
 }

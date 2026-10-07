@@ -1,16 +1,13 @@
 import { api } from './api';
 import type {
+  AdministradorListado,
   ChatConsumoResponse,
   Comercio,
-  IngresoMensual,
-  IngresoPorPlan,
+  ComercioDetalle,
   LicenciaListada,
   Paginado,
-  PagosPaginados,
   Plan,
-  Resumen,
   Suscripcion,
-  Vencimiento,
   VersionVigente,
 } from './tipos';
 
@@ -28,21 +25,15 @@ function query(params: Record<string, string | number | undefined>): string {
  * Lecturas del backend. Se llaman desde server components, con el token de la
  * cookie: nunca desde el navegador.
  */
-
 export const consultas = {
-  resumen: () => api.get<Resumen>('/api/estadisticas/resumen'),
-
-  ingresosMensuales: (meses = 12) =>
-    api.get<IngresoMensual[]>(`/api/estadisticas/ingresos-mensuales?meses=${meses}`),
-
-  ingresosPorPlan: (meses = 12) => api.get<IngresoPorPlan[]>(`/api/estadisticas/ingresos-por-plan?meses=${meses}`),
-
-  proximosVencimientos: (dias = 30) =>
-    api.get<Vencimiento[]>(`/api/estadisticas/proximos-vencimientos?dias=${dias}`),
-
   planes: (soloActivos = false) => api.get<Plan[]>(`/api/planes${soloActivos ? '?activos=true' : ''}`),
 
   comercios: () => api.get<Comercio[]>('/api/comercios'),
+
+  /** Todo lo de la pantalla de detalle en una sola vuelta. */
+  comercioDetalle: (id: string) => api.get<ComercioDetalle>(`/api/comercios/${id}/detalle`),
+
+  administradores: () => api.get<AdministradorListado[]>('/api/administradores'),
 
   suscripciones: (filtros: { comercio_id?: string; estado?: string; vence_en_dias?: number } = {}) => {
     const query = new URLSearchParams();
@@ -53,12 +44,9 @@ export const consultas = {
     return api.get<Suscripcion[]>(`/api/suscripciones${cadena ? `?${cadena}` : ''}`);
   },
 
-  /** Listado paginado de licencias. `q` busca por nombre de comercio. */
-  licencias: (filtros: { q?: string; comercio_id?: string; rol?: string; estado?: string; pagina?: number; limite?: number } = {}) =>
+  /** Listado paginado de licencias. `q` busca por nombre de comercio; `libres=1` trae solo las claves sin asignar. */
+  licencias: (filtros: { q?: string; comercio_id?: string; rol?: string; estado?: string; libres?: 1; pagina?: number; limite?: number } = {}) =>
     api.get<Paginado<LicenciaListada>>(`/api/licencias${query({ ...filtros })}`),
-
-  pagos: (filtros: { q?: string; comercio_id?: string; desde?: string; hasta?: string; pagina?: number; limite?: number } = {}) =>
-    api.get<PagosPaginados>(`/api/pagos${query({ ...filtros })}`),
 
   chatConsumo: (periodo?: string) =>
     api.get<ChatConsumoResponse>(`/api/estadisticas/chat-consumo${periodo ? `?periodo=${periodo}` : ''}`),

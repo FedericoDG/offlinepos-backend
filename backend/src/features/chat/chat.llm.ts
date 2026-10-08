@@ -50,6 +50,13 @@ export const MENSAJES_PROVEEDOR_SEGUROS: RegExp[] = [
  */
 export function mensajeSeguroDeError(error: unknown): string | null {
   const texto = error instanceof Error ? error.message : typeof error === 'string' ? error : '';
+  // Errores propios lanzados con httpError (licencia no encontrada/suspendida,
+  // cuota agotada): el mensaje esta escrito para el usuario y debe llegar tal
+  // cual, no como "error interno".
+  const statusCode = (error as { statusCode?: unknown } | null)?.statusCode;
+  if (typeof statusCode === 'number' && [401, 402, 403, 404, 429].includes(statusCode) && texto) {
+    return texto;
+  }
   return MENSAJES_PROVEEDOR_SEGUROS.some((re) => re.test(texto)) ? texto : null;
 }
 

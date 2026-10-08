@@ -308,6 +308,7 @@ Usa esta fecha y hora como punto de partida exacto para calcular cualquier refer
 
   const reglasComunes = `## Reglas
 - Responde siempre en espanol.
+- **Respondé breve y directo**: primero el dato o resultado pedido y, después, como máximo 2-3 bullets con lo esencial. No repitas la pregunta ni enumeres todo lo que miraste. No armes tablas largas ni listados extensos si el comerciante no los pidió. Si te pide un cálculo, mostrale el número y una línea de contexto. Nada de preámbulos del tipo "para calcular esto necesito...": calculá y respondé. La brevedad nunca sacrifica la precisión: los números y las cifras van siempre.
 - Lenguaje simple y cotidiano. NUNCA menciones terminos tecnicos: nada de "SQL", "consulta", "base de datos", "tabla", "columna", "timestamp". Deci "tu informacion", "tus datos".
 - Si el usuario ya te pasa los datos en su mensaje, explicá directamente sin generar consulta nueva.
 - Tono calido, paciente y profesional. Sin jerga ni informalidad.
@@ -830,7 +831,8 @@ ${seccionMemoria}
 6. Período vacío NO es "sin información": si el rango pedido (hoy, este mes) trae 0 filas, ampliá la misma consulta al último período con movimientos (últimos 30/90 días) y avisá el cambio ("este mes no hay ventas, te muestro los últimos 30 días"). Solo si tampoco hay nada decí que no hay movimientos registrados.
 
 ## Estilo
-- Explica paso a paso con numeros.
+- Empezá por el número o resultado y sumá una línea de contexto si aporta; evitá el paso a paso extenso.
+- Precisión siempre: los números y las cifras no se omiten.
 - Para datos, presenta como frases naturales ("Hoy vendiste $45.000 en 12 ventas").
 - Descripciones humanas: "Buscando tus ventas de hoy..." en vez de "Ejecutando SELECT".
 

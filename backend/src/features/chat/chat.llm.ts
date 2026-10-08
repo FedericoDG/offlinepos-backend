@@ -33,6 +33,26 @@ const TIMEOUT_LLAMADA_MS = 60_000;   // 60s total para llamarLLM (JSON completo)
 const TIMEOUT_CONEXION_MS = 30_000;  // 30s para que el proveedor responda headers
 const TIMEOUT_STALL_MS = 30_000;     // 30s sin datos → abortar stream
 
+// Mensajes de error del proveedor que son SEGUROS de mostrar al usuario: ya
+// explican el problema (fallo del proveedor, timeout, respuesta vacía) sin
+// filtrar detalles internos ni rutas. Cualquier otro error debe reemplazarse
+// por un mensaje genérico antes de salir al cliente (ver controlador).
+export const MENSAJES_PROVEEDOR_SEGUROS: RegExp[] = [
+  /^Error del proveedor LLM \(código \d+\)$/,
+  /^Error del proveedor LLM Vision \(código \d+\)$/,
+  /^El proveedor LLM dejó de responder \(timeout\)$/,
+  /^El proveedor LLM devolvió una respuesta vacía$/,
+];
+
+/**
+ * Devuelve el mensaje seguro del proveedor si el error es uno de ellos, o null
+ * si es un error interno que no debe mostrarse tal cual al usuario.
+ */
+export function mensajeSeguroDeError(error: unknown): string | null {
+  const texto = error instanceof Error ? error.message : typeof error === 'string' ? error : '';
+  return MENSAJES_PROVEEDOR_SEGUROS.some((re) => re.test(texto)) ? texto : null;
+}
+
 export async function llamarLLM(
   mensajes: ChatMessage[],
   opciones: { jsonMode?: boolean; model?: string } = {},

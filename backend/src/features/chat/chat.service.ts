@@ -1134,6 +1134,54 @@ export function aplicarFallbackManual(texto: string): string {
 }
 
 /**
+ * ¿El error del proveedor merece un reintento? Solo 5xx (fallo transitorio del
+ * servidor) y 429 (rate limit). Un 4xx distinto (payload inválido, auth) no se
+ * reintenta: volvería a fallar igual.
+ */
+function esReintentableProveedor(error: unknown): boolean {
+  const mensaje = error instanceof Error ? error.message : String(error);
+  const match = /\(código (\d{3})\)/.exec(mensaje);
+  if (!match) return false;
+  const codigo = Number(match[1]);
+  return codigo >= 500 || codigo === 429;
+}
+
+/** Resultado de un paso auxiliar: ok=true con el valor, o ok=false con el error. */
+export type ResultadoAuxiliar<T> = { ok: true; valor: T } | { ok: false; error: unknown };
+
+/**
+ * Ejecuta un paso AUXILIAR del ciclo (memoria automática, guardián
+ * anti-tarjeta-fantasma, reintento de SQL) a prueba de fallos.
+ *
+ * Una falla auxiliar NUNCA debe abortar la respuesta al comerciante: si el
+ * proveedor responde 5xx/429 se reintenta UNA vez (sin espera larga); cualquier
+ * fallo —antes o después del reintento— se registra en el log y se devuelve
+ * `{ ok: false }` para que el llamador siga con el texto que ya tiene. No
+ * propaga el throw: el `ok: false` permite distinguir "el paso no pudo correr"
+ * de "el paso corrió y devolvió null" (sin corrección posible).
+ */
+export async function auxiliarConReintento<T>(
+  nombre: string,
+  ejecutar: () => Promise<T>,
+): Promise<ResultadoAuxiliar<T>> {
+  try {
+    return { ok: true, valor: await ejecutar() };
+  } catch (error) {
+    if (esReintentableProveedor(error)) {
+      console.warn(`[chat] ${nombre} falló con error reintentable; reintentando una vez:`, error);
+      try {
+        return { ok: true, valor: await ejecutar() };
+      } catch (errorReintento) {
+        console.error(`[chat] ${nombre} falló tras el reintento:`, errorReintento);
+        return { ok: false, error: errorReintento };
+      }
+    }
+    console.error(`[chat] ${nombre} falló:`, error);
+    return { ok: false, error };
+  }
+}
+
+/**
  * Un reintento no-streaming cuando el texto final promete una tarjeta que no
  * existe. Retorna el texto corregido (con bloque) o null si persiste el fallo.
  * Los tokens del reintento se devuelven para acumularlos.
@@ -1813,17 +1861,24 @@ Reglas estrictas:
         if (validacion.valido) {
           yield { type: 'consulta', respuesta: { ...evento.respuesta, sql: sqlNormalizado, tokens: tokensFinales, uso } };
         } else {
-          // SQL inválido → 1 reintento con llamarLLM (JSON, feedback)
-          try {
-            mensajes.push({
-              role: 'assistant',
-              content: JSON.stringify(evento.respuesta),
-            });
-            mensajes.push({
-              role: 'user',
-              content: `Tu consulta fue rechazada: ${validacion.error}. Regenerá SOLO el JSON {tipo:"consulta", id_solicitud, sql, descripcion} con SQL válido: solo SELECT o WITH, LIMIT ≤ 500, una sola sentencia.`,
-            });
-            const retry = await llamarLLM(mensajes, { jsonMode: true, model: modelo });
+          // SQL inválido → 1 reintento con llamarLLM (JSON, feedback).
+          // Paso auxiliar: si el proveedor cae (5xx/429) se reintenta una vez y,
+          // si persiste, se degrada con un mensaje amable en vez de romper.
+          mensajes.push({
+            role: 'assistant',
+            content: JSON.stringify(evento.respuesta),
+          });
+          mensajes.push({
+            role: 'user',
+            content: `Tu consulta fue rechazada: ${validacion.error}. Regenerá SOLO el JSON {tipo:"consulta", id_solicitud, sql, descripcion} con SQL válido: solo SELECT o WITH, LIMIT ≤ 500, una sola sentencia.`,
+          });
+          const intento = await auxiliarConReintento('reintento de SQL en preguntarStream', () =>
+            llamarLLM(mensajes, { jsonMode: true, model: modelo }),
+          );
+          if (!intento.ok) {
+            yield { type: 'error', texto: 'No pude generar la consulta. ¿Podés reformular la pregunta?' };
+          } else {
+            const retry = intento.valor;
             tokensFinales.prompt_tokens += retry.tokens.prompt_tokens;
             tokensFinales.completion_tokens += retry.tokens.completion_tokens;
             tokensFinales.total_tokens += retry.tokens.total_tokens;
@@ -1838,8 +1893,6 @@ Reglas estrictas:
             } else {
               yield { type: 'error', texto: 'No pude generar la consulta. ¿Podés reformular la pregunta?' };
             }
-          } catch {
-            yield { type: 'error', texto: 'No pude generar la consulta. ¿Podés reformular la pregunta?' };
           }
         }
       } else if (evento.type === 'done') {
@@ -1851,25 +1904,28 @@ Reglas estrictas:
         let textoFinal = textoAcumulado;
         if (prometeSinTarjeta(textoAcumulado) || jsonSueltoEntidad(textoAcumulado)) {
           console.warn('[Binny-guardian] promesa sin tarjeta o JSON suelto en preguntarStream, reintentando una vez');
-          try {
-            const retry = await reintentarTarjetaFaltante(mensajes, textoAcumulado, modelo);
-            if (retry) {
-              textoFinal = retry.texto;
-              tokensFinales.prompt_tokens += retry.tokens.prompt_tokens;
-              tokensFinales.completion_tokens += retry.tokens.completion_tokens;
-              tokensFinales.total_tokens += retry.tokens.total_tokens;
-              tokensFinales.cached_tokens += retry.tokens.cached_tokens;
+          const intento = await auxiliarConReintento('guardián anti-tarjeta en preguntarStream', () =>
+            reintentarTarjetaFaltante(mensajes, textoAcumulado, modelo),
+          );
+          if (!intento.ok) {
+            // El guardián no pudo ejecutarse (proveedor caído): se deja pasar el
+            // texto tal cual en vez de romper la respuesta.
+            console.warn('[Binny-guardian] el guardián falló; se deja el texto tal cual en preguntarStream');
+          } else if (intento.valor) {
+            const retry = intento.valor;
+            textoFinal = retry.texto;
+            tokensFinales.prompt_tokens += retry.tokens.prompt_tokens;
+            tokensFinales.completion_tokens += retry.tokens.completion_tokens;
+            tokensFinales.total_tokens += retry.tokens.total_tokens;
+            tokensFinales.cached_tokens += retry.tokens.cached_tokens;
+          } else {
+            const saneado = aplicarFallbackManual(textoAcumulado);
+            if (saneado !== textoAcumulado) {
+              console.warn('[Binny-guardian] fallback manual aplicado en preguntarStream');
+              textoFinal = saneado;
             } else {
-              const saneado = aplicarFallbackManual(textoAcumulado);
-              if (saneado !== textoAcumulado) {
-                console.warn('[Binny-guardian] fallback manual aplicado en preguntarStream');
-                textoFinal = saneado;
-              } else {
-                console.warn('[Binny-guardian] promesa sin tarjeta persistente en preguntarStream');
-              }
+              console.warn('[Binny-guardian] promesa sin tarjeta persistente en preguntarStream');
             }
-          } catch (e) {
-            console.warn('[Binny-guardian] falló el reintento en preguntarStream:', e);
           }
         }
         if (textoFinal !== textoAcumulado) {
@@ -2115,24 +2171,25 @@ Reglas estrictas:
           console.warn(
             `[Binny-guardian] fence bloqueado para entidad prohibida (${entidadFence}: ${fencesMal.join(',')}), reintentando`,
           );
-          try {
-            const base: ChatMessage[] = mensajes
-              .filter((m) => m.role === 'system' || m.role === 'user' || (m.role === 'assistant' && !m.tool_calls))
-              .map((m) => ({ role: m.role as 'system' | 'user' | 'assistant', content: m.content }));
-            const camino = CAMINO_ENTIDAD_PROHIBIDA[entidadFence] ?? 'la pantalla correspondiente del sistema';
-            const retry = await reintentarEntidadBloqueada(base, textoFinal, entidadFence, camino, modelo);
-            if (retry) {
-              textoFinal = retry.texto;
-              tokensFinales.prompt_tokens += retry.tokens.prompt_tokens;
-              tokensFinales.completion_tokens += retry.tokens.completion_tokens;
-              tokensFinales.total_tokens += retry.tokens.total_tokens;
-              tokensFinales.cached_tokens += retry.tokens.cached_tokens;
-            } else {
-              console.warn('[Binny-guardian] fence bloqueado persistente; quitando por código');
-              textoFinal = quitarFencesBloqueados(textoFinal, entidadFence, fencesMal);
-            }
-          } catch (e) {
-            console.warn('[Binny-guardian] falló el reintento de entidad:', e);
+          // Paso auxiliar a prueba de fallos: tanto un reintento que no corrige
+          // como un fallo del proveedor caen al saneo determinista por código,
+          // que nunca muestra una tarjeta inventada.
+          const base: ChatMessage[] = mensajes
+            .filter((m) => m.role === 'system' || m.role === 'user' || (m.role === 'assistant' && !m.tool_calls))
+            .map((m) => ({ role: m.role as 'system' | 'user' | 'assistant', content: m.content }));
+          const camino = CAMINO_ENTIDAD_PROHIBIDA[entidadFence] ?? 'la pantalla correspondiente del sistema';
+          const intento = await auxiliarConReintento('reintento de entidad bloqueada', () =>
+            reintentarEntidadBloqueada(base, textoFinal, entidadFence, camino, modelo),
+          );
+          if (intento.ok && intento.valor) {
+            const retry = intento.valor;
+            textoFinal = retry.texto;
+            tokensFinales.prompt_tokens += retry.tokens.prompt_tokens;
+            tokensFinales.completion_tokens += retry.tokens.completion_tokens;
+            tokensFinales.total_tokens += retry.tokens.total_tokens;
+            tokensFinales.cached_tokens += retry.tokens.cached_tokens;
+          } else {
+            console.warn('[Binny-guardian] fence bloqueado persistente; quitando por código');
             textoFinal = quitarFencesBloqueados(textoFinal, entidadFence, fencesMal);
           }
         }
@@ -2152,51 +2209,72 @@ Reglas estrictas:
               'Guardá ese dato AHORA con un function call a la herramienta guardar_memoria (contenido y categoria; automatico:true porque surgió de pasada). PROHIBIDO escribir bloques de código: usá el function call, no pegues ningún ```guardar_memoria. Después de invocarla, confirmalo en texto con una frase corta.',
           });
           // tool_choice nominal: el proveedor debe devolver guardar_memoria.
-          for await (const evM of llamarLLMAgenteStream(mensajes, HERRAMIENTAS_AGENTE, { model: modelo, forzarHerramienta: 'guardar_memoria' })) {
-            if (evM.type === 'chunk' && evM.texto) {
-              yield { type: 'chunk', texto: evM.texto };
-            } else if (evM.type === 'herramienta') {
-              // Se reenvía: el desktop la ejecuta directo (automatico) o con tarjeta.
-              yield { type: 'herramienta', tool_calls: evM.tool_calls, uso };
-              omitirDoneFinal = true;
-            } else if (evM.type === 'done') {
-              if (!omitirDoneFinal) {
-                tokensFinales = evM.tokens ?? tokensFinales;
-                textoFinal = evM.texto;
-                yield { type: 'done', texto: textoFinal, tokens: tokensFinales, uso };
-                omitirDoneFinal = true;
+          // Paso AUXILIAR a prueba de fallos: si el proveedor falla se degrada
+          // al texto original (nunca se propaga el throw ni se rompe la respuesta).
+          try {
+            let emitioSalida = false;
+            for (let intento = 0; intento < 2; intento++) {
+              let reintentar = false;
+              for await (const evM of llamarLLMAgenteStream(mensajes, HERRAMIENTAS_AGENTE, { model: modelo, forzarHerramienta: 'guardar_memoria' })) {
+                if (evM.type === 'chunk' && evM.texto) {
+                  emitioSalida = true;
+                  yield { type: 'chunk', texto: evM.texto };
+                } else if (evM.type === 'herramienta') {
+                  // Se reenvía: el desktop la ejecuta directo (automatico) o con tarjeta.
+                  emitioSalida = true;
+                  yield { type: 'herramienta', tool_calls: evM.tool_calls, uso };
+                  omitirDoneFinal = true;
+                } else if (evM.type === 'done') {
+                  if (!omitirDoneFinal) {
+                    emitioSalida = true;
+                    tokensFinales = evM.tokens ?? tokensFinales;
+                    textoFinal = evM.texto;
+                    yield { type: 'done', texto: textoFinal, tokens: tokensFinales, uso };
+                    omitirDoneFinal = true;
+                  }
+                } else if (evM.type === 'error') {
+                  // Fallo transitorio del proveedor y todavía no se emitió nada
+                  // al cliente → reintenta UNA vez; si no, degrada al texto original.
+                  if (intento === 0 && !emitioSalida && esReintentableProveedor(new Error(evM.texto))) {
+                    reintentar = true;
+                  }
+                  break;
+                }
               }
-            } else if (evM.type === 'error') {
-              // Reintento suplementario: ante un fallo, degradar al texto
-              // original en vez de mostrar un error al comerciante.
-              break;
+              if (!reintentar) break;
+              console.warn('[Binny-memoria] el proveedor falló (reintentable); reintentando una vez');
             }
+          } catch (error) {
+            console.error('[Binny-memoria] falló el paso auxiliar de memoria:', error);
           }
         }
         if (!omitirDoneFinal && (prometeSinTarjeta(textoFinal) || jsonSueltoEntidad(textoFinal))) {
           console.warn('[Binny-guardian] promesa sin tarjeta o JSON suelto en agente, reintentando una vez');
-          try {
-            // Solo mensajes de texto: los tool_calls sin tools confundirían al reintento.
-            const base: ChatMessage[] = mensajes
-              .filter((m) => m.role === 'system' || m.role === 'user' || (m.role === 'assistant' && !m.tool_calls))
-              .map((m) => ({ role: m.role as 'system' | 'user' | 'assistant', content: m.content }));
-            const retry = await reintentarTarjetaFaltante(base, textoFinal, modelo);
-            if (retry) {
-              textoFinal = retry.texto;
-              tokensFinales.prompt_tokens += retry.tokens.prompt_tokens;
-              tokensFinales.completion_tokens += retry.tokens.completion_tokens;
-              tokensFinales.total_tokens += retry.tokens.total_tokens;
-              tokensFinales.cached_tokens += retry.tokens.cached_tokens;
-            } else {
-              console.warn('[Binny-auditoria] promesa sin tarjeta persistente en agente');
-              const saneado = aplicarFallbackManual(textoFinal);
-              if (saneado !== textoFinal) {
-                console.warn('[Binny-guardian] fallback manual aplicado en agente');
-                textoFinal = saneado;
-              }
+          // Solo mensajes de texto: los tool_calls sin tools confundirían al reintento.
+          const base: ChatMessage[] = mensajes
+            .filter((m) => m.role === 'system' || m.role === 'user' || (m.role === 'assistant' && !m.tool_calls))
+            .map((m) => ({ role: m.role as 'system' | 'user' | 'assistant', content: m.content }));
+          const intento = await auxiliarConReintento('guardián anti-tarjeta en agente', () =>
+            reintentarTarjetaFaltante(base, textoFinal, modelo),
+          );
+          if (!intento.ok) {
+            // El guardián no pudo ejecutarse (proveedor caído): se deja pasar el
+            // texto tal cual en vez de romper la respuesta.
+            console.warn('[Binny-guardian] el guardián falló; se deja el texto tal cual en agente');
+          } else if (intento.valor) {
+            const retry = intento.valor;
+            textoFinal = retry.texto;
+            tokensFinales.prompt_tokens += retry.tokens.prompt_tokens;
+            tokensFinales.completion_tokens += retry.tokens.completion_tokens;
+            tokensFinales.total_tokens += retry.tokens.total_tokens;
+            tokensFinales.cached_tokens += retry.tokens.cached_tokens;
+          } else {
+            console.warn('[Binny-auditoria] promesa sin tarjeta persistente en agente');
+            const saneado = aplicarFallbackManual(textoFinal);
+            if (saneado !== textoFinal) {
+              console.warn('[Binny-guardian] fallback manual aplicado en agente');
+              textoFinal = saneado;
             }
-          } catch (e) {
-            console.warn('[Binny-guardian] falló el reintento:', e);
           }
         }
         if (!omitirDoneFinal) {

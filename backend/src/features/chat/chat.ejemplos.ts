@@ -57,9 +57,14 @@ export const EJEMPLOS_POR_FAMILIA: Record<FamiliaEjemplos, EjemploConsulta[]> = 
       sql: `SELECT SUM(total) AS total_hoy FROM venta WHERE estado = 'completada' AND anulada_en IS NULL AND DATE(creada_en, 'unixepoch', 'localtime') = DATE('now', 'localtime') LIMIT 1`,
     },
     {
+      pregunta: '¿Cuánto facturé este mes?',
+      sql: `SELECT COALESCE(SUM(total), 0) AS facturado_mes FROM venta WHERE estado = 'completada' AND anulada_en IS NULL AND creada_en >= strftime('%s', 'now', 'start of month') LIMIT 1`,
+      nota: 'Facturación del mes = SUM(total) de la tabla venta, NUNCA de una vista de detalle: sus filas repiten la misma venta por ítem y el total se infla.',
+    },
+    {
       pregunta: '¿Qué productos me dejaron más ingresos este mes?',
-      sql: `SELECT producto_nombre, SUM(cantidad) AS unidades, SUM(item_subtotal) AS facturado FROM vista_ventas_detalle WHERE estado = 'completada' AND anulada_en IS NULL AND creada_en >= strftime('%s', 'now', 'start of month') GROUP BY producto_id ORDER BY facturado DESC LIMIT 10`,
-      nota: 'Top N: GROUP BY por id + ORDER BY total DESC + LIMIT. Nunca listar sin LIMIT.',
+      sql: `SELECT p.nombre AS producto_nombre, SUM(vi.cantidad) AS unidades, SUM(vi.subtotal) AS facturado FROM venta_item vi JOIN venta v ON v.id = vi.venta_id JOIN producto p ON p.id = vi.producto_id WHERE v.estado = 'completada' AND v.anulada_en IS NULL AND v.creada_en >= strftime('%s', 'now', 'start of month') GROUP BY vi.producto_id ORDER BY facturado DESC LIMIT 10`,
+      nota: 'Top N: GROUP BY por id + ORDER BY total DESC + LIMIT. La facturación por producto sale de venta_item JOIN venta (una fila por ítem), NO de la vista de detalle: sumar columnas de la vista de detalle infla la facturación.',
     },
     {
       pregunta: '¿Cómo vienen las ventas de este mes comparadas con el mes pasado?',
@@ -121,13 +126,13 @@ LIMIT 1`,
     },
     {
       pregunta: '¿Qué productos me generan más ganancia este mes?',
-      sql: `SELECT producto_nombre, SUM((precio_unitario - precio_costo) * cantidad) AS ganancia FROM vista_ventas_detalle WHERE estado = 'completada' AND anulada_en IS NULL AND creada_en >= strftime('%s', 'now', 'start of month') GROUP BY producto_id ORDER BY ganancia DESC LIMIT 10`,
-      nota: 'Ganancia = SUM((precio_unitario - precio_costo) * cantidad), no la facturación.',
+      sql: `SELECT p.nombre AS producto_nombre, SUM((vi.precio_unitario - p.precio_costo) * vi.cantidad) AS ganancia FROM venta_item vi JOIN venta v ON v.id = vi.venta_id JOIN producto p ON p.id = vi.producto_id WHERE v.estado = 'completada' AND v.anulada_en IS NULL AND v.creada_en >= strftime('%s', 'now', 'start of month') GROUP BY vi.producto_id ORDER BY ganancia DESC LIMIT 10`,
+      nota: 'Ganancia = SUM((precio_unitario - precio_costo) * cantidad), no la facturación. Se calcula desde venta_item JOIN venta (una fila por ítem), sin pasar por la vista de detalle.',
     },
     {
       pregunta: '¿Vendí algo por debajo de mi costo?',
-      sql: `SELECT producto_nombre, ROUND(precio_unitario, 2) AS precio_venta, ROUND(precio_costo, 2) AS costo, SUM(cantidad) AS unidades FROM vista_ventas_detalle WHERE estado = 'completada' AND anulada_en IS NULL AND precio_costo > 0 AND precio_unitario < precio_costo GROUP BY producto_id ORDER BY unidades DESC LIMIT 20`,
-      nota: 'precio_costo > 0 excluye productos sin costo cargado (evita falsos positivos).',
+      sql: `SELECT p.nombre AS producto_nombre, ROUND(vi.precio_unitario, 2) AS precio_venta, ROUND(p.precio_costo, 2) AS costo, SUM(vi.cantidad) AS unidades FROM venta_item vi JOIN venta v ON v.id = vi.venta_id JOIN producto p ON p.id = vi.producto_id WHERE v.estado = 'completada' AND v.anulada_en IS NULL AND p.precio_costo > 0 AND vi.precio_unitario < p.precio_costo GROUP BY vi.producto_id ORDER BY unidades DESC LIMIT 20`,
+      nota: 'precio_costo > 0 excluye productos sin costo cargado (evita falsos positivos). Sale de venta_item JOIN venta JOIN producto, no de la vista de detalle.',
     },
   ],
 

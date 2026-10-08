@@ -3,7 +3,8 @@ import { decrypt, hmacBusqueda } from '../../utils/encryption';
 import { env } from '../../config/env';
 import { httpError } from '../../utils/api-error';
 import { PreguntarDTO, ResultadoConsultaDTO, UsoConsultaDTO, FacturaOcrRequestDTO, PreguntarAgenteDTO, ContinuarAgenteDTO, AGENTE_MAX_PASOS, HISTORIAL_MAX_AGENTE, BriefDTO, InformeDTO, type MensajeAgenteDTO, type ContextoNegocioDTO, type RespuestaLLM, type UsoDTO, type FacturaOcrResponseDTO, type FacturaOcrItemDTO, type FacturaOcrResultadoDTO } from './chat.dtos';
-import { ESQUEMA_SQLITE, EJEMPLOS_CONSULTAS } from './chat.esquema';
+import { ESQUEMA_SQLITE } from './chat.esquema';
+import { EJEMPLOS_POR_FAMILIA, ETIQUETAS_FAMILIA } from './chat.ejemplos';
 import { MANUAL_SISTEMA } from './chat.manual';
 import { llamarLLM, llamarLLMStream, llamarLLMAgenteStream, llamarLLMVision, detectarDeliberacion, type AgenteMessage, type AgenteToolCall, type AgenteToolDef, type ChatMessage, type ChatMessageVision } from './chat.llm';
 import { normalizarSQL, validarSQL } from './chat.guarda';
@@ -391,10 +392,22 @@ ${B3}
   const manual = `## Manual de uso del sistema
 ${MANUAL_SISTEMA}`;
 
+  // Banco de ejemplos dorados agrupado por familia (E1). Solo se inyecta en los
+  // modos que generan consultas (json, stream, fase1, agente): `schema` se usa
+  // únicamente en esos modos, brief/informe narran y no lo incluyen.
+  const ejemplosPorFamiliaTexto = Object.entries(EJEMPLOS_POR_FAMILIA)
+    .map(([familia, ejemplos]) => {
+      const etiqueta = ETIQUETAS_FAMILIA[familia as keyof typeof ETIQUETAS_FAMILIA];
+      const filas = ejemplos.map((e) => `- Pregunta: "${e.pregunta}"\n  SQL: ${e.sql}`).join('\n');
+      return `### ${etiqueta}\n${filas}`;
+    })
+    .join('\n\n');
+
   const schema = `## Estructura de la base de datos
 ${ESQUEMA_SQLITE}
-## Consultas verificadas (usá estos patrones tal cual cuando la pregunta coincida)
-${EJEMPLOS_CONSULTAS.map((e) => `- Pregunta: "${e.pregunta}"\n  SQL: ${e.sql}`).join('\n')}`;
+## Ejemplos de consultas por tipo de pregunta
+Usá estos patrones como referencia cuando la pregunta del comerciante se parezca a alguno de estos casos; adaptá nombres, fechas y filtros según lo que pida.
+${ejemplosPorFamiliaTexto}`;
 
   // --- Fase 1: resumen precocinado + memoria del comercio ---
   // El desktop los calcula localmente y los inyecta en `contexto`.

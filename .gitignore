@@ -6,3 +6,6 @@ updates/
 # Archivos reales de produccion en el VPS (nunca en el repo).
 deploy/env/
 deploy/.env
+
+# Índice local de CodeGraph (herramienta de análisis)
+.codegraph/

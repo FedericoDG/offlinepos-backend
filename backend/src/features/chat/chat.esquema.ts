@@ -61,45 +61,6 @@ vista_gastos_mes (id, concepto, monto, fecha, metodo_pago, comprobante, categori
 - IVA: producto.alicuota_iva_id → alicuota_iva. Si usar_iva='1': venta.total_iva = débito fiscal, venta.total_neto = base.
 `;
 
-export const EJEMPLOS_CONSULTAS: Array<{ pregunta: string; sql: string }> = [
-  {
-    pregunta: 'Cuanto facture hoy?',
-    sql: `SELECT SUM(total) AS total_hoy FROM venta WHERE estado = 'completada' AND anulada_en IS NULL AND DATE(creada_en, 'unixepoch', 'localtime') = DATE('now', 'localtime') LIMIT 1`,
-  },
-  {
-    pregunta: 'Productos con stock bajo el minimo',
-    sql: `SELECT p.nombre, p.cantidad, p.stock_minimo, u.abreviatura FROM producto p JOIN unidad u ON u.id = p.unidad_id WHERE p.cantidad <= p.stock_minimo AND p.activo = 1 ORDER BY p.cantidad ASC LIMIT 50`,
-  },
-  {
-    pregunta: 'Cliente que mas debe',
-    sql: `SELECT nombre, documento, saldo_actual FROM cliente WHERE saldo_actual > 0 AND activo = 1 ORDER BY saldo_actual DESC LIMIT 10`,
-  },
-  {
-    pregunta: 'Gasto en alquiler este mes',
-    sql: `SELECT SUM(g.monto) AS total FROM gasto g JOIN categoria_gasto cg ON cg.id = g.categoria_gasto_id WHERE cg.nombre = 'Alquileres' AND g.anulado = 0 AND g.fecha >= strftime('%s', 'now', 'start of month') LIMIT 1`,
-  },
-  {
-    pregunta: 'Qué marcas generaron más ventas este mes?',
-    sql: `SELECT marca_nombre, COUNT(DISTINCT venta_id) AS tickets, SUM(item_subtotal) AS facturado FROM vista_ventas_marca WHERE estado = 'completada' AND anulada_en IS NULL AND creada_en >= strftime('%s', 'now', 'start of month') GROUP BY marca_id ORDER BY facturado DESC LIMIT 20`,
-  },
-  {
-    pregunta: 'Qué productos generaron más ingresos por ventas este mes?',
-    sql: `SELECT producto_nombre, SUM(cantidad) AS unidades, SUM(item_subtotal) AS facturado FROM vista_ventas_detalle WHERE estado = 'completada' AND anulada_en IS NULL AND creada_en >= strftime('%s', 'now', 'start of month') GROUP BY producto_id ORDER BY facturado DESC LIMIT 10`,
-  },
-  {
-    pregunta: 'Que gastos o pagos tengo programados para los proximos dias?',
-    sql: `SELECT gp.concepto, gp.monto, gp.tipo, gp.frecuencia, gp.auto_generar, DATETIME(gp.proxima_ejecucion, 'unixepoch', 'localtime') AS fecha_pago, cg.nombre AS categoria FROM gasto_programado gp LEFT JOIN categoria_gasto cg ON cg.id = gp.categoria_gasto_id WHERE gp.activo = 1 AND gp.proxima_ejecucion BETWEEN strftime('%s', 'now') AND strftime('%s', 'now', '+7 days') ORDER BY gp.proxima_ejecucion ASC LIMIT 20`,
-  },
-  {
-    pregunta: 'Cuales son mis gastos fijos o recurrentes mensuales?',
-    sql: `SELECT gp.concepto, gp.monto, gp.frecuencia, gp.auto_generar, cg.nombre AS categoria FROM gasto_programado gp LEFT JOIN categoria_gasto cg ON cg.id = gp.categoria_gasto_id WHERE gp.activo = 1 AND gp.tipo = 'recurrente' ORDER BY gp.monto DESC LIMIT 50`,
-  },
-  {
-    pregunta: 'Tengo boletas o facturas variables pendientes de confirmar?',
-    sql: `SELECT gp.id, gp.concepto, gp.monto AS monto_estimado, DATETIME(gp.proxima_ejecucion, 'unixepoch', 'localtime') AS vencio_el FROM gasto_programado gp WHERE gp.activo = 1 AND gp.auto_generar = 0 AND gp.proxima_ejecucion <= strftime('%s', 'now') ORDER BY gp.proxima_ejecucion ASC LIMIT 20`,
-  },
-  {
-    pregunta: 'Que recordatorios o tareas pendientes tengo agendadas?',
-    sql: `SELECT id, titulo, descripcion, DATETIME(fecha_hora_programada, 'unixepoch', 'localtime') AS programado_para, sonido FROM recordatorio WHERE completado = 0 ORDER BY fecha_hora_programada ASC LIMIT 20`,
-  },
-];
+// El banco de ejemplos dorados vive en `chat.ejemplos.ts` (agrupado por familia).
+// Se re-exporta el formato plano histórico para no romper imports existentes.
+export { EJEMPLOS_CONSULTAS } from './chat.ejemplos';

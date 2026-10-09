@@ -304,8 +304,11 @@ Usa esta fecha y hora como punto de partida exacto para calcular cualquier refer
 
   const reglasComunes = `## Reglas
 - Responde siempre en espanol.
-- **Respondé breve y directo**: primero el dato o resultado pedido y, después, como máximo 2-3 bullets con lo esencial. No repitas la pregunta ni enumeres todo lo que miraste. No armes tablas largas ni listados extensos si el comerciante no los pidió. Si te pide un cálculo, mostrale el número y una línea de contexto. Nada de preámbulos del tipo "para calcular esto necesito...": calculá y respondé. La brevedad nunca sacrifica la precisión: los números y las cifras van siempre.
-- Lenguaje simple y cotidiano. NUNCA menciones terminos tecnicos: nada de "SQL", "consulta", "base de datos", "tabla", "columna", "timestamp". Deci "tu informacion", "tus datos".
+- **Respondé breve y directo**: primero el dato o resultado pedido y, después, como máximo 2-3 bullets con lo esencial. No repitas la pregunta ni enumeres todo lo que miraste. No armes tablas largas ni listados extensos si el comerciante no los pidió. Si te pide un cálculo, mostrale el número y una línea de contexto. Nada de preámbulos del tipo "para calcular esto necesito...": calculá y respondé (la única excepción es la repregunta de desambiguación, que va sola y sin preámbulo). La brevedad nunca sacrifica la precisión: los números y las cifras van siempre.
+- **Desambiguación (CRÍTICO)**: si la pregunta es ambigua o le falta un dato que CAMBIA la respuesta, hacé UNA sola pregunta corta y concreta antes de responder, y NADA MÁS: sin datos, sin dos versiones ni opciones. Si falta el período de tiempo, preguntalo SIEMPRE: no elijas uno por tu cuenta aunque tengas un número a mano. Ejemplo: ante "¿cuánto vendí?" respondé solo "¿Querés que te muestre de hoy, de la semana o del mes?". Si la ambigüedad es menor y hay una única interpretación sensata, respondé con ese supuesto y aclaralo en una línea (ej: "Tomé el mes en curso"), sin repreguntar de más. NUNCA respondas dos interpretaciones a la vez.
+- **Período sin movimientos (CRÍTICO)**: si el período o la lista que pide el comerciante no tiene movimientos (sin ventas, sin gastos, sin cobros, sin pagos programados, sin vencimientos), respondé IGUAL con la cifra ESCRITA: **$0,00** (y la cantidad en 0 cuando corresponda), más una línea de contexto. Ejemplo: ante "¿cuánto vendí hoy?" sin ventas, respondé "Hoy vendiste $0,00 (0 ventas). ¿Querés ver lo de ayer o el mes?"; NUNCA respondas "hoy no registraste ventas" sin la cifra. NUNCA respondas solo "no hay ventas", "no hay gastos" ni "no hay pagos" sin la cifra, ni cierres con una pregunta u oferta en lugar del dato. Esta regla tiene prioridad sobre la de ampliar el período: primero la cifra escrita del período pedido ($0,00 si no hay nada) y recién después, si aporta, ofrecé mirar otro período.
+- Lenguaje simple y cotidiano. NUNCA menciones términos que revelen la estructura interna de la base: nada de "SQL", "SELECT", "JOIN", "FROM", "base de datos", "unixepoch", "strftime", nombres internos con guion bajo (ej: venta_item) ni vistas internas (vista_...). SÍ podés decir "tabla" y "columna"/"columnas" cuando te refieras a la tabla de resultados que le mostrás al comerciante o a la planilla de Excel (importar/exportar): ahí son palabras naturales y correctas. Deci "tu información", "tus datos".
+- **PROHIBIDO mostrar SQL o código (CRÍTICO)**: nunca escribas consultas, nombres internos de tablas o columnas, ni bloques de código técnico (nada de SELECT, FROM, JOIN ni \`\`\`sql). Cuando ya consultaste la base, mostrá SOLO los resultados: una tabla con títulos de comerciante (ej. "Producto", "Precio", "Costo", "Unidades", "Pérdida") y los números. Si no tenés el dato, decilo con palabras.
 - **Alias siempre legibles (CRÍTICO)**: TODA columna que devuelvas debe llevar un alias en lenguaje de comerciante, entre comillas y sin guiones bajos (ej: AS "Total", AS "Cantidad de ventas", AS "Producto"). NUNCA dejes una columna sin alias ni uses nombres internos de columnas o tablas: nada de venta_total, producto_nombre ni item_subtotal. El comerciante ve esos titulos en la tabla de resultados y en el Excel: jamas deben verse nombres internos de la base.
 - Si el usuario ya te pasa los datos en su mensaje, explicá directamente sin generar consulta nueva.
 - Tono calido, paciente y profesional. Sin jerga ni informalidad.
@@ -314,25 +317,49 @@ Usa esta fecha y hora como punto de partida exacto para calcular cualquier refer
 - Si no encontras informacion sobre algo en el manual, DECi que no tenes esa info en vez de inventar. No alucines funcionalidades.
 - JAMÁS inventes nombres propios, montos por cliente/producto ni detalles que no tengas a la vista: si el dato no está en el resumen ni en resultados de consultas, consultalo; si no podés consultarlo, decí que no lo sabés.
 - PROHIBIDO mostrar tu razonamiento: NUNCA escribas tu proceso de pensamiento, dudas internas, revisiones de reglas ni comentarios sobre tus propios errores (nada de "espera", "revisemos", "nota: me equivoqué", "acá hay un error"). Decidí en silencio y escribí SOLO el resultado final para el comerciante.
-- **Modo guía (CRÍTICO)**: Binny NO crea ni modifica datos del negocio (productos, proveedores, clientes, combos, compras, precios, gastos, módulos). Tu única excepción de escritura es tu libreta de memoria (guardar_memoria), que no toca datos del negocio. Si te piden crear, editar o hacer algo, EXPLICÁ cómo se hace en la interfaz: primero el prerrequisito si falta (módulo, permiso o estado) y después los pasos numerados con el camino exacto de menú (ej: Productos → Nuevo Producto). NUNCA prometas tarjetas ni acciones ("te genero...", "hacé clic en Confirmar"), ni pidas confirmación para una acción que no podés hacer.
+- **Modo guía (CRÍTICO)**: Binny NO crea ni modifica datos del negocio (productos, proveedores, clientes, combos, compras, precios, gastos, módulos). Tu única excepción de escritura es tu libreta de memoria (guardar_memoria), que no toca datos del negocio. Si te piden crear, editar o hacer algo, EXPLICÁ cómo se hace en la interfaz: primero el prerrequisito si falta (módulo, permiso o estado) y después los pasos numerados con el camino exacto de menú (ej: Productos → Nuevo Producto). Cuando el pedido es directo e imperativo ("creame...", "cargame...", "activame...", "borrame..."), EMPEZÁ aclarando que eso no lo podés hacer vos (ej: "Eso no lo puedo hacer yo desde acá") y recién después guiá con los pasos. NUNCA prometas tarjetas ni acciones ("te genero...", "hacé clic en Confirmar"), ni pidas confirmación para una acción que no podés hacer.
 - **Nunca inventes pantallas, botones ni campos**: usá SOLO el manual. Si algo no está, decí con honestidad que no lo tenés.
-- Los únicos bloques visuales que podés emitir son ${B3}chart, ${B3}whatsapp y ${B3}mensaje: solo se muestran, NO escriben datos del negocio.${referenciaTemporal}`;
+- Los únicos bloques visuales que podés emitir son ${B3}chart, ${B3}whatsapp, ${B3}mensaje y ${B3}seguir: solo se muestran, NO escriben datos del negocio.${referenciaTemporal}`;
 
   const reglasGastos = `## Reglas sobre Gastos y Egresos (CRÍTICO)
 1. **Diferenciación entre Egresos Reales y Compromisos Futuros**:
-   - La tabla \`gasto\` contiene los egresos YA PAGADOS y devengados contablemente. Para preguntas como "¿Cuánto gasté?", "¿Cuál es mi balance?", "¿Cuánto dinero salió de caja?", consulta ÚNICAMENTE la tabla \`gasto\`.
-   - La tabla \`gasto_programado\` contiene compromisos futuros pactados o reglas recurrentes (alquileres, sueldos, servicios). **NO son egresos reales todavía** ni restan dinero de la caja ni del balance del negocio.
+   - Los gastos YA PAGADOS y devengados contablemente son egresos reales. Para preguntas como "¿Cuánto gasté?", "¿Cuál es mi balance?", "¿Cuánto dinero salió de caja?", mirá ÚNICAMENTE esos gastos ya pagados.
+   - Los pagos programados son compromisos futuros pactados o que se repiten (alquileres, sueldos, servicios). **NO son egresos reales todavía** ni restan dinero de la caja ni del balance del negocio.
+   - NUNCA le muestres al comerciante nombres internos de tablas ni de campos: para él son simplemente "los gastos" y "los pagos programados".
 2. **Consultas sobre el futuro y costos fijos**:
-   - Si el comerciante pregunta por compromisos a futuro ("¿Qué pagos se me vienen?", "¿Qué gastos tengo esta semana/mes?", "¿Cuánto tengo en costos fijos?"), consulta \`gasto_programado\` con \`activo = 1\` y filtra o agrupa por \`proxima_ejecucion\` o \`tipo = 'recurrente'\`.
-   - Si un gasto programado tiene \`auto_generar = 0\`, aclara con calidez que se trata de un monto estimado y que el sistema le solicitará ingresar el importe real de la boleta al momento de su vencimiento.
-   - Si un gasto es \`auto_generar = 1\`, aclara que se asentará de forma automática en la fecha programada.
+   - Si el comerciante pregunta por compromisos a futuro ("¿Qué pagos se me vienen?", "¿Qué gastos tengo esta semana/mes?", "¿Cuánto tengo en costos fijos?"), consultá los pagos programados que están vigentes y filtra o agrupa por la fecha del próximo pago o por los que se repiten.
+   - Si NO hay pagos programados en el período, NUNCA respondas solo que no hay: respondé igual con la cifra, por ejemplo "Esta semana tenés $0,00 en pagos programados (0 pagos)" y una línea de contexto. Está PROHIBIDO cerrar con solo "no tenés pagos" o con una pregunta.
+   - Si el sistema te va a pedir el importe real de la boleta al vencer (el pago NO se asienta solo), aclara con calidez que se trata de un monto estimado y que le vas a solicitar ingresar el importe real de la boleta al momento de su vencimiento.
+   - Si el pago se asienta solo en la fecha, aclara que se registrará de forma automática en la fecha programada.
 3. **Preguntas sobre cómo programar**:
    - Si el usuario te pide programar un gasto o te pregunta cómo funciona, explicale con amabilidad y claridad los pasos del manual (ir a Gastos > Nuevo Gasto > activar el switch de programar > elegir Única vez o Recurrente, frecuencia y fecha).`;
 
   const modulosActivosObj = contexto?.modulos_activos ?? {};
+  // Se muestran etiquetas de comerciante, NO los nombres internos de los flags
+  // (usar_combos, etc.): si el prompt los escribe, el modelo los repite al
+  // comerciante y filtra la estructura interna.
+  const ETIQUETAS_MODULO: Record<string, string> = {
+    usar_marca: 'Marcas',
+    usar_categoria: 'Categorías',
+    categoria_multiple: 'Categorías múltiples',
+    usar_presentaciones: 'Presentaciones',
+    usar_iva: 'IVA',
+    usar_proveedor: 'Proveedores',
+    usar_gastos: 'Gastos',
+    usar_clientes: 'Clientes',
+    usar_presupuestos: 'Presupuestos',
+    usar_combos: 'Combos',
+    usar_promociones: 'Promociones',
+    usar_vencimientos: 'Vencimientos',
+    usar_etiquetas: 'Etiquetas',
+    usar_recargos: 'Recargos',
+    usar_recordatorios: 'Recordatorios',
+    usar_balanza: 'Balanza',
+    balanza_activa: 'Balanza',
+  };
   const modulosEstadoResumen = Object.entries(modulosActivosObj)
     .filter(([k]) => k.startsWith('usar_') || k === 'categoria_multiple' || k === 'balanza_activa')
-    .map(([k, v]) => `- ${k}: ${v ? 'ACTIVO' : 'DESACTIVADO'}`)
+    .map(([k, v]) => `- ${ETIQUETAS_MODULO[k] ?? k}: ${v ? 'ACTIVO' : 'DESACTIVADO'}`)
     .join('\n');
 
   const reglasModulos = `## Módulos del sistema
@@ -358,6 +385,29 @@ Binny NO crea recordatorios. Si el comerciante quiere agendar un aviso, guialo: 
    - **Web Speech API** (nativa del sistema operativo, 0 MB)
    - **eSpeak NG** (sintética ligera robótica, 0 MB)
    Si te pregunta cómo escucharte, explicále que puede pulsar el parlante en cada mensaje o activar la lectura automática.`;
+
+  const reglasSeguir = `## Seguimiento sugerido (bloque ${B3}seguir)
+Al final de tu respuesta, cuando aporte, ofrecé 2 o 3 preguntas relacionadas que el comerciante pueda tocar para preguntarlas.
+**OBLIGATORIO**: esas preguntas van SIEMPRE dentro de un bloque de código con lenguaje seguir, EXACTAMENTE así:
+${B3}seguir
+¿Cómo viene la cobranza?
+¿Qué productos tengo sin movimiento?
+¿Cuánto gasté este mes?
+${B3}
+Ese ejemplo es SOLO para mostrar el FORMATO: PROHIBIDO copiarlo o parafrasearlo. Inventá 2 o 3 preguntas relacionadas con ESTA respuesta y con el negocio de ESTE comerciante (nunca uses siempre las mismas tres). Las sugerencias deben ser ESPECÍFICAS de ESTA pregunta y del negocio de ESTE comerciante: nada de genéricas, recicladas ni de relleno. Si NO las envolvés en el bloque ${B3}seguir, el comerciante las ve como texto suelto y NO puede tocarlas: eso es un error.
+**El bloque va SIEMPRE después de tu respuesta**, nunca la reemplaza: si te falta el dato para responder, consultalo con la herramienta antes de contestar.
+**Anti-repetición**: no repitas sugerencias que ya ofreciste antes en esta conversación (mirá tu historial): si ya las usaste, proponé otras distintas o directamente no emitas el bloque.
+Reglas del bloque ${B3}seguir:
+- 2 o 3 líneas, UNA pregunta por línea, sin numeración, sin viñetas y sin JSON.
+- Escribí cada sugerencia como pregunta completa, CON sus signos de apertura y cierre (¿ … ?); y envolvelas SIEMPRE en el bloque ${B3}seguir, nunca las dejes sueltas.
+- Cada pregunta de 60 caracteres o menos, en voz del comerciante (como si él la preguntara) y SIN jerga técnica (nada de SQL ni nombres internos de la base).
+- Deben ser específicas de la pregunta y del negocio: nunca genéricas, recicladas ni las mismas de siempre.
+- Emitilo SOLO cuando aporte: no en respuestas triviales ni de una sola línea.
+- NUNCA lo emitas después de un bloque ${B3}whatsapp o ${B3}mensaje (ahí ya cerrás con el mensaje).
+- NUNCA lo emitas si tu respuesta es la repregunta de desambiguación.
+- Va SIEMPRE al final de la respuesta. No lo expliques ni lo comentes: el comerciante ve botones.
+- Cerrá SIEMPRE el bloque de seguimiento con el fence; nunca dejes las preguntas sueltas.
+**Chequeo previo (CRÍTICO)**: antes de cerrar, verificá que arriba del bloque haya una respuesta con los datos. Si no redactaste la respuesta, no emitas el bloque. Está PROHIBIDO que tu mensaje sea SOLO el bloque de sugerencias.`;
 
   const manual = construirManual(pregunta);
 
@@ -444,7 +494,7 @@ ${seccionGastos}
 ${reglasModulos}
 
 ## Modo stream
-- Respondé en lenguaje natural y amigable. NUNCA uses JSON o llaves sueltas en el texto plano, EXCEPTO los bloques visuales permitidos (${B3}chart, ${B3}whatsapp o ${B3}mensaje), que solo se muestran y NO escriben datos.
+- Respondé en lenguaje natural y amigable. NUNCA uses JSON o llaves sueltas en el texto plano, EXCEPTO los bloques visuales permitidos (${B3}chart, ${B3}whatsapp, ${B3}mensaje o ${B3}seguir), que solo se muestran y NO escriben datos.
 - Presenta resultados como frases naturales ("Hoy vendiste $45.000 en 12 ventas").
 - Si hay mucha info, resume en lista simple.
 - Si los datos no alcanzan (consulta fallida, faltan campos), empezá con @REINTENTAR {"tipo":"consulta","id_solicitud":"abc","sql":"SELECT ...","descripcion":"Breve descripcion"}
@@ -455,6 +505,8 @@ ${B3}chart
 {"tipo":"barra","titulo":"Ventas por dia","categorias":["Lun","Mar","Mie"],"valores":[12000,18500,15000]}
 ${B3}
 Tipos: "barra", "linea", "torta". Max 12 categorias. Solo si aporta valor.
+
+${reglasSeguir}
 
 ${reglasCreacion}
 
@@ -508,7 +560,7 @@ ${seccionMemoria}
    - "Este mes": fecha >= strftime('%s', 'now', 'start of month'). NUNCA uses DATE('now') para "este mes".
 4. Config del sistema se consulta con SQL en tabla "config".
 5. Si tenes muchos resultados, resume la info clave.
-6. Período vacío NO es "sin información": si el rango pedido (hoy, este mes) trae 0 filas, ampliá la misma consulta al último período con movimientos (últimos 30/90 días) y avisá el cambio ("este mes no hay ventas, te muestro los últimos 30 días"). Solo si tampoco hay nada decí que no hay movimientos registrados.
+6. Período vacío NO es "sin información": si el rango pedido (hoy, este mes) trae 0 filas, respondé SIEMPRE con la cifra ESCRITA ($0,00 y cantidad 0 cuando corresponda) y una línea de contexto. Si querés, además ampliá la consulta al último período con movimientos (últimos 30/90 días) y avisá el cambio mostrando también esos números ("hoy no hubo ventas: $0,00; te muestro los últimos 30 días: $X"). NUNCA respondas solo "no hay movimientos" ni cierres con una pregunta u oferta en lugar del dato.
 
 ## Estilo
 - Descripciones humanas: "Buscando tus ventas de hoy..." en vez de "Ejecutando SELECT".
@@ -572,7 +624,7 @@ Ante preguntas de impacto ("¿cuánto más facturaría si subo X%?", "¿qué pas
 - "¿qué reponer / qué comprar / quiebre / stock?": invocá predecir_reposicion (dias_cobertura opcional).
 - "¿qué anda mal / anomalías / tickets raros / sobrecostos?": invocá obtener_analitica_anomalias.
 - "oportunidades / pildoras / combos sugeridos / capital parado": invocá obtener_pildoras_oportunidad.
-- "vs mes pasado / vs ayer / cómo vengo / comparar períodos": invocá comparar_periodos (dias opcional).
+- "vs mes pasado / vs ayer / cómo vengo / comparar períodos": invocá comparar_periodos (dias opcional). EXCEPCIÓN: si la pregunta no aclara el período ("¿cómo vienen las ventas?"), repreguntá primero como manda la regla de desambiguación; no elijas un período por tu cuenta.
 - "curva ABC / Pareto / qué productos mantienen el negocio / cuáles liquidar": invocá obtener_analitica_abc.
 - "ventas a pérdida / bajo costo / margen negativo / fugas de precio": invocá obtener_fugas_precio.
 - "cajeros / operadores / desempeño por turno / diferencias por usuario": invocá comparar_cajeros.
@@ -586,12 +638,14 @@ Ante preguntas de impacto ("¿cuánto más facturaría si subo X%?", "¿qué pas
 4. Config del sistema se consulta con SQL en tabla "config".
 5. UNA sola sentencia por llamada a la herramienta.
 6. Si tenes muchos resultados, resume la info clave.
-7. Período vacío NO es "sin información": si el rango pedido (hoy, este mes) trae 0 filas, ampliá la misma consulta al último período con movimientos (últimos 30/90 días) y avisá el cambio ("este mes no hay ventas, te muestro los últimos 30 días"). Solo si tampoco hay nada decí que no hay movimientos registrados.
+7. Período vacío NO es "sin información": si el rango pedido (hoy, este mes) trae 0 filas, respondé SIEMPRE con la cifra ESCRITA ($0,00 y cantidad 0 cuando corresponda) y una línea de contexto. Si querés, además ampliá la consulta al último período con movimientos (últimos 30/90 días) y avisá el cambio mostrando también esos números ("hoy no hubo ventas: $0,00; te muestro los últimos 30 días: $X"). NUNCA respondas solo "no hay movimientos" ni cierres con una pregunta u oferta en lugar del dato.
 
 ## Respuesta final
-Cuando ya tengas todos los datos que necesitás, respondé en lenguaje natural y amable. NUNCA uses JSON o llaves sueltas en el texto plano, EXCEPTO los bloques visuales permitidos (${B3}chart, ${B3}whatsapp o ${B3}mensaje), que solo se muestran y NO escriben datos.
+Cuando ya tengas todos los datos que necesitás, respondé en lenguaje natural y amable. NUNCA uses JSON o llaves sueltas en el texto plano, EXCEPTO los bloques visuales permitidos (${B3}chart, ${B3}whatsapp, ${B3}mensaje o ${B3}seguir), que solo se muestran y NO escriben datos.
+**Primero tu respuesta con los datos; el bloque ${B3}seguir (si va) es lo ÚLTIMO y NUNCA es todo tu mensaje.** Si te falta el dato, consultalo con la herramienta antes de escribir, jamás respondas solo con sugerencias.
 - Presenta resultados como frases naturales ("Hoy vendiste $45.000 en 12 ventas").
 - Si hay mucha info, resume en lista simple.
+- **La cifra nunca se omite**: si el período o la lista consultada no tiene movimientos, la respuesta es $0,00 (y cantidad en 0) con una línea de contexto; NUNCA cierres con solo "no hay" ni con una pregunta u oferta.
 
 ## Graficos
 Al FINAL del texto, si los datos se prestan, inclui un bloque:
@@ -599,6 +653,8 @@ ${B3}chart
 {"tipo":"barra","titulo":"Ventas por dia","categorias":["Lun","Mar","Mie"],"valores":[12000,18500,15000]}
 ${B3}
 Tipos: "barra", "linea", "torta". Max 12 categorias. Solo si aporta valor.
+
+${reglasSeguir}
 
 ${reglasComunes}
 
@@ -696,7 +752,7 @@ ${seccionMemoria}
    - "Este mes": fecha >= strftime('%s', 'now', 'start of month'). NUNCA uses DATE('now') para "este mes".
 4. Config del sistema se consulta con SQL en tabla "config".
 5. Si tenes muchos resultados, resume la info clave.
-6. Período vacío NO es "sin información": si el rango pedido (hoy, este mes) trae 0 filas, ampliá la misma consulta al último período con movimientos (últimos 30/90 días) y avisá el cambio ("este mes no hay ventas, te muestro los últimos 30 días"). Solo si tampoco hay nada decí que no hay movimientos registrados.
+6. Período vacío NO es "sin información": si el rango pedido (hoy, este mes) trae 0 filas, respondé SIEMPRE con la cifra ESCRITA ($0,00 y cantidad 0 cuando corresponda) y una línea de contexto. Si querés, además ampliá la consulta al último período con movimientos (últimos 30/90 días) y avisá el cambio mostrando también esos números ("hoy no hubo ventas: $0,00; te muestro los últimos 30 días: $X"). NUNCA respondas solo "no hay movimientos" ni cierres con una pregunta u oferta en lugar del dato.
 
 ## Estilo
 - Empezá por el número o resultado y sumá una línea de contexto si aporta; evitá el paso a paso extenso.
@@ -730,6 +786,9 @@ Respuesta: {tipo: "consulta", id_solicitud: "deudores_01", sql: "SELECT nombre, 
 Datos del negocio: {tipo: "consulta", id_solicitud: "abc123", sql: "SELECT ...", descripcion: "Buscando tus [datos]..."}
 OBLIGATORIO: toda respuesta de tipo "consulta" lleva SIEMPRE los tres campos id_solicitud, sql y descripcion (nunca omitas descripcion; sin ella la respuesta se rechaza).
 Uso del sistema, conversación o guía: {tipo: "respuesta", texto: "Guía con prerrequisito, pasos y camino de menú"}
+Recordatorio de tablas: las tablas se arman con los DATOS devueltos (títulos de comerciante y sus números), NUNCA con la consulta ni su SQL: está PROHIBIDO pegar SELECT, FROM, JOIN o bloques \`\`\`sql.
+
+${reglasSeguir}
 
 ${reglasCreacion}
 
@@ -809,15 +868,198 @@ export function auditarTextoFinal(origen: string, texto: string): void {
   }
 }
 
+// --- Red determinística de seguimiento ---
+// El prompt pide envolver las preguntas de seguimiento en un bloque ```seguir,
+// pero en la práctica el modelo a veces las deja como texto suelto: el
+// comerciante las ve y no puede tocarlas. Esta función PURA envuelve el sufijo
+// de 2-4 preguntas que el modelo YA escribió; nunca agrega, borra ni reformula
+// nada. Si ya hay bloque `seguir`, si hay un bloque `whatsapp`/`mensaje` (ahí
+// Binny cierra con el mensaje) o si el sufijo no son 2-4 preguntas válidas, el
+// texto queda intacto. Exportada para la evaluación determinística.
+
+/** Normaliza texto para comparar: minúsculas y sin acentos (igual que el resto del archivo). */
+function normalizarTexto(texto: string): string {
+  return (texto ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+
+// Palabras/frases con las que suele arrancar una pregunta o un pedido del
+// comerciante. Se comparan normalizadas (minúsculas y sin acentos), así que en
+// la práctica "¿Cómo…", "como…" y "Cómo…" coinciden todas.
+const INICIOS_PREGUNTA_SEGUIR: string[] = [
+  'cómo', 'como', 'qué', 'que ', 'cuál', 'cual', 'cuánto', 'cuanto',
+  'cuántos', 'cuantos', 'cuánta', 'cuándo', 'cuando ', 'dónde', 'donde ',
+  'quién', 'quien ', 'por qué', 'para qué', 'hay', 'tenés', 'tenes',
+  'podés', 'podes', 'me conviene', 'conviene', 'querés', 'queres',
+  'mostrame', 'decime', 'dame', 'mostrá', 'mostra', 'cuánto',
+].map((p) => normalizarTexto(p));
+
+/**
+ * ¿La línea es una pregunta suelta apta para el bloque de seguimiento?
+ * Tolerante con un modelo descuidado: vale con signos (¿…?/) o con un arranque
+ * interrogativo/de pedido; descarta viñetas, numeración y líneas largas.
+ */
+function esPreguntaSueltaDeSeguir(linea: string): boolean {
+  const t = (linea ?? '').trim();
+  if (t.length === 0 || t.length > 70) return false;
+  // Sin viñetas ni numeración al inicio ("-", "*", "•", "1.", "1)").
+  if (/^(?:[-*•]|\d+[.)])(?:\s|$)/.test(t)) return false;
+  // (a) Pregunta explícita por signos.
+  if (t.startsWith('¿') || t.endsWith('?')) return true;
+  // (b) Empieza con palabra/frase interrogativa o de pedido.
+  const n = normalizarTexto(t);
+  return INICIOS_PREGUNTA_SEGUIR.some((p) => n.startsWith(p));
+}
+
+export function normalizarSeguir(texto: string): string {
+  if (!texto) return texto;
+  // Ya tiene bloque seguir → no tocar.
+  if (/```seguir\b/.test(texto)) return texto;
+  // Cierra con whatsapp/mensaje → no tocar (ahí el bloque no corresponde).
+  if (/```(?:whatsapp|mensaje)\b/.test(texto)) return texto;
+
+  // Solo se mira el final: los espacios/saltos de cola no cuentan.
+  const sinCola = texto.replace(/\s+$/, '');
+  const lineas = sinCola.split(/\r?\n/);
+
+  let inicio = lineas.length;
+  while (inicio > 0 && esPreguntaSueltaDeSeguir(lineas[inicio - 1])) inicio--;
+  const cantidad = lineas.length - inicio;
+  // Sufijo de 2 a 4 líneas-pregunta: una sola, o cinco (o más), no se tocan.
+  if (cantidad < 2 || cantidad > 4) return texto;
+
+  // Prefijo sin las líneas vacías sobrantes al final (sin líneas vacías de más).
+  let finPrefijo = inicio;
+  while (finPrefijo > 0 && lineas[finPrefijo - 1].trim() === '') finPrefijo--;
+  const prefijo = lineas.slice(0, finPrefijo).join('\n');
+  const preguntas = lineas.slice(inicio).map((l) => l.trim());
+  const bloque = ['```seguir', ...preguntas, '```'].join('\n');
+
+  return prefijo.length > 0 ? `${prefijo}\n\n${bloque}` : bloque;
+}
+
+// --- Barrera determinística anti-fuga de nombres internos ---
+// El prompt pide hablar en lenguaje de comerciante, pero el modelo igual puede
+// repetir un nombre interno que vio en el esquema o en un resultado de consulta.
+// Esta red garantiza que NINGUNA respuesta salga con un identificador interno:
+// reemplaza cada uno por su etiqueta de comerciante (o lo borra, para los flags
+// `usar_*`/`vista_*` que no tienen etiqueta). Exportada para la evaluación pura.
+
+/** Identificadores internos que nunca deben aparecer en la respuesta al comerciante. */
+export const NOMBRES_INTERNOS: string[] = [
+  'gasto_programado',
+  'auto_generar',
+  'proxima_ejecucion',
+  'categoria_gasto',
+  'venta_item',
+  'venta_pago',
+  'precio_costo',
+  'stock_minimo',
+  'saldo_actual',
+  'creada_en',
+  'anulada_en',
+  'unidad_id',
+  'producto_id',
+  'cliente_id',
+  'turno_caja',
+  'movimiento_stock',
+  'historial_precio',
+  'binny_memoria',
+];
+
+/**
+ * Nombres de las herramientas internas del agente. No deben aparecer nunca en
+ * la respuesta al comerciante (el modelo a veces filtra una llamada cruda).
+ */
+export const NOMBRES_HERRAMIENTAS: string[] = [
+  'ejecutar_consulta',
+  'comparar_periodos',
+  'predecir_reposicion',
+  'obtener_analitica_anomalias',
+  'obtener_pildoras_oportunidad',
+  'obtener_analitica_abc',
+  'obtener_fugas_precio',
+  'comparar_cajeros',
+  'simular_escenario',
+  'guardar_memoria',
+];
+
+/** Etiqueta de comerciante para cada nombre interno. */
+const ETIQUETAS_INTERNAS: Record<string, string> = {
+  gasto_programado: 'pagos programados',
+  auto_generar: 'asentamiento automático',
+  proxima_ejecucion: 'próximo pago',
+  categoria_gasto: 'categoría de gasto',
+  venta_item: 'ítems de venta',
+  venta_pago: 'pagos de venta',
+  precio_costo: 'costo',
+  stock_minimo: 'stock mínimo',
+  saldo_actual: 'saldo',
+  creada_en: 'fecha de creación',
+  anulada_en: 'fecha de anulación',
+  unidad_id: 'unidad',
+  producto_id: 'producto',
+  cliente_id: 'cliente',
+  turno_caja: 'turno de caja',
+  movimiento_stock: 'movimiento de stock',
+  historial_precio: 'historial de precios',
+  binny_memoria: 'memoria',
+};
+
+/**
+ * Borra los nombres internos del texto final. Reemplaza cada identificador
+ * (como palabra completa, sin distinguir mayúsculas) por su etiqueta de
+ * comerciante; los flags `usar_*`/`vista_*` sin etiqueta se eliminan dejando el
+ * texto legible. Nunca toca palabras que solo CONTIENEN esas cadenas como
+ * substring (el límite de palabra lo evita).
+ */
+export function quitarNombresInternos(texto: string): string {
+  if (!texto) return texto;
+  let out = texto;
+  // 1) Nombres con etiqueta de comerciante.
+  for (const [interno, etiqueta] of Object.entries(ETIQUETAS_INTERNAS)) {
+    out = out.replace(new RegExp(`\\b${interno}\\b`, 'gi'), etiqueta);
+  }
+  // 2) Flags de módulo/vista internos: se borran (no tienen etiqueta propia).
+  out = out.replace(/\b(?:usar_|vista_)[a-z0-9_]+\b/gi, ' ');
+  // 3) Residuales: cualquier otro nombre interno de la lista que haya quedado.
+  // 0) Llamadas a herramientas filtradas por el modelo (ej: comparar_periodos({dias: 30}))
+  out = out.replace(
+    new RegExp(`\\b(?:${NOMBRES_HERRAMIENTAS.join('|')})\\s*\\([^)]*\\)`, 'gi'),
+    ' ',
+  );
+  for (const interno of NOMBRES_INTERNOS) {
+    out = out.replace(new RegExp(`\\b${interno}\\b`, 'gi'), ' ');
+  }
+  for (const herramienta of NOMBRES_HERRAMIENTAS) {
+    out = out.replace(new RegExp(`\\b${herramienta}\\b`, 'gi'), ' ');
+  }
+  // Limpieza: sin dobles espacios, sin espacio antes de puntuación ni de salto.
+  out = out
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/[ \t]+([,.;:!?])/g, '$1')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/^[ \t]+/, '');
+  return out;
+}
+
+/**
+ * Texto final listo para el comerciante: normaliza el bloque de seguimiento y,
+ * como garantía dura, borra cualquier nombre interno que se haya escapado.
+ */
+export function limpiarTextoFinal(texto: string): string {
+  return quitarNombresInternos(normalizarSeguir(texto));
+}
+
 // --- Guardián anti-promesa-falsa (Etapa 1) ---
 // Detecta cuando el modelo promete una tarjeta ("revisá la tarjeta", "hacé
 // clic en confirmar") pero no emitió ningún bloque autorizado. En ese caso se
 // hace UN reintento con feedback explícito; si persiste, se loguea.
 
 // Únicos bloques visuales permitidos: no escriben datos del negocio, solo se
-// muestran (gráfico, mensaje de WhatsApp y mensaje destacado). Las tarjetas de
-// creación se eliminaron por completo: Binny ya no crea ni modifica datos.
-const FENCES_AUTORIZADOS = ['chart', 'whatsapp', 'mensaje'];
+// muestran (gráfico, mensaje de WhatsApp, mensaje destacado y seguimiento
+// sugerido). Las tarjetas de creación se eliminaron por completo: Binny ya no
+// crea ni modifica datos. Exportado para la evaluación determinística.
+export const FENCES_AUTORIZADOS = ['chart', 'whatsapp', 'mensaje', 'seguir'];
 
 
 
@@ -1110,6 +1352,7 @@ export class ChatService {
 
     if (respuesta!.tipo === 'respuesta') {
       auditarTextoFinal('preguntar', respuesta!.texto);
+      respuesta!.texto = quitarNombresInternos(respuesta!.texto);
     }
     return { ...respuesta!, tokens, uso };
   }
@@ -1127,6 +1370,7 @@ export class ChatService {
 
     if (respuesta.tipo === 'respuesta') {
       auditarTextoFinal('resultado', respuesta.texto);
+      respuesta.texto = quitarNombresInternos(respuesta.texto);
     }
     return { ...respuesta, tokens };
   }
@@ -1346,8 +1590,11 @@ Reglas estrictas:
         }
       } else if (evento.type === 'done') {
         tokensFinales = evento.tokens ?? tokensFinales;
-        auditarTextoFinal('preguntarStream', textoAcumulado);
-        yield { type: 'done', texto: textoAcumulado, tokens: tokensFinales, uso };
+        // Red determinística: si el modelo dejó 2-3 preguntas sueltas al final,
+        // se envuelven en el bloque ```seguir antes de mandar/persistir el texto.
+        const textoFinal = limpiarTextoFinal(textoAcumulado);
+        auditarTextoFinal('preguntarStream', textoFinal);
+        yield { type: 'done', texto: textoFinal, tokens: tokensFinales, uso };
       } else if (evento.type === 'error') {
         yield { type: 'error', texto: evento.texto };
       }
@@ -1479,8 +1726,9 @@ Reglas estrictas:
                 yield { type: 'chunk', texto: ev2.texto };
               } else if (ev2.type === 'done') {
                 tokensFinales = ev2.tokens ?? tokensFinales;
-                auditarTextoFinal('agente-cierre-duplicado', ev2.texto);
-                yield { type: 'done', texto: ev2.texto, tokens: tokensFinales, uso };
+                const textoCierre = limpiarTextoFinal(ev2.texto);
+                auditarTextoFinal('agente-cierre-duplicado', textoCierre);
+                yield { type: 'done', texto: textoCierre, tokens: tokensFinales, uso };
                 cerroConTexto = true;
               } else if (ev2.type === 'error') {
                 yield { type: 'error', texto: ev2.texto };
@@ -1557,7 +1805,7 @@ Reglas estrictas:
                   if (!omitirDoneFinal) {
                     emitioSalida = true;
                     tokensFinales = evM.tokens ?? tokensFinales;
-                    textoFinal = evM.texto;
+                    textoFinal = limpiarTextoFinal(evM.texto);
                     yield { type: 'done', texto: textoFinal, tokens: tokensFinales, uso };
                     omitirDoneFinal = true;
                   }
@@ -1578,6 +1826,7 @@ Reglas estrictas:
           }
         }
         if (!omitirDoneFinal) {
+          textoFinal = limpiarTextoFinal(textoFinal);
           auditarTextoFinal('agente', textoFinal);
           yield { type: 'done', texto: textoFinal, tokens: tokensFinales, uso };
         }
@@ -1611,7 +1860,7 @@ Reglas estrictas:
       await acumularTokens(lic.id, tokens);
     }
 
-    const textoFinal = respuesta.tipo === 'respuesta' ? respuesta.texto : '';
+    const textoFinal = respuesta.tipo === 'respuesta' ? quitarNombresInternos(respuesta.texto) : '';
     auditarTextoFinal('brief', textoFinal);
     return {
       texto: textoFinal,
@@ -1638,7 +1887,7 @@ Reglas estrictas:
       await acumularTokens(lic.id, tokens);
     }
 
-    const textoFinal = respuesta.tipo === 'respuesta' ? respuesta.texto : '';
+    const textoFinal = respuesta.tipo === 'respuesta' ? quitarNombresInternos(respuesta.texto) : '';
     auditarTextoFinal('informe', textoFinal);
     return {
       texto: textoFinal,

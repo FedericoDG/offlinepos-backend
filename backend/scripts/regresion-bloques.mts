@@ -6,7 +6,7 @@
  * verifica por inspección del código que el diseño nuevo se mantenga.
  *
  * Asserts:
- *  (a) `FENCES_AUTORIZADOS` es EXACTAMENTE ['chart', 'whatsapp', 'mensaje'].
+ *  (a) `FENCES_AUTORIZADOS` es EXACTAMENTE ['chart', 'whatsapp', 'mensaje', 'seguir'].
  *  (b) Ningún modo del prompt enseña a emitir bloques de creación
  *      (identificadores `crear_*` / `cambiar_modulo` ni fences ```crear…).
  *  (c) `HERRAMIENTAS_AGENTE` contiene solo lectura + analítica + la memoria
@@ -30,7 +30,7 @@ const RAIZ = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const RUTA_SERVICIO = path.join(RAIZ, 'src/features/chat/chat.service.ts');
 
 /** Fences visuales permitidos: solo muestran, no escriben datos del negocio. */
-const FENCES_ESPERADOS = ['chart', 'whatsapp', 'mensaje'];
+const FENCES_ESPERADOS = ['chart', 'whatsapp', 'mensaje', 'seguir'];
 
 /** Identificadores de bloques de creación prohibidos en el prompt. */
 const FENCES_PROHIBIDOS = [

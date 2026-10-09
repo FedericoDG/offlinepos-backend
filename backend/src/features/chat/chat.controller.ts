@@ -1,5 +1,4 @@
 import { Request, Response } from 'express';
-import { env } from '../../config/env';
 import { handleApiError } from '../../utils/api-error';
 import { resolverBasePublica } from '../../utils/base-publica';
 import { PreguntarDTO, ResultadoConsultaDTO, UsoConsultaDTO, FacturaOcrRequestDTO, PreguntarAgenteDTO, ContinuarAgenteDTO, BriefDTO, InformeDTO } from './chat.dtos';
@@ -9,11 +8,6 @@ import {
   validarLicenciaChat,
   acumularTokens,
   auditarTextoFinal,
-  prometeSinTarjeta,
-  jsonSueltoEntidad,
-  aplicarFallbackManual,
-  reintentarTarjetaFaltante,
-  auxiliarConReintento,
   crearSesionMovil,
   obtenerEstadoSesionMovil,
   subirImagenSesionMovil,
@@ -168,7 +162,6 @@ export class ChatController {
 
       let textoCompleto = '';
       let tokens: { prompt_tokens: number; completion_tokens: number; total_tokens: number; cached_tokens: number } = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0, cached_tokens: 0 };
-      let doneRecibido = false;
       let huboError = false;
 
       for await (const evento of llamarLLMStream(mensajes)) {
@@ -176,10 +169,7 @@ export class ChatController {
           textoCompleto += evento.texto;
           res.write(`event: chunk\ndata: ${JSON.stringify({ texto: evento.texto })}\n\n`);
         } else if (evento.type === 'done') {
-          // El done se retiene: el guardián anti-tarjeta-fantasma puede
-          // reemplazar el texto antes de emitir el done definitivo.
           tokens = evento.tokens ?? tokens;
-          doneRecibido = true;
         } else if (evento.type === 'consulta' && evento.respuesta) {
           res.write(`event: consulta\ndata: ${JSON.stringify(evento.respuesta)}\n\n`);
         } else if (evento.type === 'error') {
@@ -193,48 +183,14 @@ export class ChatController {
         return;
       }
 
-      // Guardián anti-tarjeta-fantasma (igual que en preguntarStream y
-      // preguntar/resultado no-streaming): corregir el texto antes del done.
-      let textoFinal = textoCompleto;
-      if (doneRecibido && (prometeSinTarjeta(textoCompleto) || jsonSueltoEntidad(textoCompleto))) {
-        console.warn('[Binny-guardian] promesa sin tarjeta o JSON suelto en resultadoStream, reintentando una vez');
-        const intento = await auxiliarConReintento('guardián anti-tarjeta en resultadoStream', () =>
-          reintentarTarjetaFaltante(mensajes, textoCompleto, env.LLM_MODEL),
-        );
-        if (!intento.ok) {
-          // El guardián no pudo ejecutarse (proveedor caído): se deja pasar el
-          // texto tal cual en vez de romper la respuesta.
-          console.warn('[Binny-guardian] el guardián falló; se deja el texto tal cual en resultadoStream');
-        } else if (intento.valor) {
-          const retry = intento.valor;
-          textoFinal = retry.texto;
-          tokens.prompt_tokens += retry.tokens.prompt_tokens;
-          tokens.completion_tokens += retry.tokens.completion_tokens;
-          tokens.total_tokens += retry.tokens.total_tokens;
-          tokens.cached_tokens += retry.tokens.cached_tokens;
-        } else {
-          const saneado = aplicarFallbackManual(textoCompleto);
-          if (saneado !== textoCompleto) {
-            console.warn('[Binny-guardian] fallback manual aplicado en resultadoStream');
-            textoFinal = saneado;
-          } else {
-            console.warn('[Binny-guardian] promesa sin tarjeta persistente en resultadoStream');
-          }
-        }
-      }
-
-      if (textoFinal !== textoCompleto) {
-        res.write(`event: reemplazo\ndata: ${JSON.stringify({ texto: textoFinal })}\n\n`);
-      }
-
       // Acumular tokens en DB
       if (tokens.total_tokens > 0) {
         await acumularTokens(lic.id, tokens);
       }
 
-      auditarTextoFinal('resultadoStream', textoFinal);
+      auditarTextoFinal('resultadoStream', textoCompleto);
 
-      res.write(`event: done\ndata: ${JSON.stringify({ texto: textoFinal, tokens })}\n\n`);
+      res.write(`event: done\ndata: ${JSON.stringify({ texto: textoCompleto, tokens })}\n\n`);
       res.end();
     } catch (error) {
       if (!res.headersSent) {

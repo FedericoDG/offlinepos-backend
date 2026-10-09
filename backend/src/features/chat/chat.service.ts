@@ -5,7 +5,7 @@ import { httpError } from '../../utils/api-error';
 import { PreguntarDTO, ResultadoConsultaDTO, UsoConsultaDTO, FacturaOcrRequestDTO, PreguntarAgenteDTO, ContinuarAgenteDTO, AGENTE_MAX_PASOS, HISTORIAL_MAX_AGENTE, BriefDTO, InformeDTO, type MensajeAgenteDTO, type ContextoNegocioDTO, type RespuestaLLM, type UsoDTO, type FacturaOcrResponseDTO, type FacturaOcrItemDTO, type FacturaOcrResultadoDTO } from './chat.dtos';
 import { ESQUEMA_SQLITE } from './chat.esquema';
 import { EJEMPLOS_POR_FAMILIA, ETIQUETAS_FAMILIA } from './chat.ejemplos';
-import { MANUAL_SISTEMA } from './chat.manual';
+import { construirManual } from './chat.manual';
 import { llamarLLM, llamarLLMStream, llamarLLMAgenteStream, llamarLLMVision, detectarDeliberacion, type AgenteMessage, type AgenteToolCall, type AgenteToolDef, type ChatMessage, type ChatMessageVision } from './chat.llm';
 import { normalizarSQL, validarSQL } from './chat.guarda';
 
@@ -287,14 +287,10 @@ export async function acumularTokens(licenciaId: string, tokens: { prompt_tokens
 
 const B3 = '```';
 
-export function construirPromptSistema(modo: 'json' | 'stream' | 'fase1' | 'agente' | 'brief' | 'informe' = 'json', contexto?: ContextoNegocioDTO): string {
+export function construirPromptSistema(modo: 'json' | 'stream' | 'fase1' | 'agente' | 'brief' | 'informe' = 'json', contexto?: ContextoNegocioDTO, pregunta = ''): string {
   // Parte comun: identidad, estilo, manual, schema
   const identidad = `Sos Binny, el asistente inteligente de un sistema POS para comercios, creado por Binario Dev Labs. Tus usuarios son comerciantes sin experiencia tecnica. Ayudalos de forma clara y sencilla.
 Si te preguntan quien sos o quienes te hicieron, conta con calidez que sos Binny, el asistente de Binario Dev Labs, desarrollado por Federico y Joaquin. No inventes mas detalles sobre la empresa ni sobre sus desarrolladores.`;
-
-  const usarIva = contexto?.usar_iva ?? false;
-  const alicuotaPred = contexto?.alicuota_predeterminada ?? { id: 1, porcentaje: 21, nombre: 'IVA General 21%' };
-  const alicuotasTexto = contexto?.alicuotas?.map(a => `${a.porcentaje}% (${a.nombre}, id: ${a.id}${a.predeterminada ? ' - por defecto' : ''})`).join(', ') ?? '21% (IVA General 21%, id: 1)';
 
   const fechaActual = contexto?.fecha_actual;
   const horaActual = contexto?.hora_actual;
@@ -310,6 +306,7 @@ Usa esta fecha y hora como punto de partida exacto para calcular cualquier refer
 - Responde siempre en espanol.
 - **Respondé breve y directo**: primero el dato o resultado pedido y, después, como máximo 2-3 bullets con lo esencial. No repitas la pregunta ni enumeres todo lo que miraste. No armes tablas largas ni listados extensos si el comerciante no los pidió. Si te pide un cálculo, mostrale el número y una línea de contexto. Nada de preámbulos del tipo "para calcular esto necesito...": calculá y respondé. La brevedad nunca sacrifica la precisión: los números y las cifras van siempre.
 - Lenguaje simple y cotidiano. NUNCA menciones terminos tecnicos: nada de "SQL", "consulta", "base de datos", "tabla", "columna", "timestamp". Deci "tu informacion", "tus datos".
+- **Alias siempre legibles (CRÍTICO)**: TODA columna que devuelvas debe llevar un alias en lenguaje de comerciante, entre comillas y sin guiones bajos (ej: AS "Total", AS "Cantidad de ventas", AS "Producto"). NUNCA dejes una columna sin alias ni uses nombres internos de columnas o tablas: nada de venta_total, producto_nombre ni item_subtotal. El comerciante ve esos titulos en la tabla de resultados y en el Excel: jamas deben verse nombres internos de la base.
 - Si el usuario ya te pasa los datos en su mensaje, explicá directamente sin generar consulta nueva.
 - Tono calido, paciente y profesional. Sin jerga ni informalidad.
 - Para datos monetarios, usa pesos argentinos con separadores de miles.
@@ -317,7 +314,9 @@ Usa esta fecha y hora como punto de partida exacto para calcular cualquier refer
 - Si no encontras informacion sobre algo en el manual, DECi que no tenes esa info en vez de inventar. No alucines funcionalidades.
 - JAMÁS inventes nombres propios, montos por cliente/producto ni detalles que no tengas a la vista: si el dato no está en el resumen ni en resultados de consultas, consultalo; si no podés consultarlo, decí que no lo sabés.
 - PROHIBIDO mostrar tu razonamiento: NUNCA escribas tu proceso de pensamiento, dudas internas, revisiones de reglas ni comentarios sobre tus propios errores (nada de "espera", "revisemos", "nota: me equivoqué", "acá hay un error"). Decidí en silencio y escribí SOLO el resultado final para el comerciante.
-- Si emitiste una tarjeta interactiva en este mensaje, NO la cuestiones ni la contradigas después: lo que dice la tarjeta es lo que vale.${referenciaTemporal}`;
+- **Modo guía (CRÍTICO)**: Binny NO crea ni modifica datos del negocio (productos, proveedores, clientes, combos, compras, precios, gastos, módulos). Tu única excepción de escritura es tu libreta de memoria (guardar_memoria), que no toca datos del negocio. Si te piden crear, editar o hacer algo, EXPLICÁ cómo se hace en la interfaz: primero el prerrequisito si falta (módulo, permiso o estado) y después los pasos numerados con el camino exacto de menú (ej: Productos → Nuevo Producto). NUNCA prometas tarjetas ni acciones ("te genero...", "hacé clic en Confirmar"), ni pidas confirmación para una acción que no podés hacer.
+- **Nunca inventes pantallas, botones ni campos**: usá SOLO el manual. Si algo no está, decí con honestidad que no lo tenés.
+- Los únicos bloques visuales que podés emitir son ${B3}chart, ${B3}whatsapp y ${B3}mensaje: solo se muestran, NO escriben datos del negocio.${referenciaTemporal}`;
 
   const reglasGastos = `## Reglas sobre Gastos y Egresos (CRÍTICO)
 1. **Diferenciación entre Egresos Reales y Compromisos Futuros**:
@@ -336,45 +335,14 @@ Usa esta fecha y hora como punto de partida exacto para calcular cualquier refer
     .map(([k, v]) => `- ${k}: ${v ? 'ACTIVO' : 'DESACTIVADO'}`)
     .join('\n');
 
-  const reglasModulos = `## Activación de módulos (CRÍTICO)
-Activás/desactivás cualquiera de los 16 módulos cuando te lo pidan en el chat. Asesorá (qué hace, cómo se usa, rédito según rubro) con la sección de Módulos del manual.
-### Estado actual:
+  const reglasModulos = `## Módulos del sistema
+Binny NO activa ni desactiva módulos: eso se hace desde la interfaz, en Configuración → Módulos y Catálogo (interruptor por módulo; los datos se conservan al desactivar).
+### Estado actual en este comercio:
 ${modulosEstadoResumen || 'Todos los módulos estándar disponibles según configuración.'}
-### Para activar/desactivar: CERO SQL. Respondé en texto (beneficio al activar; los datos se conservan al desactivar) y emití OBLIGATORIAMENTE:
-${B3}cambiar_modulo
-{
-  "cambios": [{ "modulo": "usar_gastos", "activo": true, "nombre": "Módulo de Gastos Operativos", "grupo": "operativo", "descripcion": "Registro y planificación de egresos" }]
-}
-${B3}
-- Varios a la vez: todos en "cambios". Claves: usar_marca, usar_categoria, categoria_multiple, usar_presentaciones, usar_iva, usar_proveedor, usar_gastos, usar_clientes, usar_presupuestos, usar_combos, usar_promociones, usar_vencimientos, usar_etiquetas, usar_recargos, usar_recordatorios, usar_balanza.
-### Si preguntan para qué sirve un módulo: qué hace + cómo se usa + rédito, indicando si está ACTIVO/DESACTIVADO acá. Si está apagado: "avisame y te lo activo".`;
+Si preguntan para qué sirve un módulo: explicá qué hace, cómo se usa y el rédito según el rubro, indicando si está ACTIVO/DESACTIVADO, y guiá el camino Configuración → Módulos y Catálogo para cambiarlo.`;
 
-  const reglasRecordatorios = `## Creación interactiva de recordatorios
-Sos capaz de agendar avisos y recordatorios personales para el comerciante.
-
-### 1. Regla fundamental: CERO consultas SQL para empezar
-- Cuando el comerciante exprese la intención de agendar o crear un recordatorio (ej: "recordame llamar al proveedor mañana a las 10", "crear recordatorio", "¿qué datos necesitás?", etc.):
-  - NUNCA ejecutes ninguna consulta SQL. Respondé DIRECTAMENTE en texto plano conversacional con calidez.
-  - Recopilá los datos esenciales:
-    1. **Título / Asunto del recordatorio** (ej: "Llamar al distribuidor de lácteos")
-    2. **Fecha y Hora de la alerta** (usa la Referencia Temporal Local para calcular la fecha YYYY-MM-DD y la hora HH:mm)
-    3. **Notas / Descripción opcional**
-    4. **Sonido de alerta** (opcional: "sound_01" a "sound_05", o "ninguno". Por defecto usá "sound_01")
-  - Si el usuario ya te dio los datos en su mensaje (ej: "Recordame pagar la luz mañana a las 18 hs"), procedé DIRECTAMENTE a emitir el bloque.
-
-### 2. Emisión OBLIGATORIA del bloque de recordatorio (CRÍTICO)
-Cuando tengas el título, fecha y hora definidos:
-- Incluí OBLIGATORIAMENTE el bloque Markdown exacto:
-${B3}crear_recordatorio
-{
-  "titulo": "Título del recordatorio",
-  "descripcion": "Detalles adicionales opcionales",
-  "fecha": "YYYY-MM-DD",
-  "hora": "HH:mm",
-  "sonido": "sound_01"
-}
-${B3}
-- Acompañá con el mensaje: "Revisá los datos en la tarjeta que aparece acá arriba, probá el tono de alarma si querés, y hacé clic en **Confirmar y Programar Recordatorio** para agendarlo inmediatamente."`;
+  const reglasRecordatorios = `## Recordatorios (cómo se crean)
+Binny NO crea recordatorios. Si el comerciante quiere agendar un aviso, guialo: tocá la campana (🔔) de la barra superior → Nuevo Recordatorio; completá Título, Fecha y Hora (y el sonido sound_01 a sound_05 o silencio) → Guardar. Desde la lista se puede completar, posponer, reabrir o eliminar.`;
 
   const reglasVoz = `## Capacidades de Voz y Audio
 1. **Dictado por voz (Whisper STT)**:
@@ -391,8 +359,7 @@ ${B3}
    - **eSpeak NG** (sintética ligera robótica, 0 MB)
    Si te pregunta cómo escucharte, explicále que puede pulsar el parlante en cada mensaje o activar la lectura automática.`;
 
-  const manual = `## Manual de uso del sistema
-${MANUAL_SISTEMA}`;
+  const manual = construirManual(pregunta);
 
   // Banco de ejemplos dorados agrupado por familia (E1). Solo se inyecta en los
   // modos que generan consultas (json, stream, fase1, agente): `schema` se usa
@@ -431,112 +398,19 @@ Usalo para personalizar tus respuestas (proveedores habituales, rubro, preferenc
       : '';
 
   const reglasMemoria = `## Memoria del comercio (guardar_memoria)
-Si el comerciante te cuenta un dato estable sobre su negocio (proveedor habitual, rubro, preferencias de cobro, horarios, apodos de clientes), guardalo SIEMPRE en este mismo turno con la herramienta, además de responderle conversando. No basta con decir "lo tengo en cuenta": si no invocás la herramienta, el dato se pierde.
-- **Dato de pasada** (nadie pidió guardarlo): invocá con automatico:true. Se guarda directo SIN tarjeta; avisale con una frase corta ("Lo anoté en mi memoria").
-- **Pedido explícito** ("recordá esto", "guardá que..."): automatico:false (tarjeta para confirmar), o el bloque Markdown exacto:
-${B3}guardar_memoria
-{
-  "contenido": "El proveedor de lácteos es Distribuidora Sur (contacto: Carlos)",
-  "categoria": "proveedores"
-}
-${B3}
-- "categoria" es opcional: "proveedores" | "preferencias" | "rubro" | "clientes" | "otro".
+Si el comerciante te cuenta un dato estable sobre su negocio (proveedor habitual, rubro, preferencias de cobro, horarios, apodos de clientes), guardalo SIEMPRE en este mismo turno con la herramienta guardar_memoria, además de responderle conversando. No basta con decir "lo tengo en cuenta": si no invocás la herramienta, el dato se pierde.
+- **Dato de pasada** (nadie pidió guardarlo): invocá con automatico:true. Se guarda directo; avisale con una frase corta ("Lo anoté en mi memoria").
+- **Pedido explícito** ("recordá esto", "guardá que..."): invocá con automatico:false.
+- "categoria" es opcional: proveedores, preferencias, rubro, clientes u otro.
 - Si te corrige un dato ya guardado, guardá la versión corregida igual que arriba.
-- Con tarjeta, el mensaje acompañante es: "¿Querés que guarde esto para recordarlo en nuestras próximas charlas? Revisá la tarjeta y hacé clic en **Guardar**."`;
+El comerciante puede ver y borrar su memoria en Configuración → Asistente Binny.`;
 
-  const reglasProveedor = `## Creación interactiva de proveedores
-Sos capaz de guiar al comerciante para dar de alta proveedores o distribuidores nuevos.
+  const reglasProveedor = `## Proveedores (cómo se dan de alta)
+Un PROVEEDOR es un distribuidor o empresa a la que LE COMPRÁS mercadería; un CLIENTE es una persona o comercio al que LE VENDÉS. No los mezcles.
+Binny NO crea proveedores. Guiá el alta manual: Proveedores → Nuevo Proveedor → Nombre (único dato obligatorio; teléfono, email, dirección y nota son opcionales) → Guardar.`;
 
-### 0. Proveedor NO es cliente (discriminación obligatoria)
-- Un PROVEEDOR es un distribuidor o empresa a la que LE COMPRÁS mercadería.
-- Un CLIENTE es una persona o comercio al que LE VENDÉS: JAMÁS uses ${B3}crear_proveedor para un cliente. Para clientes no existe ningún bloque: explicales con calidez que se dan de alta desde la pantalla Clientes > Nuevo (nombre y teléfono), paso a paso según el manual.
-- Si el mensaje no deja claro si es proveedor o cliente (ej: solo un nombre sin contexto), NO emitas ningún bloque: preguntá primero "¿Es un proveedor al que le comprás, o un cliente al que le vendés?".
-
-### 1. Regla fundamental: CERO consultas SQL para empezar
-- Cuando el comerciante exprese la intención de crear o dar de alta un proveedor (ej: "quiero crear un proveedor", "nuevo proveedor", "dame de alta a Importadora del Valle"):
-  - NUNCA ejecutes ninguna consulta SQL para iniciar. Respondé DIRECTAMENTE en texto plano conversando con calidez.
-  - Pedile de entrada el **nombre del proveedor** (único dato obligatorio).
-  - Los datos de contacto son opcionales: teléfono, email, dirección, nota. Si no los tiene a mano, aclará con calidez que se crea igual y se completan después editando desde la pantalla Proveedores.
-
-### 2. Verificación de duplicados (UNA sola consulta)
-- Antes de emitir el bloque, si el nombre puede ya existir, hacé UNA SOLA consulta SELECT puntual para verificar (ej: SELECT id, nombre FROM proveedor WHERE nombre LIKE '%Valle%' AND activo = 1 LIMIT 5).
-- Si ya existe, avisale con calidez y NO emitas el bloque.
-
-### 3. Emisión OBLIGATORIA del bloque de creación (CRÍTICO)
-- La tarjeta interactiva la dibuja la interfaz ÚNICAMENTE si emitís el bloque de código Markdown ${B3}crear_proveedor con el JSON adentro. JAMÁS uses ${B3}crear_producto (ni ningún otro bloque) para un proveedor.
-- Bloque exacto:
-${B3}crear_proveedor
-{
-  "nombre": "Importadora del Valle",
-  "telefono": null,
-  "email": null,
-  "direccion": null,
-  "nota": null
-}
-${B3}
-- Mensaje que debe acompañar al bloque: "Revisá los datos en la tarjeta que aparece acá arriba y hacé clic en **Confirmar y Crear Proveedor** para darlo de alta inmediatamente."`;
-
-  const seccionBloquesAutorizados = `## Bloques interactivos autorizados (lista cerrada, CRÍTICO)
-Los ÚNICOS bloques de código que podés emitir son: crear_producto, crear_recordatorio, crear_gasto, cambiar_modulo, guardar_memoria, crear_proveedor, chart, whatsapp.
-- NUNCA inventes un bloque nuevo ni adaptes uno existente a otra cosa (ej: JAMÁS uses crear_producto para un proveedor, cliente, combo o promoción).
-- JAMÁS pegues un objeto JSON suelto en el texto (ej: los datos de un combo con items y producto_id). Si es una tarjeta, va DENTRO de un bloque fence autorizado; si no hay bloque para eso, el JSON no va en el mensaje.
-- Si te piden crear o ejecutar algo fuera de esa lista (ej: crear cliente, combo, promoción, compra, actualizar precios, aplicar descuento), NO improvises con otro bloque: explicales con calidez que eso se hace desde la pantalla correspondiente del sistema, guiándolos paso a paso según el manual (ej: un combo se crea en Combos > Nuevo Combo).
-- NUNCA ofrezcas ejecutar algo que no podés (ej: JAMÁS preguntes "¿querés que lo actualice/cree/aplique?"): si no tenés bloque ni herramienta para eso, explicá el camino manual EN EL ACTO, sin pedir confirmación para una acción imposible.`;
-
-  const seccionIvaCreacion = usarIva
-    ? `  - **Módulo de IVA: HABILITADO en este comercio**:
-    a. **Precios de venta al público (PVP)**: En el sistema los precios de venta son SIEMPRE con IVA incluido (PVP). Cuando el usuario te dice un precio de venta (ej: "venta 1500"), asumí que es el PVP final con IVA.
-    b. **Alícuota impositiva**: La alícuota por defecto del negocio es ${alicuotaPred.porcentaje}% (${alicuotaPred.nombre}, id: ${alicuotaPred.id}). Si el usuario no menciona ninguna alícuota, asigná siempre id: ${alicuotaPred.id} (${alicuotaPred.porcentaje}%). Si menciona una alícuota específica (ej. 10.5%, 27% o exento al 0%), usá el ID que corresponda de las disponibles: ${alicuotasTexto}.
-    c. **Desglose transparente en tu mensaje**: Al confirmar los datos del producto, explicále con calidez el desglose:
-       - Precio Final PVP: $X (con IVA ${alicuotaPred.porcentaje}% incl.)
-       - Neto Gravado: $Y (base imponible)
-       - IVA Débito: $Z (tributo AFIP)
-       - Costo: $C
-       - Margen Comercial Neto: M%
-    d. **JSON del bloque**: Incluí en el JSON "alicuota_iva_id": ${alicuotaPred.id} y "alicuota_iva_porcentaje": ${alicuotaPred.porcentaje}.`
-    : `  - **Módulo de IVA: DESHABILITADO en este comercio**:
-    El comercio opera con precios planos sin discriminación impositiva. NUNCA menciones IVA, ni AFIP, ni débitos fiscales. En el JSON del bloque incluye: "alicuota_iva_id": null.`;
-
-  const reglasCreacion = `## Creación interactiva de productos
-Guiá al comerciante para dar de alta productos nuevos en la conversación.
-### 1. CERO consultas SQL para empezar
-Si quiere crear un producto: NUNCA SQL de entrada; respondé en texto pidiendo los esenciales: 1) nombre, 2) costo y venta (o costo+margen), 3) stock inicial. Si ya dio algún dato, NO lo vuelvas a preguntar.
-### 2. Datos complementarios
-Sugerí código interno único (ej: "COCA-2L"). Barras opcional. Unidad por defecto "Unidades" (id: 1) salvo kilo/litro.
-Packs/bultos: el costo SIEMPRE se registra por unidad individual (pack de 6 a $6000 → costo 1000; explicalo con calidez). Stock: packs×factor (10 packs de 6 = 60) o unidades directas. En el JSON: "presentaciones": [{ "nombre": "Pack x 6", "factor_conversion": 6 }].
-${seccionIvaCreacion}
-"permitir_sin_stock": siempre false salvo pedido expreso. Categorías/marcas: opcionales, no preguntar salvo mención; si menciona una, UNA SOLA consulta SELECT puntual para el ID. REGLA CRÍTICA: UNA sola sentencia SELECT por consulta, nunca varias ni con ";".
-### 3. Emisión OBLIGATORIA del bloque (CRÍTICO)
-Con los esenciales reunidos, la tarjeta SOLO aparece si emitís el bloque exacto (sin él no hay botones):
-${B3}crear_producto
-{
-  "nombre": "Nombre del producto",
-  "codigo_interno": "COD-001",
-  "codigo_barras": "7791234567890",
-  "precio_costo": 1000,
-  "precio_venta": 1500,
-  "cantidad": 10,
-  "stock_minimo": 2,
-  "unidad_id": 1,
-  "marca_id": null,
-  "categoria_ids": [1],
-  "permitir_sin_stock": false,
-  ${usarIva ? `"alicuota_iva_id": ${alicuotaPred.id},\n  "alicuota_iva_porcentaje": ${alicuotaPred.porcentaje},` : `"alicuota_iva_id": null,`}
-  "presentaciones": [
-    {
-      "nombre": "Pack x 6",
-      "factor_conversion": 6
-    }
-  ],
-  "activo": 1
-}
-${B3}
-- Si algún dato opcional no se especificó (código de barras, marca, categoría), usa null o [].
-- Si no se mencionaron packs o bultos de compra, incluye "presentaciones": [].
-- "permitir_sin_stock" siempre en false salvo pedido expreso del usuario.
-- NUNCA digas frases como "ya generé la tarjeta" o "hacé clic en Confirmar" sin haber puesto el bloque ${B3}crear_producto en este mismo mensaje.
-- NUNCA generes una sentencia INSERT/UPDATE SQL. La creación se realiza desde la interfaz a través de este bloque.
-- Mensaje que debe acompañar al bloque: "Revisá los datos en la tarjeta que aparece acá arriba y hacé clic en **Confirmar y Crear Producto** para darlo de alta inmediatamente, o en **Editar en Formulario** si querés hacer algún ajuste antes de guardarlo.";`;
+  const reglasCreacion = `## Productos (cómo se dan de alta)
+Binny NO crea ni edita productos. Guiá el alta manual: Productos → Nuevo Producto. Campos obligatorios: Nombre, Código interno (único), Unidad, Precio de costo, Precio de venta y Stock. Opcionales: código de barras (solo números), marca, categoría, vencimiento, lote y presentaciones/packs con factor de conversión. Para altas masivas: Productos → Importar Excel.`;
 
   // --- Ítem 0: secciones condicionales por módulo (anti-alucinación + tokens) ---
   // El desktop envía `modulos_activos` en contexto (chat.rs). Si un módulo
@@ -550,13 +424,13 @@ ${B3}
   const usarProveedor = modOn('usar_proveedor');
   const seccionGastos = usarGastos
     ? reglasGastos
-    : 'Módulo de gastos DESACTIVADO en este comercio: no hables de gastos ni emitas crear_gasto. Si los piden, explicá que se activan en Configuración > Módulos.';
+    : 'Módulo de gastos DESACTIVADO en este comercio: no des información de gastos. Si los piden, guiá a activarlo en Configuración → Módulos y Catálogo.';
   const seccionRecordatorios = usarRecordatorios
     ? reglasRecordatorios
-    : 'Módulo de recordatorios DESACTIVADO en este comercio: no hables de recordatorios ni emitas crear_recordatorio. Si los piden, explicá que se activan en Configuración > Módulos.';
+    : 'Módulo de recordatorios DESACTIVADO en este comercio: no des información de recordatorios. Si los piden, guiá a activarlo en Configuración → Módulos y Catálogo.';
   const seccionProveedor = usarProveedor
     ? reglasProveedor
-    : 'Módulo de proveedores DESACTIVADO en este comercio: no hables de proveedores ni emitas crear_proveedor. Si los piden, explicá que se activan en Configuración > Módulos.';
+    : 'Módulo de proveedores DESACTIVADO en este comercio: no des información de proveedores. Si los piden, guiá a activarlo en Configuración → Módulos y Catálogo.';
 
   if (modo === 'stream') {
     return `${identidad}
@@ -570,7 +444,7 @@ ${seccionGastos}
 ${reglasModulos}
 
 ## Modo stream
-- Respondé en lenguaje natural y amigable. NUNCA uses JSON o llaves sueltas en el texto plano, EXCEPTO cuando emitas bloques especiales autorizados (${B3}chart, ${B3}crear_producto, ${B3}crear_recordatorio, ${B3}cambiar_modulo, ${B3}guardar_memoria o ${B3}crear_proveedor).
+- Respondé en lenguaje natural y amigable. NUNCA uses JSON o llaves sueltas en el texto plano, EXCEPTO los bloques visuales permitidos (${B3}chart, ${B3}whatsapp o ${B3}mensaje), que solo se muestran y NO escriben datos.
 - Presenta resultados como frases naturales ("Hoy vendiste $45.000 en 12 ventas").
 - Si hay mucha info, resume en lista simple.
 - Si los datos no alcanzan (consulta fallida, faltan campos), empezá con @REINTENTAR {"tipo":"consulta","id_solicitud":"abc","sql":"SELECT ...","descripcion":"Breve descripcion"}
@@ -590,8 +464,6 @@ ${reglasMemoria}
 
 ${seccionProveedor}
 
-${seccionBloquesAutorizados}
-
 ${reglasVoz}
 
 ${manual}
@@ -608,15 +480,15 @@ Tu trabajo es atender las necesidades del comerciante respondiendo en tres casos
 Si el usuario pregunta por numeros, reportes, stock, ventas, clientes, deudas, etc., genera una consulta SQL de lectura. Tu salida DEBE ser EXCLUSIVAMENTE el centinela y el JSON, sin explicaciones previas ni posteriores:
 @CONSULTA {"tipo":"consulta","id_solicitud":"abc","sql":"SELECT ...","descripcion":"Buscando tus ventas de hoy..."}
 NUNCA escribas texto antes ni despues del centinela + JSON. La descripcion es lo que ve el usuario mientras se ejecuta.
-NUNCA generes consultas SQL para iniciar la creación interactiva de productos, recordatorios, proveedores ni activación de módulos (eso va siempre por el Caso 2 en texto plano).
+NUNCA generes consultas SQL para explicar cómo se hace algo en la interfaz: eso va por el Caso 3 en texto plano.
 
-### Caso 2: Creación interactiva de productos, recordatorios, proveedores y activación de módulos
-Si el usuario manifiesta que quiere crear un producto, agendar un recordatorio nuevo, dar de alta un proveedor o activar/desactivar módulos del sistema (ej: "recordame llamar a...", "quiero crear un producto", "creá el proveedor Importadora del Valle", "activá gastos", "desactivá presupuestos", "habilitá marcas y combos", etc.):
-- Respondé DIRECTAMENTE en texto plano conversando con calidez y pidiendo los datos esenciales según las Reglas correspondientes. NUNCA generes SQL para iniciar la creación ni para cambiar módulos.
-- Cuando corresponda, emití obligatoriamente el bloque ${B3}crear_producto, ${B3}crear_recordatorio, ${B3}cambiar_modulo o ${B3}crear_proveedor con el JSON correspondiente.
+### Caso 2: Creación, edición o acciones sobre datos del negocio
+Binny NO crea ni modifica datos del negocio (productos, proveedores, clientes, combos, compras, precios, gastos, módulos). Si el usuario pide crear, editar o hacer algo (ej: "creá el producto...", "dame de alta un proveedor", "activá gastos", "armá un combo"):
+- Respondé en texto plano con la guía: primero el prerrequisito si falta y después los pasos numerados con el camino exacto de menú (ej: Productos → Nuevo Producto).
+- NUNCA generes SQL para esto, ni emitas bloques de creación, ni prometas tarjetas ni acciones.
 
-### Caso 3: Como usar el sistema o conversacion general
-Si pregunta cómo hacer algo de forma teórica (explicación de pantallas, abrir caja, anular venta, dictado por voz, etc.) o es un saludo, respondé directamente en texto plano con los pasos del manual. NUNCA generes SQL para esto.
+### Caso 3: Cómo usar el sistema o conversación general
+Si pregunta cómo hacer algo (explicación de pantallas, abrir caja, anular venta, crear un combo, dictado por voz, etc.) o es un saludo, respondé directamente en texto plano con los pasos del manual (prerrequisito → pasos → camino de menú). NUNCA generes SQL para esto.
 
 ${reglasComunes}
 
@@ -649,8 +521,6 @@ ${reglasMemoria}
 
 ${seccionProveedor}
 
-${seccionBloquesAutorizados}
-
 ${reglasVoz}
 
 ${manual}
@@ -661,10 +531,9 @@ ${schema}`;
   if (modo === 'agente') {
     return `${identidad}
 
-## Qué podés y qué NO podés crear (CRÍTICO — tu mapa de capacidades)
-SÍ podés crear con tarjeta interactiva (herramientas crear_producto, crear_proveedor, crear_recordatorio, crear_gasto, guardar_memoria, cambiar_modulo): productos, proveedores, recordatorios, gastos, módulos y notas de memoria.
-NO podés crear NUNCA (no existe herramienta ni tarjeta para esto, ni hoy ni después): clientes, COMBOS, promociones, compras, precios ni descuentos. No hay excepciones.
-Si el comerciante te pide algo de la lista NO: explicale el camino manual EN EL ACTO (ej: un combo se arma en Combos > Nuevo Combo: elegir productos con cantidades y definir el precio de venta), guiándolo paso a paso. En ese caso está PROHIBIDO prometer tarjetas ("te genero la ficha", "hacé clic en Confirmar y Crear..."), pedir confirmación para una acción imposible ("¿te parece bien ese precio?"), o usar otra tarjeta en su lugar (JAMÁS crear_producto para un combo).
+## Qué hace Binny (CRÍTICO — modo guía)
+Binny es un GUÍA de la interfaz: NO crea ni modifica datos del negocio (productos, proveedores, clientes, combos, promociones, compras, precios, descuentos, gastos, módulos). Su única excepción de escritura es su libreta de memoria (guardar_memoria), que no toca datos del negocio.
+Cuando el comerciante pide crear, editar o hacer algo, EXPLICÁ cómo se hace: primero el prerrequisito si falta (módulo, permiso o estado) y después los pasos numerados con el camino exacto de menú (ej: un combo se arma en Productos → pestaña Combos → Nuevo Combo). Está PROHIBIDO prometer tarjetas ("te genero la ficha", "hacé clic en Confirmar y Crear...") o pedir confirmación para una acción que no podés hacer. Nunca inventes pantallas, botones ni campos que no estén en el manual.
 
 Sos un agente que consulta la información real del negocio con herramientas ANTES de responder.
 
@@ -680,13 +549,13 @@ Parámetros de la herramienta:
 - **descripcion**: frase corta y cálida que verá el comerciante mientras se ejecuta (ej: "Buscando tus ventas de hoy..."). Sin términos técnicos.
 
 ### Cuándo NO usar la herramienta
-- **Creación interactiva de productos, recordatorios, proveedores, gastos, memoria y activación de módulos**: NO escribas bloques Markdown para esto: INVOCÁ la herramienta correspondiente (crear_producto, crear_recordatorio, crear_proveedor, crear_gasto, guardar_memoria, cambiar_modulo) con los parámetros, siguiendo las Reglas de cada caso. La tarjeta se muestra sola al invocar. Solo si no pudieras invocarla, emití el bloque Markdown como explican las reglas.
-- **Cómo usar el sistema o conversación general**: respondé directamente en texto plano con los pasos del manual.
+- **Cómo usar el sistema o conversación general**: respondé directamente en texto plano con los pasos del manual (prerrequisito → pasos numerados → camino de menú). NO consultes SQL para explicar cómo se hace algo.
+- **Memoria del comercio**: si surge un dato estable del negocio, invocá guardar_memoria (ver Reglas de memoria). No escribas bloques Markdown para eso.
 
 ### Modo "explicame" (preguntas de cómo se hace)
-Si preguntan cómo hacer algo del sistema ("¿cómo hago un presupuesto?", "¿dónde anulo una venta?"):
-- Respondé DIRECTO en texto con los pasos EXACTOS de la sección "Flujos" del manual (rutas "Pantalla > ...").
-- PROHIBIDO inventar menús, botones o rutas que no estén en el manual.
+Si preguntan cómo hacer algo del sistema ("¿cómo hago un presupuesto?", "¿dónde anulo una venta?", "¿cómo creo un combo?"):
+- Respondé DIRECTO en texto con: 1) el prerrequisito si falta (módulo, permiso o estado), 2) los pasos numerados y 3) el camino exacto de menú (ej: Productos → pestaña Combos → Nuevo Combo).
+- PROHIBIDO inventar menús, botones, campos o rutas que no estén en el manual.
 - PROHIBIDO consultar SQL para esto: la respuesta está en el manual, no en los datos del negocio.
 - Si el manual no cubre lo pedido, decilo con honestidad en vez de improvisar.
 
@@ -720,7 +589,7 @@ Ante preguntas de impacto ("¿cuánto más facturaría si subo X%?", "¿qué pas
 7. Período vacío NO es "sin información": si el rango pedido (hoy, este mes) trae 0 filas, ampliá la misma consulta al último período con movimientos (últimos 30/90 días) y avisá el cambio ("este mes no hay ventas, te muestro los últimos 30 días"). Solo si tampoco hay nada decí que no hay movimientos registrados.
 
 ## Respuesta final
-Cuando ya tengas todos los datos que necesitás, respondé en lenguaje natural y amable. NUNCA uses JSON o llaves sueltas en el texto plano, EXCEPTO cuando emitas bloques especiales autorizados (${B3}chart, ${B3}crear_producto, ${B3}crear_recordatorio, ${B3}cambiar_modulo, ${B3}guardar_memoria o ${B3}crear_proveedor).
+Cuando ya tengas todos los datos que necesitás, respondé en lenguaje natural y amable. NUNCA uses JSON o llaves sueltas en el texto plano, EXCEPTO los bloques visuales permitidos (${B3}chart, ${B3}whatsapp o ${B3}mensaje), que solo se muestran y NO escriben datos.
 - Presenta resultados como frases naturales ("Hoy vendiste $45.000 en 12 ventas").
 - Si hay mucha info, resume en lista simple.
 
@@ -748,8 +617,6 @@ ${seccionRecordatorios}
 ${reglasMemoria}
 
 ${seccionProveedor}
-
-${seccionBloquesAutorizados}
 
 ${reglasVoz}
 
@@ -804,11 +671,11 @@ Tu trabajo es atender al comerciante respondiendo en tres casos:
 ### Caso 1: Datos del negocio
 Si el usuario pregunta por numeros, reportes, stock, ventas, etc., genera una consulta SQL para obtener la respuesta.
 
-### Caso 2: Creación interactiva de productos, recordatorios, proveedores y activación de módulos
-Si el usuario quiere crear un producto, agendar un recordatorio, dar de alta un proveedor o activar/desactivar módulos con tu ayuda, respondé DIRECTAMENTE con preguntas amigables en texto plano para recopilar la información. NUNCA generes SQL para iniciar la creación ni para cambiar módulos. Cuando tengas los datos o la orden, responde con {tipo: "respuesta", texto: "... ${B3}crear_producto\\n{...}\\n${B3} ..."} o {tipo: "respuesta", texto: "... ${B3}crear_recordatorio\\n{...}\\n${B3} ..."} o {tipo: "respuesta", texto: "... ${B3}cambiar_modulo\\n{...}\\n${B3} ..."} o {tipo: "respuesta", texto: "... ${B3}crear_proveedor\\n{...}\\n${B3} ..."} para emitir la tarjeta interactiva.
+### Caso 2: Creación, edición o acciones sobre datos del negocio
+Binny NO crea ni modifica datos del negocio (productos, proveedores, clientes, combos, compras, precios, gastos, módulos). Si el usuario pide crear, editar o hacer algo, respondé en texto plano con la guía: primero el prerrequisito si falta y después los pasos numerados con el camino exacto de menú (ej: Productos → pestaña Combos → Nuevo Combo). NUNCA generes SQL ni bloques de creación para esto, ni prometas tarjetas o acciones.
 
 ### Caso 3: Como usar el sistema y soporte de voz
-Si pregunta cómo hacer algo en general (abrir caja, dictado por voz, escuchar voz, etc.), responde directamente con pasos claros basandote en el manual. NUNCA generes SQL para esto.
+Si pregunta cómo hacer algo en general (abrir caja, crear un producto, dictado por voz, escuchar voz, etc.), responde directamente con pasos claros basandote en el manual. NUNCA generes SQL para esto.
 
 ${reglasComunes}
 
@@ -821,6 +688,7 @@ ${seccionResumen}
 ${seccionMemoria}
 
 ## Reglas SQL (no las mostres al usuario)
+0. TODA consulta es SIEMPRE el JSON {tipo:"consulta", id_solicitud, sql, descripcion}: los cuatro campos son obligatorios, incluida "descripcion" (sin ella la respuesta se rechaza).
 1. Solo SELECT o WITH (lectura). NUNCA INSERT, UPDATE, DELETE, DROP, ALTER, CREATE.
 2. TODA consulta DEBE incluir un LIMIT (maximo 500), incluso en agregaciones.
 3. Fechas = timestamps Unix INTEGER.
@@ -840,11 +708,8 @@ ${seccionMemoria}
 Pregunta: "Como creo un producto nuevo?"
 Respuesta: {tipo: "respuesta", texto: "Para crear un producto tenés dos opciones: 1. Podés pedírmelo acá mismo en el chat diciéndome 'Quiero crear un producto' y te guío paso a paso. 2. O podés ir a la pantalla de Productos > botón 'Nuevo Producto' y completar el formulario."}
 
-Pregunta: "Quiero crear un producto nuevo. ¿Qué datos necesitás para darlo de alta?"
-Respuesta: {tipo: "respuesta", texto: "¡Hola! Te ayudo con mucho gusto a darlo de alta paso a paso.\n\nPara empezar, contame:\n1. **¿Cómo se llama el producto?**\n2. **¿Cuál es el precio de costo y el precio de venta?**\n3. **¿Cuántas unidades tenés en stock inicial?**\n\nCon esos datos ya podemos armar la ficha inicial y sugerirte un código."}
-
-Pregunta: "Compro pack de 6 a 6000, venta 1555 cada una, stock 60 botellas, sin vencimiento, codigo PEPSI-2L, sin barras"
-Respuesta: {tipo: "respuesta", texto: "¡Perfecto! Como comprás el pack de 6 a $6.000, tu costo individual por unidad es de $1.000. Ya tengo todos los datos necesarios y la presentación de compra configurada.\n\n${B3}crear_producto\n{\n  \"nombre\": \"Pepsi 2L\",\n  \"codigo_interno\": \"PEPSI-2L\",\n  \"codigo_barras\": null,\n  \"precio_costo\": 1000,\n  \"precio_venta\": 1555,\n  \"cantidad\": 60,\n  \"stock_minimo\": 0,\n  \"unidad_id\": 1,\n  \"marca_id\": null,\n  \"categoria_ids\": [],\n  \"permitir_sin_stock\": false,\n  \"presentaciones\": [\n    {\n      \"nombre\": \"Pack x 6\",\n      \"factor_conversion\": 6\n    }\n  ],\n  \"activo\": 1\n}\n${B3}\n\nRevisá los datos en la tarjeta que aparece acá arriba y hacé clic en **Confirmar y Crear Producto** para darlo de alta inmediatamente, o en **Editar en Formulario** si querés ajustar algún detalle antes de crearlo."}
+Pregunta: "¿Cómo creo un combo?"
+Respuesta: {tipo: "respuesta", texto: "Para crear un combo andá a Productos → pestaña Combos → Nuevo Combo. Completá Nombre y Código interno, agregá los productos componentes con sus cantidades, definí el Precio de venta y tocá Guardar. Si el módulo Combos no está activo, activalo primero en Configuración → Módulos y Catálogo."}
 
 Pregunta: "Como anulo una venta?"
 Respuesta: {tipo: "respuesta", texto: "Para anular: 1. Busca la venta. 2. Anular. 3. Motivo. 4. Stock se restaura."}
@@ -863,7 +728,8 @@ Respuesta: {tipo: "consulta", id_solicitud: "deudores_01", sql: "SELECT nombre, 
 
 ## Formato de respuesta
 Datos del negocio: {tipo: "consulta", id_solicitud: "abc123", sql: "SELECT ...", descripcion: "Buscando tus [datos]..."}
-Uso del sistema, conversacion o creación de producto: {tipo: "respuesta", texto: "Respuesta con texto o bloque ${B3}crear_producto"}
+OBLIGATORIO: toda respuesta de tipo "consulta" lleva SIEMPRE los tres campos id_solicitud, sql y descripcion (nunca omitas descripcion; sin ella la respuesta se rechaza).
+Uso del sistema, conversación o guía: {tipo: "respuesta", texto: "Guía con prerrequisito, pasos y camino de menú"}
 
 ${reglasCreacion}
 
@@ -872,8 +738,6 @@ ${seccionRecordatorios}
 ${reglasMemoria}
 
 ${seccionProveedor}
-
-${seccionBloquesAutorizados}
 
 ${reglasVoz}
 
@@ -920,6 +784,16 @@ function ultimoMensajeUsuario(mensajes: Array<{ role: string; content: string }>
   return '';
 }
 
+/** Primera pregunta del comerciante en el ciclo (para recuperar el manual). */
+function primerMensajeUsuario(mensajes: Array<{ role: string; content: string }>): string {
+  for (const m of mensajes) {
+    if (m?.role === 'user' && m.content.trim().length > 0) {
+      return m.content;
+    }
+  }
+  return '';
+}
+
 // --- Auditoría anti-razonamiento visible (observabilidad, no modifica nada) ---
 // Si el texto final contiene marcadores de deliberación interna, se loguea
 // para enterarnos por los logs del servidor antes que por un comerciante.
@@ -940,200 +814,14 @@ export function auditarTextoFinal(origen: string, texto: string): void {
 // clic en confirmar") pero no emitió ningún bloque autorizado. En ese caso se
 // hace UN reintento con feedback explícito; si persiste, se loguea.
 
-const FENCES_AUTORIZADOS = [
-  'crear_producto', 'crear-producto', 'producto_crear',
-  'crear_recordatorio', 'crear-recordatorio', 'recordatorio_crear',
-  'crear_gasto', 'crear-gasto', 'gasto_crear',
-  'cambiar_modulo', 'cambiar-modulo', 'modulos_sistema', 'activar_modulo',
-  'guardar_memoria', 'guardar-memoria', 'memoria_guardar', 'recordar_dato',
-  'crear_proveedor', 'crear-proveedor', 'proveedor_crear', 'nuevo_proveedor',
-  'chart', 'whatsapp', 'mensaje',
-];
-// NOTA: crear_compra fue eliminado de la lista a propósito: Binny NO crea
-// compras. Si el modelo promete una tarjeta de compra sin bloque (o con un
-// bloque inventado), el guardián lo detecta y lo redirige al camino manual.
+// Únicos bloques visuales permitidos: no escriben datos del negocio, solo se
+// muestran (gráfico, mensaje de WhatsApp y mensaje destacado). Las tarjetas de
+// creación se eliminaron por completo: Binny ya no crea ni modifica datos.
+const FENCES_AUTORIZADOS = ['chart', 'whatsapp', 'mensaje'];
 
-const RE_TARJETA_MENCION =
-  /tarjeta que aparece|tarjeta de (ac[áa] )?arriba|tarjeta de abajo|tarjeta ac[áa]|tarjeta aqu[íi]|ficha que aparece|revis[áa] (los datos en |la )?(la )?tarjeta/i;
-const RE_CLIC_ACCION = /hac[ée] clic en \*{0,2}(confirmar|guardar|registrar)/i;
-const RE_TARJETA_O_FICHA = /tarjeta|ficha/i;
-// "Confirmar y Crear X": la instrucción de confirmación de una tarjeta. Solo
-// es posible si X es una entidad CON tarjeta (lista cerrada).
-const RE_CONFIRMAR_CREAR = /confirmar y crear ([a-záéíóúñ]+)/i;
-const ENTIDADES_CON_TARJETA = ['producto', 'proveedor', 'recordatorio', 'gasto'];
 
-// Marcadores de promesa FUTURA o condicional: si aparecen junto a la mención,
-// la tarjeta todavía no debería existir y NO es una promesa falsa.
-const RE_MARCA_FUTURO =
-  /cuando|enseguida|te genero|te voy a|voy a mostrar|en cuanto|despu[ée]s|luego|apenas|si (me|quer[ée]s)/i;
 
-function fencesEmitidos(texto: string): string[] {
-  const out: string[] = [];
-  const re = /```(\w[\w-]*)/g;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(texto)) !== null) {
-    const lang = m[1].toLowerCase();
-    if (lang !== 'json') out.push(lang);
-  }
-  return out;
-}
-
-function oracionDe(texto: string, index: number, len: number): string {
-  const antes = texto.slice(0, index);
-  const despues = texto.slice(index + len);
-  const ini = Math.max(antes.lastIndexOf('.'), antes.lastIndexOf('!'), antes.lastIndexOf('?'), antes.lastIndexOf('\n')) + 1;
-  let finRel = despues.search(/[.!?\n]/);
-  finRel = finRel === -1 ? texto.length : index + len + finRel;
-  return texto.slice(ini, finRel);
-}
-
-export function prometeSinTarjeta(texto: string): boolean {
-  if (!texto || texto.length < 20) return false;
-  // 0. "Confirmar y Crear X" de entidad SIN tarjeta (combo, cliente,
-  // promoción, compra...): promesa imposible, la tarjeta nunca puede existir.
-  // Si X tiene tarjeta, sigue el análisis normal (vale con fence autorizado).
-  const mCrear = RE_CONFIRMAR_CREAR.exec(texto);
-  if (mCrear?.index !== undefined && mCrear[1]) {
-    const ent = mCrear[1].toLowerCase();
-    if (!ENTIDADES_CON_TARJETA.some((e) => ent.startsWith(e))) {
-      return !fencesEmitidos(texto).some((f) => FENCES_AUTORIZADOS.includes(f));
-    }
-  }
-  // 1. Mención directa de tarjeta ya visible ("la tarjeta que aparece...").
-  let oracion = '';
-  const m = RE_TARJETA_MENCION.exec(texto);
-  if (m && m.index !== undefined) {
-    oracion = oracionDe(texto, m.index, m[0].length);
-  } else {
-    // 2. "Hacé clic en Confirmar/Guardar" SOLO vale si esa misma oración
-    // habla de una tarjeta: en el camino manual ("Compras > ... > Confirmar")
-    // es una instrucción legítima sin tarjeta.
-    const c = RE_CLIC_ACCION.exec(texto);
-    if (!c || c.index === undefined) return false;
-    oracion = oracionDe(texto, c.index, c[0].length);
-    if (!RE_TARJETA_O_FICHA.test(oracion)) return false;
-  }
-  // Promesa futura/condicional ("te genero la tarjeta cuando..."): legítima,
-  // la tarjeta todavía no debería existir. Solo se mira la MISMA oración.
-  if (RE_MARCA_FUTURO.test(oracion)) return false;
-  return !fencesEmitidos(texto).some((f) => FENCES_AUTORIZADOS.includes(f));
-}
-
-// Marcadores de disculpa del reintento: si el modelo disculpa en vez de
-// corregir, el reintento se descarta y se conserva el original.
-const RE_DISCULPA = /disculp|toda la raz[óo]n|perd[óo]n/i;
-
-export function esDisculpa(texto: string): boolean {
-  return RE_DISCULPA.test(texto ?? '');
-}
-
-// --- Detección de JSON suelto de entidad (sin fence) ---
-// El modelo a veces pega un objeto JSON crudo en el texto (ej: datos de un
-// combo con items y producto_id) en vez de usar un bloque fence autorizado.
-// Eso se renderiza como texto ilegible y la "tarjeta" prometida nunca aparece.
-
-const CLAVES_NOMBRE_ENTIDAD = ['nombre', 'titulo', 'concepto', 'contenido'];
-
-function entidadDeJson(obj: any): string | null {
-  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return null;
-  const ks = new Set(Object.keys(obj).map((k) => String(k).toLowerCase()));
-  const tiene = (...candidatas: string[]) => candidatas.some((k) => ks.has(k));
-  const tieneNombre = CLAVES_NOMBRE_ENTIDAD.some((k) => ks.has(k));
-  if (ks.has('items') && (tieneNombre || ks.has('precio_venta'))) return 'combo';
-  if (ks.has('cambios')) return 'modulo';
-  if (!tieneNombre) return null;
-  if (tiene('codigo_interno', 'codigo_barras', 'precio_costo', 'precio_venta', 'producto_id')) return 'producto';
-  if ((ks.has('fecha') || ks.has('hora')) && (ks.has('titulo') || ks.has('descripcion'))) return 'recordatorio';
-  if (ks.has('concepto') && ks.has('monto')) return 'gasto';
-  if (tiene('proveedor_id', 'proveedor_nombre', 'cuit', 'razon_social')) return 'proveedor';
-  if (tiene('documento', 'telefono', 'email', 'direccion')) return 'cliente';
-  if (ks.has('contenido')) return 'memoria';
-  return null;
-}
-
-export interface JsonSuelto {
-  raw: string;
-  entidad: string;
-}
-
-/**
- * Busca objetos JSON sueltos (fuera de bloques fence ```) con forma de
- * entidad del sistema. Retorna el primero con su texto crudo y la entidad
- * detectada, o null si no hay.
- */
-export function jsonSueltoEntidad(texto: string): JsonSuelto | null {
-  if (!texto || texto.length < 20) return null;
-  // Blanquear bloques fenceados (con longitud preservada para alinear índices).
-  const sinFences = texto
-    .replace(/```[\s\S]*?```/g, (m) => ' '.repeat(m.length))
-    .replace(/```[\s\S]*$/, (m) => ' '.repeat(m.length));
-  let i = 0;
-  while (i < sinFences.length) {
-    if (sinFences[i] !== '{') {
-      i++;
-      continue;
-    }
-    let depth = 0;
-    let inStr = false;
-    let esc = false;
-    let j = i;
-    for (; j < sinFences.length; j++) {
-      const c = sinFences[j];
-      if (inStr) {
-        if (esc) esc = false;
-        else if (c === '\\') esc = true;
-        else if (c === '"') inStr = false;
-      } else if (c === '"') {
-        inStr = true;
-      } else if (c === '{') {
-        depth++;
-      } else if (c === '}') {
-        depth--;
-        if (depth === 0) break;
-      }
-    }
-    if (depth === 0 && j < sinFences.length) {
-      const raw = texto.slice(i, j + 1);
-      try {
-        const entidad = entidadDeJson(JSON.parse(raw));
-        if (entidad) return { raw, entidad };
-      } catch {
-        // No es JSON válido, seguir buscando
-      }
-      i = j + 1;
-    } else {
-      i++;
-    }
-  }
-  return null;
-}
-
-const CAMINO_MANUAL: Record<string, string> = {
-  combo: 'Combos > Nuevo Combo',
-  producto: 'Productos > Nuevo Producto',
-  recordatorio: 'la campana > Nuevo Recordatorio',
-  gasto: 'Gastos > Nuevo Gasto',
-  proveedor: 'Proveedores > Nuevo Proveedor',
-  cliente: 'Clientes > Nuevo Cliente',
-  modulo: 'Configuración > Módulos',
-  memoria: 'Configuración > Asistente Binny',
-};
-
-/**
- * Fallback determinista (sin LLM): quita el JSON suelto del texto y anexa
- * el camino manual correspondiente. Si no hay JSON suelto, devuelve el texto
- * intacto. Nunca inventa contenido.
- */
-export function aplicarFallbackManual(texto: string): string {
-  const hallado = jsonSueltoEntidad(texto);
-  if (!hallado) return texto;
-  const sinJson = texto.split(hallado.raw).join('').replace(/\n{3,}/g, '\n\n').trim();
-  const camino = CAMINO_MANUAL[hallado.entidad];
-  const linea = camino
-    ? `\n\nNota: para darlo de alta hacelo desde ${camino}.`
-    : `\n\nNota: eso se gestiona desde la pantalla correspondiente del sistema.`;
-  return `${sinJson}${linea}`.trim();
-}
+// --- Reintento de pasos auxiliares a prueba de fallos ---
 
 /**
  * ¿El error del proveedor merece un reintento? Solo 5xx (fallo transitorio del
@@ -1183,38 +871,7 @@ export async function auxiliarConReintento<T>(
   }
 }
 
-/**
- * Un reintento no-streaming cuando el texto final promete una tarjeta que no
- * existe. Retorna el texto corregido (con bloque) o null si persiste el fallo.
- * Los tokens del reintento se devuelven para acumularlos.
- */
-export async function reintentarTarjetaFaltante(
-  mensajesPrevios: ChatMessage[],
-  textoFallido: string,
-  modelo: string,
-): Promise<{ texto: string; tokens: TokensProactivo } | null> {
-  const mensajes: ChatMessage[] = [
-    ...mensajesPrevios,
-    { role: 'assistant', content: textoFallido },
-    {
-      role: 'user',
-      content:
-        'Tu respuesta anterior mencionó una tarjeta interactiva visible sin incluir su bloque de código, o pegó un JSON suelto en el texto. Hacé UNA de estas dos cosas: (1) si la tarjeta corresponde, reemití tu respuesta completa incluyendo el bloque exacto (``` + nombre + JSON + ```); (2) si la tarjeta NO corresponde, reescribí tu respuesta como guía manual paso a paso, sin mencionar ninguna tarjeta. Nunca pegues objetos JSON sueltos en el texto: o van dentro de un bloque fence autorizado, o no van. En ningún caso te disculpes ni menciones este aviso.',
-    },
-  ];
-  const { respuesta, tokens } = await llamarLLM(mensajes, { jsonMode: false, model: modelo });
-  if (respuesta.tipo !== 'respuesta') return null;
-  const texto = respuesta.texto ?? '';
-  // Aceptar solo si corrigió de verdad: emitió tarjeta autorizada, o reescribió
-  // sin prometer tarjeta y sin JSON suelto. Una disculpa ("tienes toda la
-  // razón...") se descarta para conservar el original: es peor que la inicial.
-  // Un JSON suelto persistente también se rechaza (lo limpia el fallback manual).
-  const fences = fencesEmitidos(texto);
-  if (fences.some((f) => FENCES_AUTORIZADOS.includes(f))) return { texto, tokens };
-  if (jsonSueltoEntidad(texto)) return null;
-  if (!prometeSinTarjeta(texto) && !esDisculpa(texto)) return { texto, tokens };
-  return null;
-}
+
 
 // --- Anti-thrashing: freno determinista a consultas SQL repetidas ---
 // Si el modelo pide tool calls equivalentes a SQL ya ejecutados en este ciclo
@@ -1303,81 +960,6 @@ function loteEsDuplicado(toolCalls: AgenteToolCall[], previas: LlamadaPrevia[]):
   });
 }
 
-// --- Guard de entidad: freno determinista a altas de entidades prohibidas ---
-// Binny NO puede crear combos, clientes, promociones ni compras (no hay tool
-// ni tarjeta para eso). Si el modelo igual emite un tool call de alta cuando
-// el comerciante pidió una de esas entidades, no se lo reenvía al desktop:
-// se fuerza una respuesta final con el camino manual. (El prompt también lo
-// prohíbe, pero esto lo garantiza en código: sin esto, el modelo improvisa
-// con crear_producto y el daño llega al usuario.)
-//
-// Diseño seguro: el disparo exige verbo de creación + entidad juntos en el
-// último mensaje del usuario ("preparame un combo", "creá un cliente"). Un
-// producto legítimamente llamado "Combo x6" o una pregunta de datos ("¿qué
-// combos vendo más?") NO disparan el guard.
-
-const TOOLS_ALTA = ['crear_producto', 'crear_proveedor', 'crear_recordatorio', 'crear_gasto'];
-
-// Verbos de alta en infinitivo/raíz (sin acento a propósito: matchea
-// "creá", "crear", "preparemos", "armame", "haceme", "generame", etc.).
-const VERBO_ALTA = '(cre|arm|prepar|hac|gener|dame|quiero|necesito|sug)';
-const RE_INTENTO_ENTIDAD: Array<{ entidad: string; patron: RegExp }> = [
-  {
-    entidad: 'combo',
-    patron: new RegExp(
-      `\\b${VERBO_ALTA}\\w*\\b[^.?!\\n]{0,80}\\bcombos?\\b|\\bcombos?\\b[^.?!\\n]{0,80}\\b(cre|arm|prepar|hac|nuev)\\w*\\b`,
-      'i',
-    ),
-  },
-  {
-    entidad: 'cliente',
-    patron: new RegExp(
-      `\\b${VERBO_ALTA}\\w*\\b[^.?!\\n]{0,80}\\bclientes?\\b|\\b(nuevo|nueva|alta)\\b[^.?!\\n]{0,40}\\bclientes?\\b`,
-      'i',
-    ),
-  },
-  {
-    entidad: 'promocion',
-    patron: new RegExp(`\\b${VERBO_ALTA}\\w*\\b[^.?!\\n]{0,80}\\b(promoci|descuento)[a-z]*\\b`, 'i'),
-  },
-  {
-    entidad: 'compra',
-    patron: new RegExp(
-      '\\b(cre|arm|prepar|carg|registr|hac)\\w*\\b[^.?!\\n]{0,80}\\bcompras?\\b|\\border\\b[^.?!\\n]{0,40}\\bcompras?\\b',
-      'i',
-    ),
-  },
-];
-
-const CAMINO_ENTIDAD_PROHIBIDA: Record<string, string> = {
-  combo: CAMINO_MANUAL.combo,
-  cliente: CAMINO_MANUAL.cliente,
-  promocion: 'la pantalla correspondiente del sistema',
-  compra: 'Compras > Nueva Compra',
-};
-
-/** ¿Algún mensaje del usuario pide crear una entidad prohibida? Se pasa el
- * texto de TODOS los mensajes de usuario del ciclo (unidos por \n): en una
- * conversación de varios turnos el intento ("preparemos un combo") queda en
- * un turno anterior al que emite la tarjeta ("prefiero la opción 1"). */
-export function intentoEntidadProhibida(textoUsuarios: string): string | null {
-  const texto = textoUsuarios ?? '';
-  if (texto.length < 4) return null;
-  // "creer" no es "crear": "¿creés que el combo rinde?" es pedir opinión,
-  // no un alta. Se blanquean esas construcciones antes de analizar.
-  const limpio = texto.replace(/\bcre[eé]s?\s+que\b|\bcreen\s+que\b|\bcreo\s+que\b|\bcre[ií]a\s+que\b/gi, ' ');
-  for (const { entidad, patron } of RE_INTENTO_ENTIDAD) {
-    if (patron.test(limpio)) return entidad;
-  }
-  return null;
-}
-
-export interface DesvioEntidad {
-  entidad: string;
-  tool: string;
-  camino: string;
-}
-
 // --- Intención de memoria (Ítem 1: memoria automática) ---
 // ¿El usuario contó un dato estable que Binny debería anotar? Patrones con
 // hecho ("mi proveedor ... es ...", "abrimos ... a las ...", "anotá que ...").
@@ -1437,92 +1019,6 @@ export function recortarHistorialAgente(historial: MensajeAgenteDTO[]): {
   return { historial: final, recortados: historial.length - final.length };
 }
 
-/**
- * Fences problemáticos en un texto cuando el usuario pidió una entidad
- * prohibida: fences de alta (crear_producto y variantes) E inventados
- * (crear_combo, etc.). Los fences seguros (chart, whatsapp, mensaje) nunca
- * se tocan: un gráfico en una conversación de combos es legítimo.
- */
-const FENCE_ALTA_NORM = new Set(['crearproducto', 'crearproveedor', 'crearrecordatorio', 'creargasto']);
-const FENCES_SEGUROS = new Set(['chart', 'whatsapp', 'mensaje']);
-
-function normFence(f: string): string {
-  return f.toLowerCase().replace(/[-_]/g, '');
-}
-
-export function fencesEntidadBloqueada(texto: string): string[] {
-  return fencesEmitidos(texto).filter(
-    (f) => !FENCES_SEGUROS.has(normFence(f)) && (FENCE_ALTA_NORM.has(normFence(f)) || !FENCES_AUTORIZADOS.includes(f)),
-  );
-}
-
-/**
- * Quita del texto los fences indicados (con su JSON) y anexa el camino
- * manual de la entidad. Último recurso determinista cuando el reintento
- * persiste: el usuario nunca ve ni el bloque inventado ni la tarjeta ajena.
- */
-export function quitarFencesBloqueados(texto: string, entidad: string, fences: string[]): string {
-  const normas = new Set(fences.map(normFence));
-  const sinFences = texto
-    .replace(/```(\w[\w-]*)[\s\S]*?```/g, (m, lang) => (normas.has(normFence(String(lang))) ? '' : m))
-    .replace(/```(\w[\w-]*)[\s\S]*$/g, (m, lang) => (normas.has(normFence(String(lang))) ? '' : m))
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
-  const camino = CAMINO_ENTIDAD_PROHIBIDA[entidad] ?? 'la pantalla correspondiente del sistema';
-  return `${sinFences}\n\nNota: eso no se puede crear por acá; se hace en ${camino}.`.trim();
-}
-
-/**
- * Reintento no-streaming cuando el texto final trae un fence de alta para
- * una entidad prohibida (ej: crear_producto para un combo). Acepta solo una
- * reescritura limpia como guía manual; si persiste, retorna null para que el
- * llamador aplique el fallback determinista.
- */
-async function reintentarEntidadBloqueada(
-  mensajesPrevios: ChatMessage[],
-  textoFallido: string,
-  entidad: string,
-  camino: string,
-  modelo: string,
-): Promise<{ texto: string; tokens: TokensProactivo } | null> {
-  const mensajes: ChatMessage[] = [
-    ...mensajesPrevios,
-    { role: 'assistant', content: textoFallido },
-    {
-      role: 'user',
-      content:
-        `Tu respuesta incluyó un bloque de alta cuando el comerciante pidió un/a ${entidad}. Eso está PROHIBIDO: ${entidad} NO tiene tarjeta y JAMÁS uses la de otra entidad en su lugar. Reescribí tu respuesta como guía manual paso a paso explicando que se hace en ${camino}, SIN bloques de código, SIN JSON y SIN mencionar tarjetas. En ningún caso te disculpes ni menciones este aviso.`,
-    },
-  ];
-  const { respuesta, tokens } = await llamarLLM(mensajes, { jsonMode: false, model: modelo });
-  if (respuesta.tipo !== 'respuesta') return null;
-  const texto = respuesta.texto ?? '';
-  if (fencesEntidadBloqueada(texto).length > 0) return null;
-  if (jsonSueltoEntidad(texto)) return null;
-  if (prometeSinTarjeta(texto) || esDisculpa(texto)) return null;
-  return { texto, tokens };
-}
-
-/**
- * ¿El lote de tool calls intenta dar de alta una entidad prohibida?
- * Solo cuando el usuario pidió crearla (verbo + entidad en sus mensajes) y
- * la tool es de alta. Retorna el desvío o null.
- */
-export function desvioEntidadProhibida(
-  toolCalls: Array<{ nombre?: string }>,
-  textoUsuarios: string,
-): DesvioEntidad | null {
-  const alta = toolCalls.find((t) => t.nombre && TOOLS_ALTA.includes(t.nombre));
-  if (!alta?.nombre) return null;
-  const entidad = intentoEntidadProhibida(textoUsuarios);
-  if (!entidad) return null;
-  return {
-    entidad,
-    tool: alta.nombre,
-    camino: CAMINO_ENTIDAD_PROHIBIDA[entidad] ?? 'la pantalla correspondiente del sistema',
-  };
-}
-
 export class ChatService {
   async preguntar(data: PreguntarDTO): Promise<RespuestaLLM> {
     const lic = await validarLicenciaChat(data.clave, data.instalacion_id);
@@ -1539,7 +1035,7 @@ export class ChatService {
     const uso = usoCheck!;
 
     const mensajes: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
-      { role: 'system', content: construirPromptSistema('json', data.contexto) },
+      { role: 'system', content: construirPromptSistema('json', data.contexto, data.pregunta) },
       { role: 'system', content: mensajeCuotaSistema(uso) },
     ];
 
@@ -1614,32 +1110,6 @@ export class ChatService {
 
     if (respuesta!.tipo === 'respuesta') {
       auditarTextoFinal('preguntar', respuesta!.texto);
-      if (prometeSinTarjeta(respuesta!.texto) || jsonSueltoEntidad(respuesta!.texto)) {
-        console.warn('[Binny-guardian] promesa sin tarjeta o JSON suelto en preguntar, reintentando una vez');
-        try {
-          const retry = await reintentarTarjetaFaltante(mensajes, respuesta!.texto, modelo);
-          if (retry) {
-            if (retry.tokens.total_tokens > 0) {
-              await acumularTokens(lic.id, retry.tokens);
-            }
-            respuesta = { tipo: 'respuesta', texto: retry.texto };
-            tokens.prompt_tokens += retry.tokens.prompt_tokens;
-            tokens.completion_tokens += retry.tokens.completion_tokens;
-            tokens.total_tokens += retry.tokens.total_tokens;
-            tokens.cached_tokens += retry.tokens.cached_tokens;
-          } else {
-            // El reintento no corrigió: fallback determinista (quita el JSON
-            // suelto y anexa el camino manual) en vez de dejar la promesa rota.
-            const saneado = aplicarFallbackManual(respuesta!.texto);
-            if (saneado !== respuesta!.texto) {
-              console.warn('[Binny-guardian] fallback manual aplicado en preguntar');
-              respuesta = { tipo: 'respuesta', texto: saneado };
-            }
-          }
-        } catch (e) {
-          console.warn('[Binny-guardian] falló el reintento:', e);
-        }
-      }
     }
     return { ...respuesta!, tokens, uso };
   }
@@ -1657,29 +1127,6 @@ export class ChatService {
 
     if (respuesta.tipo === 'respuesta') {
       auditarTextoFinal('resultado', respuesta.texto);
-      if (prometeSinTarjeta(respuesta.texto) || jsonSueltoEntidad(respuesta.texto)) {
-        console.warn('[Binny-guardian] promesa sin tarjeta o JSON suelto en resultado, reintentando una vez');
-        try {
-          const retry = await reintentarTarjetaFaltante(mensajes, respuesta.texto, env.LLM_MODEL);
-          if (retry) {
-            if (retry.tokens.total_tokens > 0) {
-              await acumularTokens(lic.id, retry.tokens);
-            }
-            tokens.prompt_tokens += retry.tokens.prompt_tokens;
-            tokens.completion_tokens += retry.tokens.completion_tokens;
-            tokens.total_tokens += retry.tokens.total_tokens;
-            tokens.cached_tokens += retry.tokens.cached_tokens;
-            return { tipo: 'respuesta', texto: retry.texto, tokens };
-          }
-          const saneado = aplicarFallbackManual(respuesta.texto);
-          if (saneado !== respuesta.texto) {
-            console.warn('[Binny-guardian] fallback manual aplicado en resultado');
-            return { tipo: 'respuesta', texto: saneado, tokens };
-          }
-        } catch (e) {
-          console.warn('[Binny-guardian] falló el reintento:', e);
-        }
-      }
     }
     return { ...respuesta, tokens };
   }
@@ -1835,7 +1282,7 @@ Reglas estrictas:
     const uso = usoCheck!;
 
     const mensajes: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
-      { role: 'system', content: construirPromptSistema('fase1', data.contexto) },
+      { role: 'system', content: construirPromptSistema('fase1', data.contexto, data.pregunta) },
       { role: 'system', content: mensajeCuotaSistema(uso) },
     ];
 
@@ -1899,42 +1346,8 @@ Reglas estrictas:
         }
       } else if (evento.type === 'done') {
         tokensFinales = evento.tokens ?? tokensFinales;
-        // Guardián anti-tarjeta-fantasma (Etapa 1 también en streaming): si el
-        // texto promete una tarjeta sin su bloque, reintentar UNA vez con
-        // feedback y reemitir el texto corregido como evento 'reemplazo' (el
-        // desktop lo persiste en lugar de lo acumulado por chunks).
-        let textoFinal = textoAcumulado;
-        if (prometeSinTarjeta(textoAcumulado) || jsonSueltoEntidad(textoAcumulado)) {
-          console.warn('[Binny-guardian] promesa sin tarjeta o JSON suelto en preguntarStream, reintentando una vez');
-          const intento = await auxiliarConReintento('guardián anti-tarjeta en preguntarStream', () =>
-            reintentarTarjetaFaltante(mensajes, textoAcumulado, modelo),
-          );
-          if (!intento.ok) {
-            // El guardián no pudo ejecutarse (proveedor caído): se deja pasar el
-            // texto tal cual en vez de romper la respuesta.
-            console.warn('[Binny-guardian] el guardián falló; se deja el texto tal cual en preguntarStream');
-          } else if (intento.valor) {
-            const retry = intento.valor;
-            textoFinal = retry.texto;
-            tokensFinales.prompt_tokens += retry.tokens.prompt_tokens;
-            tokensFinales.completion_tokens += retry.tokens.completion_tokens;
-            tokensFinales.total_tokens += retry.tokens.total_tokens;
-            tokensFinales.cached_tokens += retry.tokens.cached_tokens;
-          } else {
-            const saneado = aplicarFallbackManual(textoAcumulado);
-            if (saneado !== textoAcumulado) {
-              console.warn('[Binny-guardian] fallback manual aplicado en preguntarStream');
-              textoFinal = saneado;
-            } else {
-              console.warn('[Binny-guardian] promesa sin tarjeta persistente en preguntarStream');
-            }
-          }
-        }
-        if (textoFinal !== textoAcumulado) {
-          yield { type: 'reemplazo', texto: textoFinal };
-        }
-        auditarTextoFinal('preguntarStream', textoFinal);
-        yield { type: 'done', texto: textoFinal, tokens: tokensFinales, uso };
+        auditarTextoFinal('preguntarStream', textoAcumulado);
+        yield { type: 'done', texto: textoAcumulado, tokens: tokensFinales, uso };
       } else if (evento.type === 'error') {
         yield { type: 'error', texto: evento.texto };
       }
@@ -1967,7 +1380,7 @@ Reglas estrictas:
     const uso = usoCheck!;
 
     const mensajes: AgenteMessage[] = [
-      { role: 'system', content: construirPromptSistema('agente', data.contexto) },
+      { role: 'system', content: construirPromptSistema('agente', data.contexto, data.pregunta) },
       { role: 'system', content: mensajeCuotaSistema(uso) },
     ];
 
@@ -2004,7 +1417,7 @@ Reglas estrictas:
     // El mensaje del sistema se reconstruye acá con el contexto fresco;
     // el desktop solo reenvía pregunta + tool_calls + resultados.
     const mensajes: AgenteMessage[] = [
-      { role: 'system', content: construirPromptSistema('agente', data.contexto) },
+      { role: 'system', content: construirPromptSistema('agente', data.contexto, primerMensajeUsuario(historialRecortado)) },
       { role: 'system', content: mensajeCuotaSistema(uso) },
       ...historialRecortado.map((m) => ({
         role: m.role,
@@ -2094,62 +1507,10 @@ Reglas estrictas:
             };
           }
         } else {
-          // Guard de entidad (anti improvisación): si el usuario pidió crear
-          // una entidad prohibida (combo, cliente, promoción, compra) y el
-          // modelo emite un tool call de alta, NO se reenvía al desktop: se
-          // fuerza una respuesta final con el camino manual. Sin esto, el
-          // modelo improvisa con crear_producto y el daño llega al usuario.
-          // Se escanean TODOS los mensajes de usuario del ciclo: en varios
-          // turnos el intento queda en un turno anterior al de la tarjeta.
-          const textoUsuarios = mensajes
-            .filter((m) => m.role === 'user' && m.content.trim().length > 0)
-            .map((m) => m.content)
-            .join('\n');
-          const desvio = desvioEntidadProhibida(evento.tool_calls, textoUsuarios);
-          if (desvio) {
-            console.warn(`[Agente] alta bloqueada: intento de ${desvio.entidad} vía ${desvio.tool}; respuesta manual`);
-            mensajes.push({
-              role: 'user',
-              content:
-                `BLOQUEO DEL SISTEMA: intentaste invocar "${desvio.tool}" cuando el comerciante pidió un/a ${desvio.entidad}. Eso está PROHIBIDO: no existe tarjeta para ${desvio.entidad} y JAMÁS uses otra tarjeta en su lugar. Respondé AHORA en texto plano explicando que se hace en ${desvio.camino}, guiándolo paso a paso. PROHIBIDO emitir herramientas o JSON.`,
-            });
-            let cerroBloqueo = false;
-            for await (const ev3 of llamarLLMAgenteStream(mensajes, HERRAMIENTAS_AGENTE, {
-              sinHerramientas: true,
-              model: modelo,
-            })) {
-              if (ev3.type === 'chunk' && ev3.texto) {
-                yield { type: 'chunk', texto: ev3.texto };
-              } else if (ev3.type === 'done') {
-                tokensFinales = ev3.tokens ?? tokensFinales;
-                auditarTextoFinal('agente-bloqueo-entidad', ev3.texto);
-                yield { type: 'done', texto: ev3.texto, tokens: tokensFinales, uso };
-                cerroBloqueo = true;
-              } else if (ev3.type === 'error') {
-                yield { type: 'error', texto: ev3.texto };
-                cerroBloqueo = true;
-              } else if (ev3.type === 'herramienta') {
-                // Insiste en emitir tools: no se reenvían, se cae al texto
-                // determinista para no dejar el stream mudo.
-                break;
-              }
-            }
-            if (!cerroBloqueo) {
-              console.warn('[Agente] bloqueo de entidad sin texto; camino manual directo');
-              auditarTextoFinal('agente-bloqueo-entidad', '');
-              yield {
-                type: 'done',
-                texto: `Eso se hace en ${desvio.camino}: elegí los datos ahí y confirmalo en la pantalla. Si querés, te ayudo con los datos (precios, stock) antes de que lo cargues.`,
-                tokens: tokensFinales,
-                uso,
-              };
-            }
-          } else {
-            // Se reenvían tal cual: el desktop valida el SQL y ejecuta localmente.
-            // Si el desktop rechaza un tool call, devuelve el error como resultado
-            // role:"tool" y el loop continúa para que el LLM se autocorrija.
-            yield { type: 'herramienta', tool_calls: evento.tool_calls, uso };
-          }
+          // Se reenvían tal cual: el desktop valida el SQL y ejecuta localmente.
+          // Si el desktop rechaza un tool call, devuelve el error como resultado
+          // role:"tool" y el loop continúa para que el LLM se autocorrija.
+          yield { type: 'herramienta', tool_calls: evento.tool_calls, uso };
         }
       } else if (evento.type === 'done') {
         tokensFinales = evento.tokens ?? tokensFinales;
@@ -2157,44 +1518,10 @@ Reglas estrictas:
         // Si el turno derivó el cierre a un reintento interno (memoria), el
         // done final ya se emitió ahí o el turno sigue vía tool: no duplicar.
         let omitirDoneFinal = false;
-        // Guard de entidad sobre fences: el modelo a veces pega la tarjeta
-        // como bloque Markdown en vez de invocar la tool nativa — o inventa
-        // el bloque (crear_combo) — con el mismo daño. Si el usuario pidió
-        // una entidad prohibida y el texto trae fences problemáticos (alta o
-        // inventados; chart/whatsapp se respetan), se reintenta con nudge
-        // específico y si persiste se quitan los fences por código.
         const textoUsuariosDone = mensajes
           .filter((m) => m.role === 'user' && m.content.trim().length > 0)
           .map((m) => m.content)
           .join('\n');
-        const entidadFence = intentoEntidadProhibida(textoUsuariosDone);
-        const fencesMal = entidadFence ? fencesEntidadBloqueada(textoFinal) : [];
-        if (entidadFence && fencesMal.length > 0) {
-          console.warn(
-            `[Binny-guardian] fence bloqueado para entidad prohibida (${entidadFence}: ${fencesMal.join(',')}), reintentando`,
-          );
-          // Paso auxiliar a prueba de fallos: tanto un reintento que no corrige
-          // como un fallo del proveedor caen al saneo determinista por código,
-          // que nunca muestra una tarjeta inventada.
-          const base: ChatMessage[] = mensajes
-            .filter((m) => m.role === 'system' || m.role === 'user' || (m.role === 'assistant' && !m.tool_calls))
-            .map((m) => ({ role: m.role as 'system' | 'user' | 'assistant', content: m.content }));
-          const camino = CAMINO_ENTIDAD_PROHIBIDA[entidadFence] ?? 'la pantalla correspondiente del sistema';
-          const intento = await auxiliarConReintento('reintento de entidad bloqueada', () =>
-            reintentarEntidadBloqueada(base, textoFinal, entidadFence, camino, modelo),
-          );
-          if (intento.ok && intento.valor) {
-            const retry = intento.valor;
-            textoFinal = retry.texto;
-            tokensFinales.prompt_tokens += retry.tokens.prompt_tokens;
-            tokensFinales.completion_tokens += retry.tokens.completion_tokens;
-            tokensFinales.total_tokens += retry.tokens.total_tokens;
-            tokensFinales.cached_tokens += retry.tokens.cached_tokens;
-          } else {
-            console.warn('[Binny-guardian] fence bloqueado persistente; quitando por código');
-            textoFinal = quitarFencesBloqueados(textoFinal, entidadFence, fencesMal);
-          }
-        }
         // Memoria automática (Ítem 1): si el usuario contó un dato estable y
         // en este turno NO se invocó guardar_memoria, un "Lo anoté" del texto
         // sería una promesa vacía. Se pide UNA vez más con tools habilitadas;
@@ -2248,35 +1575,6 @@ Reglas estrictas:
             }
           } catch (error) {
             console.error('[Binny-memoria] falló el paso auxiliar de memoria:', error);
-          }
-        }
-        if (!omitirDoneFinal && (prometeSinTarjeta(textoFinal) || jsonSueltoEntidad(textoFinal))) {
-          console.warn('[Binny-guardian] promesa sin tarjeta o JSON suelto en agente, reintentando una vez');
-          // Solo mensajes de texto: los tool_calls sin tools confundirían al reintento.
-          const base: ChatMessage[] = mensajes
-            .filter((m) => m.role === 'system' || m.role === 'user' || (m.role === 'assistant' && !m.tool_calls))
-            .map((m) => ({ role: m.role as 'system' | 'user' | 'assistant', content: m.content }));
-          const intento = await auxiliarConReintento('guardián anti-tarjeta en agente', () =>
-            reintentarTarjetaFaltante(base, textoFinal, modelo),
-          );
-          if (!intento.ok) {
-            // El guardián no pudo ejecutarse (proveedor caído): se deja pasar el
-            // texto tal cual en vez de romper la respuesta.
-            console.warn('[Binny-guardian] el guardián falló; se deja el texto tal cual en agente');
-          } else if (intento.valor) {
-            const retry = intento.valor;
-            textoFinal = retry.texto;
-            tokensFinales.prompt_tokens += retry.tokens.prompt_tokens;
-            tokensFinales.completion_tokens += retry.tokens.completion_tokens;
-            tokensFinales.total_tokens += retry.tokens.total_tokens;
-            tokensFinales.cached_tokens += retry.tokens.cached_tokens;
-          } else {
-            console.warn('[Binny-auditoria] promesa sin tarjeta persistente en agente');
-            const saneado = aplicarFallbackManual(textoFinal);
-            if (saneado !== textoFinal) {
-              console.warn('[Binny-guardian] fallback manual aplicado en agente');
-              textoFinal = saneado;
-            }
           }
         }
         if (!omitirDoneFinal) {
@@ -2395,156 +1693,25 @@ export const HERRAMIENTAS_AGENTE: AgenteToolDef[] = [
   {
     type: 'function',
     function: {
-      name: 'crear_producto',
-      description:
-        'Muestra al comerciante una tarjeta interactiva para dar de alta un producto, con los datos ya cargados para confirmar en 1 clic. Usala SOLO cuando tengas los datos esenciales (nombre; costo/venta; stock). JAMÁS para proveedores, clientes u otra cosa. NUNCA la uses para un combo, cliente, promoción o compra: esas entidades NO tienen tarjeta y se gestionan desde sus propias pantallas (ej: un combo se arma en Combos > Nuevo Combo).',
-      parameters: {
-        type: 'object',
-        properties: {
-          nombre: { type: 'string' },
-          codigo_interno: { type: 'string' },
-          codigo_barras: { type: 'string' },
-          precio_costo: { type: 'number' },
-          precio_venta: { type: 'number' },
-          cantidad: { type: 'number', description: 'Stock inicial en unidades.' },
-          stock_minimo: { type: 'number' },
-          unidad_id: { type: 'number', description: 'Por defecto 1 (Unidades).' },
-          marca_id: { type: 'number' },
-          categoria_ids: { type: 'array', items: { type: 'number' } },
-          permitir_sin_stock: { type: 'boolean' },
-          alicuota_iva_id: { type: 'number' },
-          presentaciones: {
-            type: 'array',
-            items: {
-              type: 'object',
-              properties: {
-                nombre: { type: 'string' },
-                factor_conversion: { type: 'number' },
-              },
-              required: ['nombre', 'factor_conversion'],
-            },
-          },
-        },
-        required: ['nombre'],
-        additionalProperties: false,
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'crear_proveedor',
-      description:
-        'Muestra al comerciante una tarjeta interactiva para dar de alta un proveedor o distribuidor, con los datos ya cargados para confirmar en 1 clic. El nombre es lo único obligatorio. JAMÁS para clientes ni productos.',
-      parameters: {
-        type: 'object',
-        properties: {
-          nombre: { type: 'string' },
-          telefono: { type: 'string' },
-          email: { type: 'string' },
-          direccion: { type: 'string' },
-          nota: { type: 'string' },
-        },
-        required: ['nombre'],
-        additionalProperties: false,
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'crear_recordatorio',
-      description:
-        'Muestra al comerciante una tarjeta interactiva para programar un aviso con fecha, hora y sonido, lista para confirmar en 1 clic.',
-      parameters: {
-        type: 'object',
-        properties: {
-          titulo: { type: 'string' },
-          descripcion: { type: 'string' },
-          fecha: { type: 'string', description: 'Formato YYYY-MM-DD.' },
-          hora: { type: 'string', description: 'Formato HH:mm (24h).' },
-          sonido: { type: 'string', description: 'sound_01 a sound_05, o ninguno.' },
-        },
-        required: ['titulo', 'fecha', 'hora'],
-        additionalProperties: false,
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'crear_gasto',
-      description:
-        'Muestra al comerciante una tarjeta interactiva para registrar un gasto (inmediato o programado), con los datos ya cargados para confirmar en 1 clic.',
-      parameters: {
-        type: 'object',
-        properties: {
-          concepto: { type: 'string' },
-          monto: { type: 'number' },
-          categoria_nombre: { type: 'string' },
-          metodo_pago: { type: 'string', description: 'efectivo, transferencia, debito, credito, cheque u otro.' },
-          comprobante: { type: 'string' },
-          nota: { type: 'string' },
-          es_programado: { type: 'boolean' },
-          tipo: { type: 'string', description: 'unica_vez o recurrente (solo si es programado).' },
-          frecuencia: { type: 'string', description: 'diario, semanal, quincenal, mensual o anual.' },
-          auto_generar: { type: 'boolean', description: 'true si es monto fijo automático.' },
-        },
-        required: ['concepto', 'monto'],
-        additionalProperties: false,
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'cambiar_modulo',
-      description:
-        'Muestra al comerciante una tarjeta para activar o desactivar módulos del sistema de inmediato. Usala SOLO cuando lo pida explícitamente.',
-      parameters: {
-        type: 'object',
-        properties: {
-          cambios: {
-            type: 'array',
-            items: {
-              type: 'object',
-              properties: {
-                modulo: { type: 'string', description: 'Clave del módulo, ej: usar_gastos.' },
-                activo: { type: 'boolean' },
-                nombre: { type: 'string' },
-                descripcion: { type: 'string' },
-              },
-              required: ['modulo', 'activo'],
-            },
-          },
-        },
-        required: ['cambios'],
-        additionalProperties: false,
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
       name: 'guardar_memoria',
       description:
-        'Guarda un dato estable del negocio (proveedor habitual, rubro, preferencia, horario) para recordarlo en futuras charlas. Si el dato surgió de pasada en la conversación (nadie pidió guardarlo), poné automatico:true: se guarda directo sin tarjeta y avisale con una frase corta ("Lo anoté"). Si el comerciante pidió explícitamente recordar algo, poné automatico:false: se muestra tarjeta para confirmar.',
+        'Guarda un dato estable del negocio (proveedor habitual, rubro, preferencia, horario) para recordarlo en futuras charlas. Si el dato surgió de pasada en la conversación (nadie pidió guardarlo), poné automatico:true: se guarda directo, sin tarjeta, y avisale con una frase corta ("Lo anoté"). Si el comerciante pidió explícitamente recordar algo, poné automatico:false.',
       parameters: {
         type: 'object',
         properties: {
           contenido: { type: 'string' },
           categoria: { type: 'string', description: 'proveedores, preferencias, rubro, clientes u otro.' },
-          automatico: { type: 'boolean', description: 'true = guardar directo sin tarjeta (dato de pasada); false = tarjeta para confirmar (pedido explícito).' },
+          automatico: { type: 'boolean', description: 'true = guardar directo sin tarjeta (dato de pasada); false = pedido explícito.' },
         },
         required: ['contenido'],
         additionalProperties: false,
       },
     },
-    },
-    {
-      type: 'function',
-      function: {
-        name: 'simular_escenario',
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'simular_escenario',
         description:
           'Simula QUÉ PASARÍA si cambia un precio o un costo: calcula con ventas reales de 45 días cuánto cambiaría la facturación (tipo precio) o el margen (tipo costo). Usala SIEMPRE ante preguntas "¿qué pasa si...?", "¿cuánto más facturaría si...?", "¿qué me conviene aumentar?". JAMÁS calcules vos con aritmética mental ni con SQL: invocá la herramienta y narrá su resultado en español simple, mencionando el supuesto de volumen constante.',
         parameters: {

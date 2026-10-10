@@ -396,9 +396,9 @@ const MAX_ARGS_TOOL_BYTES = 16 * 1024; // 16 KB de argumentos por tool call
 export async function* llamarLLMAgenteStream(
   mensajes: AgenteMessage[],
   tools: AgenteToolDef[],
-  opciones: { forzarRespuestaFinal?: boolean; model?: string; sinHerramientas?: boolean; forzarHerramienta?: string } = {},
+  opciones: { forzarRespuestaFinal?: boolean; model?: string; sinHerramientas?: boolean; forzarHerramienta?: string; continuacion?: boolean } = {},
 ): AsyncGenerator<AgenteEvento> {
-  const { forzarRespuestaFinal = false, model = env.LLM_MODEL, sinHerramientas = false, forzarHerramienta } = opciones;
+  const { forzarRespuestaFinal = false, model = env.LLM_MODEL, sinHerramientas = false, forzarHerramienta, continuacion = false } = opciones;
   const ctrl = new AbortController();
 
   try {
@@ -561,6 +561,47 @@ export async function* llamarLLMAgenteStream(
         return;
       }
       yield { type: 'herramienta', tool_calls: completas };
+      return;
+    }
+
+    if (finishReason === 'length' && !continuacion && textoCompleto.trim().length > 0) {
+      // Corte por límite de tokens: el modelo se quedó sin presupuesto a mitad
+      // de la respuesta. Se hace UNA continuación automática pidiendo el resto
+      // y se concatena. Si vuelve a cortarse, se deja el texto como está (la
+      // guarda del desktop se encarga). NO aplica a tool_calls.
+      console.warn('[LLM Agente] finish_reason=length; pidiendo continuación automática');
+      const mensajesContinuacion: AgenteMessage[] = [
+        ...mensajes,
+        { role: 'assistant', content: textoCompleto },
+        { role: 'user', content: 'Seguí exactamente donde quedaste y terminá la respuesta.' },
+      ];
+      let restoTexto = '';
+      for await (const ev of llamarLLMAgenteStream(mensajesContinuacion, tools, {
+        ...opciones,
+        continuacion: true,
+        // La continuación solo completa texto: sin tools no puede volver a
+        // pedir una consulta a mitad de una respuesta ya empezada.
+        sinHerramientas: true,
+      })) {
+        if (ev.type === 'chunk' && ev.texto) {
+          yield { type: 'chunk', texto: ev.texto };
+        } else if (ev.type === 'done') {
+          restoTexto = ev.texto;
+          tokens = {
+            prompt_tokens: tokens.prompt_tokens + ev.tokens.prompt_tokens,
+            completion_tokens: tokens.completion_tokens + ev.tokens.completion_tokens,
+            total_tokens: tokens.total_tokens + ev.tokens.total_tokens,
+            cached_tokens: tokens.cached_tokens + ev.tokens.cached_tokens,
+          };
+        } else if (ev.type === 'herramienta') {
+          yield ev;
+          return;
+        } else if (ev.type === 'error') {
+          yield ev;
+          return;
+        }
+      }
+      yield { type: 'done', texto: textoCompleto + restoTexto, tokens };
       return;
     }
 

@@ -7,9 +7,10 @@
  * del agente: prompt de sistema + function calling + ejecución de la consulta
  * contra una copia de la base.
  *
- * Cada caso declara qué exige la respuesta final, además de las cuatro reglas
- * comunes a TODOS los casos (SQL oculto, sin tecnicismos, con respuesta útil y
- * sugerencias envueltas en ```seguir).
+ * Cada caso declara qué exige la respuesta final, además de las siete reglas
+ * comunes a TODOS los casos (SQL oculto, sin tecnicismos, con respuesta útil,
+ * sugerencias envueltas en ```seguir, respuesta completa sin anuncios, sin
+ * disculpas ni auto-referencias y sin ofrecer hacer lo que ya se pidió).
  *
  * El ejecutor es `scripts/prueba-binny-e2e.mts`. Las funciones de evaluación de
  * acá son PURAS (sin red, sin DB) para poder testearlas y reusarlas.
@@ -35,6 +36,25 @@ export interface ExigenciasE2E {
   seNiega?: boolean;
   /** Si hay 2-4 preguntas sueltas al final, deben ir dentro de ```seguir. */
   sugerenciasEnvueltas?: boolean;
+  /**
+   * El texto útil (sin bloques de código ni ```seguir) NO debe ser un anuncio
+   * sin contenido: prohibido cerrar con `:`, con un título suelto o con una
+   * lista anunciada que nunca se escribe. Misma semántica que la guarda del
+   * desktop (bug real: respuesta cortada que termina en dos puntos).
+   */
+  respuestaCompleta?: boolean;
+  /**
+   * El texto NO debe disculparse ni hablar de su propio proceso o de respuestas
+   * anteriores ("tenés razón", "disculpá", "no debí", "en este turno", …).
+   * Bug real: Binny abrió con "Tienes razón, disculpá. No tenía los datos…".
+   */
+  sinDisculpas?: boolean;
+  /**
+   * El texto NO debe OFRECER hacer algo que el comerciante YA pidió (ej: "¿querés
+   * que te arme la lista?"). NO incluye la repregunta legítima de desambiguación
+   * ("¿Querés que te muestre de hoy, de la semana o del mes?").
+   */
+  sinOfrecerLoPedido?: boolean;
 }
 
 export interface CasoPruebaE2E {
@@ -53,12 +73,24 @@ export interface CasoPruebaE2E {
 // --- Reglas comunes a TODOS los casos ---
 // El caso puede reforzarlas con `exige`, pero nunca relajarlas.
 export const EXIGENCIAS_COMUNES: Required<
-  Pick<ExigenciasE2E, 'sinSql' | 'sinTerminosTecnicos' | 'tieneRespuesta' | 'sugerenciasEnvueltas'>
+  Pick<
+    ExigenciasE2E,
+    | 'sinSql'
+    | 'sinTerminosTecnicos'
+    | 'tieneRespuesta'
+    | 'sugerenciasEnvueltas'
+    | 'respuestaCompleta'
+    | 'sinDisculpas'
+    | 'sinOfrecerLoPedido'
+  >
 > = {
   sinSql: true,
   sinTerminosTecnicos: true,
   tieneRespuesta: true,
   sugerenciasEnvueltas: true,
+  respuestaCompleta: true,
+  sinDisculpas: true,
+  sinOfrecerLoPedido: true,
 };
 
 export const CORPUS_PRUEBA_E2E: CasoPruebaE2E[] = [
@@ -219,6 +251,13 @@ export const CORPUS_PRUEBA_E2E: CasoPruebaE2E[] = [
     exige: { conNumero: true },
   },
   {
+    id: 'var-alertas-hoy',
+    pregunta: '¿Qué alertas importantes tengo que atender hoy?',
+    tipo: 'variada',
+    exige: { conNumero: true },
+    nota: 'Bug real: la respuesta quedó cortada anunciando alertas sin mostrarlas (terminó en dos puntos).',
+  },
+  {
     id: 'var-vencimientos',
     pregunta: '¿Qué productos están por vencer?',
     tipo: 'variada',
@@ -247,6 +286,13 @@ export const CORPUS_PRUEBA_E2E: CasoPruebaE2E[] = [
     pregunta: '¿Qué me conviene reponer?',
     tipo: 'variada',
     exige: {},
+  },
+  {
+    id: 'var-reponer-lista',
+    pregunta: '¿Qué me conviene reponer primero? Armame una lista para pedirle al proveedor',
+    tipo: 'variada',
+    exige: { conNumero: true, tieneRespuesta: true },
+    nota: 'Bug real: Binny se disculpó ("Tienes razón, disculpá… no debí inventar") y ofreció armar la lista que el comerciante YA había pedido, en vez de hacerla.',
   },
   {
     id: 'var-anomalias',
@@ -435,6 +481,35 @@ export function cumpleConNumero(texto: string): boolean {
 }
 
 /**
+ * `respuestaCompleta`: el texto útil (sin bloques de código ni ```seguir) NO
+ * debe ser un ANUNCIO sin contenido. Misma semántica que la guarda del desktop:
+ * prohibido cerrar con dos puntos, con un título suelto o con una lista
+ * anunciada que nunca se escribe. Bug real: la respuesta quedó cortada en
+ * "### 1. Las 2 alertas críticas de hoy\n\nConsulté ... para confirmar:".
+ */
+export function cumpleRespuestaCompleta(texto: string): boolean {
+  const util = quitarBloquesDeCodigo(texto ?? '').replace(/[ \t]+\n/g, '\n').trim();
+  // El vacío lo cubre `tieneRespuesta`; acá solo se juzga la forma del cierre.
+  if (util.length === 0) return true;
+  // Cierre con dos puntos: anuncia algo que nunca se escribe.
+  if (/[:：]\s*$/.test(util)) return false;
+  const lineas = util.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
+  const ultima = lineas[lineas.length - 1] ?? '';
+  // Título suelto al final (heading sin cuerpo debajo).
+  if (/^#{1,6}\s+\S/.test(ultima)) return false;
+  // Marcador de lista suelto ("1.", "2)", "-", "•") sin ítem escrito.
+  if (/^(?:\d+[.)]|[-*•])$/.test(ultima)) return false;
+  // Frase de anuncio que promete enumerar y no enumera ni trae cifras.
+  if (
+    /^(?:estos son|estas son|aqu[ií] (?:est[aá]n|van|ten[eé]s)|a continuaci[oó]n|te (?:muestro|detallo|listo|cuento)|los siguientes|las siguientes|el detalle)\b/i.test(ultima) &&
+    !/[\d$]/.test(ultima)
+  ) {
+    return false;
+  }
+  return true;
+}
+
+/**
  * `repregunta`: el texto es corto (≤220 chars) y termina en pregunta o menciona
  * un período de aclaración explícito (hoy/semana/mes).
  */
@@ -443,6 +518,60 @@ export function cumpleRepregunta(texto: string): boolean {
   if (t.length === 0 || t.length > 220) return false;
   if (t.endsWith('?')) return true;
   return /(hoy|semana|mes|ayer|per[ií]odo|rango|desde|hasta)/i.test(t);
+}
+
+// --- Sin disculpas ni auto-referencias (bug real) ---
+// Binny abrió con "Tienes razón, disculpá. No tenía los datos exactos… no debí
+// inventar cantidades": habló de sí mismo y de respuestas anteriores en lugar de
+// dar el dato. Estas frases se buscan sin acentos y case-insensitive.
+
+const FRASES_DISCULPA = [
+  'tenes razon',
+  'disculp',
+  'perdon',
+  'me equivoque',
+  'no debi',
+  'mi error',
+];
+
+// "en este turno" es AMBIGUO en un POS: "turno" también es el turno de caja.
+// Solo cuenta como auto-referencia al proceso cuando NO está en un contexto de
+// caja/efectivo; si no, marcaría como disculpa respuestas legítimas del $0
+// (ej: "No registraste gastos en este turno, el efectivo en caja es $0,00").
+const RE_EN_ESTE_TURNO = /en este turno/g;
+const CONTEXTO_CAJA =
+  /(caja|efectivo|retiros?|arqueo|cierre|apertura|movimientos?|ventas?|gastos?|cobros?)/;
+
+/** Frases de disculpa / auto-referencia al proceso presentes (vacío = limpio). */
+export function disculpasDetectadas(texto: string): string[] {
+  const n = normalizar(texto ?? '');
+  const halladas = FRASES_DISCULPA.filter((f) => n.includes(f));
+  for (const m of n.matchAll(RE_EN_ESTE_TURNO)) {
+    const idx = m.index ?? 0;
+    const ventana = n.slice(Math.max(0, idx - 80), idx + m[0].length + 30);
+    if (!CONTEXTO_CAJA.test(ventana)) halladas.push('en este turno');
+  }
+  return [...new Set(halladas)];
+}
+
+/** `sinDisculpas`: sin disculpas ni comentarios sobre el proceso o respuestas anteriores. */
+export function cumpleSinDisculpas(texto: string): boolean {
+  return disculpasDetectadas(texto).length === 0;
+}
+
+/**
+ * Oferta de hacer una tarea que el comerciante YA pidió (bug real: ante
+ * "Armame una lista para pedirle al proveedor", Binny respondió "¿Querés que te
+ * genere ahora mismo esa lista?" en lugar de generarla). NO incluye "muestre":
+ * la repregunta legítima de desambiguación usa "¿Querés que te muestre de hoy,
+ * de la semana o del mes?" y no debe marcarse.
+ */
+const RE_OFRECER_LO_PEDIDO =
+  /(?:queres|quieres)\s+que\s+te\s+(?:genere|arme|prepare|haga|calcule|saque|busque)\b/;
+
+/** `sinOfrecerLoPedido`: no ofrece hacer lo que el comerciante ya pidió. */
+export function cumpleSinOfrecerLoPedido(texto: string): boolean {
+  return !RE_OFRECER_LO_PEDIDO.test(normalizar(texto ?? ''));
 }
 
 /** `guiaConPasos`: camino de menú (→ o "Menú") + al menos 2 pasos numerados. */
@@ -524,7 +653,13 @@ export function evaluarCasoE2E(texto: string, caso: CasoPruebaE2E): ResultadoCas
   if (exige.sinTerminosTecnicos && !cumpleSinTerminosTecnicos(texto))
     fallas.push(`usó tecnicismos (${terminosTecnicosDetectados(texto).join(', ') || 'término técnico'})`);
   if (exige.tieneRespuesta && !cumpleTieneRespuesta(texto)) fallas.push('sin respuesta útil');
+  if (exige.respuestaCompleta && !cumpleRespuestaCompleta(texto))
+    fallas.push('respuesta incompleta (anuncio sin contenido o cierre con ":")');
   if (exige.sugerenciasEnvueltas && !cumpleSugerenciasEnvueltas(texto)) fallas.push('sugerencias sueltas (fuera de ```seguir)');
+  if (exige.sinDisculpas && !cumpleSinDisculpas(texto))
+    fallas.push(`se disculpó o habló de su proceso (${disculpasDetectadas(texto).join(', ') || 'disculpa'})`);
+  if (exige.sinOfrecerLoPedido && !cumpleSinOfrecerLoPedido(texto))
+    fallas.push('ofreció hacer algo que el comerciante ya había pedido');
   if (exige.conNumero && !cumpleConNumero(texto)) fallas.push('sin ningún número');
   if (exige.repregunta && !cumpleRepregunta(texto)) fallas.push('no repreguntó (o repreguntó mal)');
   if (exige.guiaConPasos && !cumpleGuiaConPasos(texto)) fallas.push('sin camino de menú/pasos numerados');

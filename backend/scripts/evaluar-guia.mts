@@ -39,6 +39,7 @@ import {
   TERMINOS_TECNICOS_SEGUIR,
   type CasoBinnyEvaluacion,
 } from '../src/features/chat/chat.binny.evaluacion';
+import { cumpleRespuestaCompleta, cumpleSinDisculpas, cumpleSinOfrecerLoPedido } from '../src/features/chat/chat.prueba.e2e';
 import type { ContextoNegocioDTO } from '../src/features/chat/chat.dtos';
 
 const MODO_LLM = process.argv.includes('--llm');
@@ -231,6 +232,10 @@ const EJEMPLO_SEGUIR = [
 /** Regla compartida (reglasComunes) que prohíbe filtrar SQL o código. */
 const REGLA_SIN_SQL = 'PROHIBIDO mostrar SQL o código';
 
+/** Reglas nuevas (reglasComunes): no disculparse y hacer lo pedido sin ofrecerlo. */
+const REGLA_SIN_DISCULPAS = 'Nunca te disculpes ni hables de vos mismo';
+const REGLA_HACER_NO_OFRECER = 'Hacé lo que te piden, no ofrezcas hacerlo';
+
 /** Recordatorio de la sección "Formato de respuesta": tablas con datos, no SQL. */
 const RECORDATORIO_TABLAS = 'NUNCA con la consulta';
 
@@ -312,6 +317,18 @@ function verificarBinnyDeterministico(): Falla[] {
   }
   if (!construirPromptSistema('json', CONTEXTO_BINNY, '¿Vendí productos bajo costo?').includes(RECORDATORIO_TABLAS)) {
     fallas.push({ check: 'prompt:json', detalle: 'Formato de respuesta sin recordatorio de tablas con datos' });
+  }
+
+  // (i) Las reglas anti-disculpa y anti-ofrecimiento viajan en el prompt
+  // compartido (reglasComunes) en TODOS los modos.
+  for (const modo of MODOS) {
+    const prompt = construirPromptSistema(modo, CONTEXTO_BINNY, '¿Qué me conviene reponer primero?');
+    if (!prompt.includes(REGLA_SIN_DISCULPAS)) {
+      fallas.push({ check: `prompt:${modo}`, detalle: `no incluye la regla "${REGLA_SIN_DISCULPAS}"` });
+    }
+    if (!prompt.includes(REGLA_HACER_NO_OFRECER)) {
+      fallas.push({ check: `prompt:${modo}`, detalle: `no incluye la regla "${REGLA_HACER_NO_OFRECER}"` });
+    }
   }
 
   return fallas;
@@ -585,12 +602,14 @@ function puntuarDesambiguacion(caso: CasoBinnyEvaluacion, texto: string): Puntaj
     tn.includes(normalizarMatch(t)),
   );
   const sql = contieneSql(principal);
+  const completa = cumpleRespuestaCompleta(texto);
   const repreguntaOk = caso.espera_repregunta ? hayPregunta : !hayPregunta;
   const pasa =
     !sinRespuesta && repreguntaOk && alguna && faltantes.length === 0 &&
-    tecnicismos.length === 0 && violaciones.length === 0 && sql === null;
+    tecnicismos.length === 0 && violaciones.length === 0 && sql === null && completa;
   const detalle = [
     sinRespuesta ? 'sin-respuesta' : '',
+    !completa ? 'respuesta-incompleta' : '',
     caso.espera_repregunta
       ? hayPregunta ? 'repregunta:ok' : 'repregunta:falta'
       : hayPregunta ? 'repregunta:inesperada' : 'sin-repregunta:ok',
@@ -624,12 +643,14 @@ function puntuarSeguimiento(caso: CasoBinnyEvaluacion, texto: string): PuntajeBi
     normalizarMatch(texto).includes(normalizarMatch(t)),
   );
   const sql = contieneSql(texto);
+  const completa = cumpleRespuestaCompleta(texto);
   const pasa =
     tiene && cantidadOk && largoOk && preguntasOk && sinTecnicos && alFinal &&
-    conRespuesta && !copiaEjemplo && violaciones.length === 0 && sql === null;
+    conRespuesta && !copiaEjemplo && violaciones.length === 0 && sql === null && completa;
   const detalle = [
     tiene ? `bloque:${cantidad}` : 'sin-bloque',
     !conRespuesta ? 'sin-respuesta' : '',
+    !completa ? 'respuesta-incompleta' : '',
     copiaEjemplo ? 'copia-ejemplo' : '',
     tiene && !cantidadOk ? 'cantidad:fuera-de-2-3' : '',
     tiene && cantidadOk && !largoOk ? 'linea:>60' : '',
@@ -659,9 +680,10 @@ function puntuarDatos(caso: CasoBinnyEvaluacion, texto: string): PuntajeBinny {
   );
   const pasa =
     !sinRespuesta && sql === null && alguna && faltantes.length === 0 &&
-    violaciones.length === 0;
+    violaciones.length === 0 && cumpleRespuestaCompleta(texto);
   const detalle = [
     sinRespuesta ? 'sin-respuesta' : '',
+    !cumpleRespuestaCompleta(texto) ? 'respuesta-incompleta' : '',
     sql ? `sql-filtrado: ${sql}` : 'sin-sql:ok',
     !alguna ? 'no-muestra-datos' : 'datos:ok',
     faltantes.length ? `falta: ${faltantes.join(', ')}` : '',
@@ -802,6 +824,84 @@ function verificarSqlScoring(): { fallas: Falla[]; filas: string[] } {
       fallas.push({
         check: `sqlScoring:${caso.id}`,
         detalle: `esperado "${caso.espera}" — ${p.detalle}`,
+      });
+    }
+  }
+  return { fallas, filas };
+}
+
+// --- Verificaciones determinísticas de `cumpleSinDisculpas` / `cumpleSinOfrecerLoPedido` ---
+//
+// Bug real: ante "¿Qué me conviene reponer primero? Armame una lista para pedirle
+// al proveedor", Binny se disculpó ("Tienes razón, disculpá… no debí inventar") y
+// OFRECIÓ armar la lista que el comerciante YA había pedido. Esta tabla fija los
+// criterios ANTES de puntuar al modelo, incluida la repregunta legítima de
+// desambiguación ("¿Querés que te muestre…?"), que NO debe marcarse.
+
+interface CasoDisculpasOfrecimiento {
+  id: string;
+  texto: string;
+  espera: 'pasa' | 'falla';
+}
+
+const CASOS_DISCULPAS_OFRECIMIENTO: CasoDisculpasOfrecimiento[] = [
+  {
+    id: 'respuesta_directa',
+    texto: 'Te conviene reponer primero Coca-Cola 1.5L: 24 unidades.',
+    espera: 'pasa',
+  },
+  {
+    id: 'disculpa_tenes_razon',
+    texto: 'Tienes razón, disculpá. No tenía los datos exactos.',
+    espera: 'falla',
+  },
+  {
+    id: 'disculpa_no_debi',
+    texto: 'Perdoná, no debí inventar cantidades.',
+    espera: 'falla',
+  },
+  {
+    id: 'habla_de_su_turno',
+    texto: 'En este turno no tenía la rotación a mano.',
+    espera: 'falla',
+  },
+  {
+    id: 'turno_de_caja_no_marca',
+    texto: 'No registraste gastos en este turno, así que el efectivo en caja es $0,00.',
+    espera: 'pasa',
+  },
+  {
+    id: 'ofrece_lo_pedido',
+    texto: '¿Querés que te genere ahora mismo esa lista de reposición?',
+    espera: 'falla',
+  },
+  {
+    id: 'ofrece_armar',
+    texto: '¿Quieres que te arme la lista para el proveedor?',
+    espera: 'falla',
+  },
+  {
+    id: 'desambiguacion_legitima',
+    texto: '¿Querés que te muestre de hoy, de la semana o del mes?',
+    espera: 'pasa',
+  },
+];
+
+function verificarDisculpasYOfrecimiento(): { fallas: Falla[]; filas: string[] } {
+  const fallas: Falla[] = [];
+  const filas: string[] = [];
+  for (const caso of CASOS_DISCULPAS_OFRECIMIENTO) {
+    const sinDisculpas = cumpleSinDisculpas(caso.texto);
+    const sinOfrecer = cumpleSinOfrecerLoPedido(caso.texto);
+    const pasa = sinDisculpas && sinOfrecer;
+    const ok = caso.espera === 'pasa' ? pasa : !pasa;
+    filas.push(
+      `| ${caso.id.padEnd(26)} | ${caso.espera.padEnd(6)} | ${(sinDisculpas ? 'ok' : 'disculpa').padEnd(9)} | ${(sinOfrecer ? 'ok' : 'ofrece').padEnd(7)} | ${ok ? '✓' : '✗'} |`,
+    );
+    if (!ok) {
+      fallas.push({
+        check: `disculpasOfrecimiento:${caso.id}`,
+        detalle: `esperado "${caso.espera}" (sinDisculpas=${sinDisculpas}, sinOfrecerLoPedido=${sinOfrecer})`,
       });
     }
   }
@@ -973,6 +1073,7 @@ async function main() {
   const nombres = verificarQuitarNombresInternos();
   const seguir = verificarSeguirScoring();
   const sql = verificarSqlScoring();
+  const disculpas = verificarDisculpasYOfrecimiento();
   const fallas = [
     ...verificarDeterministico(),
     ...verificarBinnyDeterministico(),
@@ -980,6 +1081,7 @@ async function main() {
     ...nombres.fallas,
     ...seguir.fallas,
     ...sql.fallas,
+    ...disculpas.fallas,
   ];
 
   console.log('--- normalizarSeguir: tabla de casos (red determinística) ---');
@@ -1002,9 +1104,14 @@ async function main() {
   console.log('| ------------------------------ | ------ | ------ | -- |');
   for (const fila of sql.filas) console.log(fila);
   console.log('');
+  console.log('--- cumpleSinDisculpas / cumpleSinOfrecerLoPedido: tabla de casos (red anti-disculpa) ---');
+  console.log('| caso                       | espera | disculpa  | ofrece  | ok |');
+  console.log('| -------------------------- | ------ | --------- | ------- | -- |');
+  for (const fila of disculpas.filas) console.log(fila);
+  console.log('');
 
   if (fallas.length === 0) {
-    console.log('✓ Determinístico: recuperación + prompt (sin bloques) + seguir/desambiguación + normalizarSeguir + quitarNombresInternos + puntuarSeguimiento + contieneSql OK');
+    console.log('✓ Determinístico: recuperación + prompt (sin bloques) + seguir/desambiguación + normalizarSeguir + quitarNombresInternos + puntuarSeguimiento + contieneSql + disculpas/ofrecimiento OK');
     for (const modo of MODOS) {
       const p = construirPromptSistema(modo, CONTEXTO, CORPUS_GUIA_EVALUACION[0].pregunta);
       console.log(`  prompt[${modo}] = ${p.length} chars`);

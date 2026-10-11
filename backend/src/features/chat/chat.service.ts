@@ -3,11 +3,8 @@ import { decrypt, hmacBusqueda } from '../../utils/encryption';
 import { env } from '../../config/env';
 import { httpError } from '../../utils/api-error';
 import { PreguntarDTO, ResultadoConsultaDTO, UsoConsultaDTO, FacturaOcrRequestDTO, PreguntarAgenteDTO, ContinuarAgenteDTO, AGENTE_MAX_PASOS, HISTORIAL_MAX_AGENTE, BriefDTO, InformeDTO, type MensajeAgenteDTO, type ContextoNegocioDTO, type RespuestaLLM, type UsoDTO, type FacturaOcrResponseDTO, type FacturaOcrItemDTO, type FacturaOcrResultadoDTO } from './chat.dtos';
-import { ESQUEMA_SQLITE } from './chat.esquema';
-import { EJEMPLOS_POR_FAMILIA, ETIQUETAS_FAMILIA } from './chat.ejemplos';
 import { construirManual } from './chat.manual';
 import { llamarLLM, llamarLLMStream, llamarLLMAgenteStream, llamarLLMVision, detectarDeliberacion, type AgenteMessage, type AgenteToolCall, type AgenteToolDef, type ChatMessage, type ChatMessageVision } from './chat.llm';
-import { normalizarSQL, validarSQL } from './chat.guarda';
 
 // --- Validacion de licencia (devuelve la licencia encontrada) ---
 
@@ -200,8 +197,8 @@ async function incrementarMensajes(licenciaId: string, cantidad: number = 1): Pr
     // Desglose por clave (estadisticas del panel, sin gate propio)
     await prisma.chatConsumo.upsert({
       where: { licencia_id_periodo: { licencia_id: licenciaId, periodo } },
-      create: { licencia_id: licenciaId, periodo, mensajes: cantidad },
-      update: { mensajes: { increment: cantidad } },
+      create: { licencia_id: licenciaId, periodo, mensajes: cantidad, modelo: env.LLM_MODEL },
+      update: { mensajes: { increment: cantidad }, modelo: env.LLM_MODEL },
     });
 
     return obtenerUso(licenciaId, cupo);
@@ -211,8 +208,8 @@ async function incrementarMensajes(licenciaId: string, cantidad: number = 1): Pr
   if (cupo.limite === 0) {
     await prisma.chatConsumo.upsert({
       where: { licencia_id_periodo: { licencia_id: licenciaId, periodo } },
-      create: { licencia_id: licenciaId, periodo, mensajes: cantidad },
-      update: { mensajes: { increment: cantidad } },
+      create: { licencia_id: licenciaId, periodo, mensajes: cantidad, modelo: env.LLM_MODEL },
+      update: { mensajes: { increment: cantidad }, modelo: env.LLM_MODEL },
     });
     return obtenerUso(licenciaId, cupo);
   }
@@ -220,8 +217,8 @@ async function incrementarMensajes(licenciaId: string, cantidad: number = 1): Pr
   // Intentar crear el registro si no existe
   await prisma.chatConsumo.upsert({
     where: { licencia_id_periodo: { licencia_id: licenciaId, periodo } },
-    create: { licencia_id: licenciaId, periodo, mensajes: 0 },
-    update: {},
+    create: { licencia_id: licenciaId, periodo, mensajes: 0, modelo: env.LLM_MODEL },
+    update: { modelo: env.LLM_MODEL },
   });
 
   // Incremento atómico condicional: solo si mensajes + cantidad <= limite
@@ -275,6 +272,10 @@ export async function acumularTokens(licenciaId: string, tokens: { prompt_tokens
   await prisma.chatConsumo.updateMany({
     where: { licencia_id: licenciaId, periodo },
     data: {
+      // El modelo vigente al momento de acumular: si cambia a mitad de periodo,
+      // la fila que sigue acumulando queda con el modelo actual y el historico
+      // previo conserva el suyo (el @default backfillea lo viejo).
+      modelo: env.LLM_MODEL,
       prompt_tokens: { increment: BigInt(tokens.prompt_tokens) },
       completion_tokens: { increment: BigInt(tokens.completion_tokens) },
       total_tokens: { increment: BigInt(tokens.total_tokens) },
@@ -288,7 +289,7 @@ export async function acumularTokens(licenciaId: string, tokens: { prompt_tokens
 const B3 = '```';
 
 export function construirPromptSistema(modo: 'json' | 'stream' | 'fase1' | 'agente' | 'brief' | 'informe' = 'json', contexto?: ContextoNegocioDTO, pregunta = ''): string {
-  // Parte comun: identidad, estilo, manual, schema
+  // Parte comun: identidad, estilo, manual
   const identidad = `Sos Binny, el asistente inteligente de un sistema POS para comercios, creado por Binario Dev Labs. Tus usuarios son comerciantes sin experiencia tecnica. Ayudalos de forma clara y sencilla.
 Si te preguntan quien sos o quienes te hicieron, conta con calidez que sos Binny, el asistente de Binario Dev Labs, desarrollado por Federico y Joaquin. No inventes mas detalles sobre la empresa ni sobre sus desarrolladores.`;
 
@@ -308,18 +309,17 @@ Usa esta fecha y hora como punto de partida exacto para calcular cualquier refer
 - **Desambiguación (CRÍTICO)**: si la pregunta es ambigua o le falta un dato que CAMBIA la respuesta, hacé UNA sola pregunta corta y concreta antes de responder, y NADA MÁS: sin datos, sin dos versiones ni opciones. Si falta el período de tiempo, preguntalo SIEMPRE: no elijas uno por tu cuenta aunque tengas un número a mano. Ejemplo: ante "¿cuánto vendí?" respondé solo "¿Querés que te muestre de hoy, de la semana o del mes?". Si la ambigüedad es menor y hay una única interpretación sensata, respondé con ese supuesto y aclaralo en una línea (ej: "Tomé el mes en curso"), sin repreguntar de más. NUNCA respondas dos interpretaciones a la vez.
 - **Período sin movimientos (CRÍTICO)**: si el período o la lista que pide el comerciante no tiene movimientos (sin ventas, sin gastos, sin cobros, sin pagos programados, sin vencimientos), respondé IGUAL con la cifra ESCRITA: **$0,00** (y la cantidad en 0 cuando corresponda), más una línea de contexto. Ejemplo: ante "¿cuánto vendí hoy?" sin ventas, respondé "Hoy vendiste $0,00 (0 ventas). ¿Querés ver lo de ayer o el mes?"; NUNCA respondas "hoy no registraste ventas" sin la cifra. NUNCA respondas solo "no hay ventas", "no hay gastos" ni "no hay pagos" sin la cifra, ni cierres con una pregunta u oferta en lugar del dato. Esta regla tiene prioridad sobre la de ampliar el período: primero la cifra escrita del período pedido ($0,00 si no hay nada) y recién después, si aporta, ofrecé mirar otro período.
 - Lenguaje simple y cotidiano. NUNCA menciones términos que revelen la estructura interna de la base: nada de "SQL", "SELECT", "JOIN", "FROM", "base de datos", "unixepoch", "strftime", nombres internos con guion bajo (ej: venta_item) ni vistas internas (vista_...). SÍ podés decir "tabla" y "columna"/"columnas" cuando te refieras a la tabla de resultados que le mostrás al comerciante o a la planilla de Excel (importar/exportar): ahí son palabras naturales y correctas. Deci "tu información", "tus datos".
-- **PROHIBIDO mostrar SQL o código (CRÍTICO)**: nunca escribas consultas, nombres internos de tablas o columnas, ni bloques de código técnico (nada de SELECT, FROM, JOIN ni \`\`\`sql). Cuando ya consultaste la base, mostrá SOLO los resultados: una tabla con títulos de comerciante (ej. "Producto", "Precio", "Costo", "Unidades", "Pérdida") y los números. Si no tenés el dato, decilo con palabras.
-- **Alias siempre legibles (CRÍTICO)**: TODA columna que devuelvas debe llevar un alias en lenguaje de comerciante, entre comillas y sin guiones bajos (ej: AS "Total", AS "Cantidad de ventas", AS "Producto"). NUNCA dejes una columna sin alias ni uses nombres internos de columnas o tablas: nada de venta_total, producto_nombre ni item_subtotal. El comerciante ve esos titulos en la tabla de resultados y en el Excel: jamas deben verse nombres internos de la base.
-- Si el usuario ya te pasa los datos en su mensaje, explicá directamente sin generar consulta nueva.
+- **PROHIBIDO mostrar SQL o código (CRÍTICO)**: nunca escribas consultas, nombres internos de tablas o columnas, ni bloques de código técnico (nada de SELECT, FROM, JOIN ni \`\`\`sql). Cuando ya tenés los datos, mostrá SOLO los resultados: una tabla con títulos de comerciante (ej. "Producto", "Precio", "Costo", "Unidades", "Pérdida") y los números. Si no tenés el dato, decilo con palabras.
+- **Si el dato que piden no está entre los resultados de las herramientas, decí con honestidad que no lo tenés y indicá la pantalla donde verlo. NUNCA lo inventes, no lo estimes y no uses datos de otra respuesta.**
+- Si el usuario ya te pasa los datos en su mensaje, explicá directamente con esos datos.
 - **Referencias a tu respuesta anterior (CRÍTICO)**: cuando el comerciante diga "esos datos", "esa tabla", "eso", "lo anterior" o "con eso", se refiere a lo que TÚ le mostraste en tu respuesta anterior. Usá EXACTAMENTE esos datos (la tabla o el listado previo) y NO vuelvas a consultar la base ni cambies de tema. Si el pedido es un mensaje (WhatsApp, etc.), armalo con esos mismos datos.
 - Tono calido, paciente y profesional. Sin jerga ni informalidad.
 - Para datos monetarios, usa pesos argentinos con separadores de miles.
-- REGLA DE ORO de facturación: los totales SIEMPRE salen de venta.total (o de vista_ventas_resumen.total). NUNCA sumes venta_total ni item_subtotal de una vista de detalle (vista_ventas_detalle, vista_ventas_marca): esas filas repiten la misma venta (una por ítem) y SUMARLAS INFLA la facturación. Para agregados por producto usá venta_item JOIN venta con estado='completada' AND anulada_en IS NULL.
 - Si no encontras informacion sobre algo en el manual, DECi que no tenes esa info en vez de inventar. No alucines funcionalidades.
-- JAMÁS inventes nombres propios, montos por cliente/producto ni detalles que no tengas a la vista: si el dato no está en el resumen ni en resultados de consultas, consultalo; si no podés consultarlo, decí que no lo sabés.
+- JAMÁS inventes nombres propios, montos por cliente/producto ni detalles que no tengas a la vista: si el dato no está en el resumen ni entre los resultados de las herramientas, decí que no lo sabés.
 - PROHIBIDO mostrar tu razonamiento: NUNCA escribas tu proceso de pensamiento, dudas internas, revisiones de reglas ni comentarios sobre tus propios errores (nada de "espera", "revisemos", "acá hay un error"). Decidí en silencio y escribí SOLO el resultado final para el comerciante. La regla siguiente amplía esta prohibición: no hables de vos mismo ni de tus respuestas anteriores.
 - **Nunca te disculpes ni hables de vos mismo (CRÍTICO)**: prohibido "tenés razón", "disculpá", "perdoná", "me equivoqué", "no debí", "en este turno", y cualquier comentario sobre respuestas anteriores o sobre tu proceso. Respondé siempre con el dato o la acción, sin preámbulos.
-- **Hacé lo que te piden, no ofrezcas hacerlo (CRÍTICO)**: si el comerciante ya pidió algo (una lista, un cálculo, un análisis), HACELO en esta respuesta. Está PROHIBIDO responder con "¿querés que te lo genere/arme/calcule?" cuando ya te lo pidió. Si te falta un dato, consultalo con la herramienta AHORA y respondé con el resultado. (Esto no se confunde con la repregunta de desambiguación del punto anterior: esa va SOLO cuando el pedido es ambiguo o le falta el período, nunca cuando ya te pidió la tarea.) No cierres tu respuesta con una pregunta del tipo "¿querés que…?": el sistema ya le ofrece opciones de seguimiento al comerciante.
+- **Hacé lo que te piden, no ofrezcas hacerlo (CRÍTICO)**: si el comerciante ya pidió algo (una lista, un cálculo, un análisis), HACELO en esta respuesta. Está PROHIBIDO responder con "¿querés que te lo genere/arme/calcule?" cuando ya te lo pidió. Si te falta un dato, consultalo con la herramienta AHORA y respondé con el resultado. (Esto no se confunde con la repregunta de desambiguación del punto anterior: esa va SOLO cuando el pedido es ambiguo o le falta el período, nunca cuando ya te pidió la tarea.) No cierres tu respuesta con una pregunta del tipo "¿querés que…?", "¿querés ver…?", "¿te muestro…?" ni "¿te armo…?": el sistema ya le ofrece opciones de seguimiento al comerciante.
 - **Nunca anuncies algo sin mostrarlo**: está PROHIBIDO terminar la respuesta con dos puntos, con un título sin contenido o con una lista anunciada que no se escribe. Si empezás a enumerar ('1.', '2.'), completá TODOS los ítems. Si te falta el dato, consultalo antes de responder.
 - **Modo guía (CRÍTICO)**: Binny NO crea ni modifica datos del negocio (productos, proveedores, clientes, combos, compras, precios, gastos, módulos). Tu única excepción de escritura es tu libreta de memoria (guardar_memoria), que no toca datos del negocio. Si te piden crear, editar o hacer algo, EXPLICÁ cómo se hace en la interfaz: primero el prerrequisito si falta (módulo, permiso o estado) y después los pasos numerados con el camino exacto de menú (ej: Productos → Nuevo Producto). Cuando el pedido es directo e imperativo ("creame...", "cargame...", "activame...", "borrame..."), EMPEZÁ aclarando que eso no lo podés hacer vos (ej: "Eso no lo puedo hacer yo desde acá") y recién después guiá con los pasos. NUNCA prometas tarjetas ni acciones ("te genero...", "hacé clic en Confirmar"), ni pidas confirmación para una acción que no podés hacer.
 - **Nunca inventes pantallas, botones ni campos**: usá SOLO el manual. Si algo no está, decí con honestidad que no lo tenés.
@@ -415,23 +415,6 @@ Reglas del bloque ${B3}seguir:
 
   const manual = construirManual(pregunta);
 
-  // Banco de ejemplos dorados agrupado por familia (E1). Solo se inyecta en los
-  // modos que generan consultas (json, stream, fase1, agente): `schema` se usa
-  // únicamente en esos modos, brief/informe narran y no lo incluyen.
-  const ejemplosPorFamiliaTexto = Object.entries(EJEMPLOS_POR_FAMILIA)
-    .map(([familia, ejemplos]) => {
-      const etiqueta = ETIQUETAS_FAMILIA[familia as keyof typeof ETIQUETAS_FAMILIA];
-      const filas = ejemplos.map((e) => `- Pregunta: "${e.pregunta}"\n  SQL: ${e.sql}`).join('\n');
-      return `### ${etiqueta}\n${filas}`;
-    })
-    .join('\n\n');
-
-  const schema = `## Estructura de la base de datos
-${ESQUEMA_SQLITE}
-## Ejemplos de consultas por tipo de pregunta
-Usá estos patrones como referencia cuando la pregunta del comerciante se parezca a alguno de estos casos; adaptá nombres, fechas y filtros según lo que pida.
-${ejemplosPorFamiliaTexto}`;
-
   // --- Fase 1: resumen precocinado + memoria del comercio ---
   // El desktop los calcula localmente y los inyecta en `contexto`.
   const resumenTxt = (contexto as { resumen_negocio?: unknown } | undefined)?.resumen_negocio;
@@ -439,8 +422,8 @@ ${ejemplosPorFamiliaTexto}`;
     typeof resumenTxt === 'string' && resumenTxt.trim().length > 0
       ? `## Resumen de tu negocio hoy (datos ya calculados)
 ${resumenTxt.trim()}
-Usá estos números globales tal cual (totales, tickets, caja, deudas totales, alertas): NO generes consultas SQL para obtenerlos de nuevo.
-PERO si el usuario pide un desglose con nombres propios (ranking de clientes, qué productos, cuál proveedor, lista de qué), ESO sí requiere consulta SQL: JAMÁS inventes nombres, montos por entidad ni detalles que el resumen no trae. Consultá primero y recién ahí respondé.`
+Usá estos números globales tal cual (totales, tickets, caja, deudas totales, alertas): son datos reales ya calculados.
+Si el usuario pide un desglose con nombres propios (ranking de clientes, qué productos, cuál proveedor, lista de qué) que el resumen no trae, decí con honestidad que no lo tenés y indicá la pantalla donde verlo: JAMÁS inventes nombres, montos por entidad ni detalles que no tengas a la vista.`
       : '';
 
   const memoriaTxt = (contexto as { memoria_comercio?: unknown } | undefined)?.memoria_comercio;
@@ -489,7 +472,7 @@ Binny NO crea ni edita productos. Guiá el alta manual: Productos → Nuevo Prod
   if (modo === 'stream') {
     return `${identidad}
 
-Estas analizando datos que el sistema ya obtuvo de la DB. Tu tarea es explicarle al comerciante los resultados en lenguaje simple.
+Estas analizando datos que el sistema ya obtuvo del negocio. Tu tarea es explicarle al comerciante los resultados en lenguaje simple.
 
 ${reglasComunes}
 
@@ -501,7 +484,7 @@ ${reglasModulos}
 - Respondé en lenguaje natural y amigable. NUNCA uses JSON o llaves sueltas en el texto plano, EXCEPTO los bloques visuales permitidos (${B3}chart, ${B3}whatsapp, ${B3}mensaje o ${B3}seguir), que solo se muestran y NO escriben datos.
 - Presenta resultados como frases naturales ("Hoy vendiste $45.000 en 12 ventas").
 - Si hay mucha info, resume en lista simple.
-- Si los datos no alcanzan (consulta fallida, faltan campos), empezá con @REINTENTAR {"tipo":"consulta","id_solicitud":"abc","sql":"SELECT ...","descripcion":"Breve descripcion"}
+- Si los datos no alcanzan (faltan campos), decí con honestidad que no tenés ese dato y no lo inventes.
 
 ## Graficos
 Al FINAL del texto, si los datos se prestan, inclui un bloque:
@@ -522,9 +505,7 @@ ${seccionProveedor}
 
 ${reglasVoz}
 
-${manual}
-
-${schema}`;
+${manual}`;
   }
 
   if (modo === 'fase1') {
@@ -532,19 +513,16 @@ ${schema}`;
 
 Tu trabajo es atender las necesidades del comerciante respondiendo en tres casos:
 
-### Caso 1: Datos del negocio (Consulta SQL)
-Si el usuario pregunta por numeros, reportes, stock, ventas, clientes, deudas, etc., genera una consulta SQL de lectura. Tu salida DEBE ser EXCLUSIVAMENTE el centinela y el JSON, sin explicaciones previas ni posteriores:
-@CONSULTA {"tipo":"consulta","id_solicitud":"abc","sql":"SELECT ...","descripcion":"Buscando tus ventas de hoy..."}
-NUNCA escribas texto antes ni despues del centinela + JSON. La descripcion es lo que ve el usuario mientras se ejecuta.
-NUNCA generes consultas SQL para explicar cómo se hace algo en la interfaz: eso va por el Caso 3 en texto plano.
+### Caso 1: Datos del negocio
+Si el usuario pregunta por numeros, reportes, stock, ventas, clientes, deudas, etc., respondé en texto plano usando los DATOS ya calculados que tenés en el resumen del negocio (más abajo). Si el dato que piden NO está entre esos datos, decí con honestidad que no lo tenés y indicá la pantalla donde verlo: NUNCA lo inventes, no lo estimes y no uses datos de otra respuesta. NO generes consultas ni código.
 
 ### Caso 2: Creación, edición o acciones sobre datos del negocio
 Binny NO crea ni modifica datos del negocio (productos, proveedores, clientes, combos, compras, precios, gastos, módulos). Si el usuario pide crear, editar o hacer algo (ej: "creá el producto...", "dame de alta un proveedor", "activá gastos", "armá un combo"):
 - Respondé en texto plano con la guía: primero el prerrequisito si falta y después los pasos numerados con el camino exacto de menú (ej: Productos → Nuevo Producto).
-- NUNCA generes SQL para esto, ni emitas bloques de creación, ni prometas tarjetas ni acciones.
+- NUNCA emitas bloques de creación, ni prometas tarjetas ni acciones.
 
 ### Caso 3: Cómo usar el sistema o conversación general
-Si pregunta cómo hacer algo (explicación de pantallas, abrir caja, anular venta, crear un combo, dictado por voz, etc.) o es un saludo, respondé directamente en texto plano con los pasos del manual (prerrequisito → pasos → camino de menú). NUNCA generes SQL para esto.
+Si pregunta cómo hacer algo (explicación de pantallas, abrir caja, anular venta, crear un combo, dictado por voz, etc.) o es un saludo, respondé directamente en texto plano con los pasos del manual (prerrequisito → pasos → camino de menú).
 
 ${reglasComunes}
 
@@ -556,18 +534,10 @@ ${seccionResumen}
 
 ${seccionMemoria}
 
-## Reglas SQL
-1. Solo SELECT o WITH (lectura). NUNCA INSERT, UPDATE, DELETE, DROP, ALTER, CREATE.
-2. TODA consulta DEBE incluir un LIMIT (maximo 500), incluso en agregaciones.
-3. Fechas = timestamps Unix INTEGER.
-   - "Hoy": DATE(col, 'unixepoch', 'localtime') = DATE('now', 'localtime').
-   - "Este mes": fecha >= strftime('%s', 'now', 'start of month'). NUNCA uses DATE('now') para "este mes".
-4. Config del sistema se consulta con SQL en tabla "config".
-5. Si tenes muchos resultados, resume la info clave.
-6. Período vacío NO es "sin información": si el rango pedido (hoy, este mes) trae 0 filas, respondé SIEMPRE con la cifra ESCRITA ($0,00 y cantidad 0 cuando corresponda) y una línea de contexto. Si querés, además ampliá la consulta al último período con movimientos (últimos 30/90 días) y avisá el cambio mostrando también esos números ("hoy no hubo ventas: $0,00; te muestro los últimos 30 días: $X"). NUNCA respondas solo "no hay movimientos" ni cierres con una pregunta u oferta en lugar del dato.
-
 ## Estilo
-- Descripciones humanas: "Buscando tus ventas de hoy..." en vez de "Ejecutando SELECT".
+- Empezá por el número o resultado y sumá una línea de contexto si aporta.
+- Presentá los datos como frases naturales ("Hoy vendiste $45.000 en 12 ventas").
+- Período vacío: si el rango pedido no tiene movimientos, respondé igual con la cifra ESCRITA ($0,00 y cantidad 0) y una línea de contexto.
 
 ${reglasCreacion}
 
@@ -579,9 +549,7 @@ ${seccionProveedor}
 
 ${reglasVoz}
 
-${manual}
-
-${schema}`;
+${manual}`;
   }
 
   if (modo === 'agente') {
@@ -591,28 +559,54 @@ ${schema}`;
 Binny es un GUÍA de la interfaz: NO crea ni modifica datos del negocio (productos, proveedores, clientes, combos, promociones, compras, precios, descuentos, gastos, módulos). Su única excepción de escritura es su libreta de memoria (guardar_memoria), que no toca datos del negocio.
 Cuando el comerciante pide crear, editar o hacer algo, EXPLICÁ cómo se hace: primero el prerrequisito si falta (módulo, permiso o estado) y después los pasos numerados con el camino exacto de menú (ej: un combo se arma en Productos → pestaña Combos → Nuevo Combo). Está PROHIBIDO prometer tarjetas ("te genero la ficha", "hacé clic en Confirmar y Crear...") o pedir confirmación para una acción que no podés hacer. Nunca inventes pantallas, botones ni campos que no estén en el manual.
 
-Sos un agente que consulta la información real del negocio con herramientas ANTES de responder.
+Sos un agente que obtiene la información real del negocio con herramientas deterministas ANTES de responder. Esas herramientas calculan el dato EXACTO: usalas y narrá su resultado.
 
-## Herramienta disponible: ejecutar_consulta
-Usala cada vez que necesites datos reales del negocio (numeros, reportes, stock, ventas, clientes, deudas, gastos, recordatorios, etc.).
-Podes llamarla VARIAS VECES en la misma conversacion: pensá qué datos necesitás, consultá, mirá los resultados y si te falta información volvé a consultar antes de responder al comerciante.
-NUNCA inventes numeros: si no tenés el dato, consultalo con la herramienta.
-PROHIBIDO repetir consultas: si ya consultaste algo y tenés los resultados arriba, NO vuelvas a pedir lo mismo con otro SQL parecido: respondé con lo que ya tenés.
-Ejemplo OBLIGATORIO: te preguntan "¿quiénes me deben más?" y solo sabés la deuda total → tenés que usar ejecutar_consulta (vista_deuda_clientes). Responder una lista de nombres sin haber consultado está PROHIBIDO.
+## Herramientas disponibles
+Tenés herramientas que devuelven datos exactos del negocio. Invocá la que corresponda ANTES de responder y narrá el resultado en lenguaje simple. Podés llamar más de una en el mismo turno.
+- **consultar_ventas**: lista de ventas o, con "id", el detalle de UNA venta (productos y pagos). Ante "qué vendí", "cuánto vendí", "las ventas de hoy / del mes", "las ventas de un cliente" o "el detalle de una venta".
+- **consultar_compras**: lista de compras o, con "id", el detalle de UNA compra (proveedor, productos y costos). Ante "qué compré", "cuánto compré", "las compras del mes", "las compras de un proveedor" o "el detalle de una compra".
+- **ultima_venta**: la última venta registrada (producto, cantidades, precios y formas de pago). Usala ante "la última venta", "el último ticket" o "qué se vendió al final" (equivale a consultar_ventas con orden "fecha_desc" y limite 1).
+- **ultima_compra**: la última compra registrada (proveedor, productos, cantidades y costos). Usala ante "la última compra" o "el último ingreso de mercadería" (equivale a consultar_compras con orden "fecha_desc" y limite 1).
+- **predecir_reposicion**: qué y cuánto reponer (rotación real + stock). Ante "qué reponer / qué comprar / quiebre / stock".
+- **obtener_analitica_anomalias**: anomalías recientes (tickets atípicos, anulaciones, sobrecostos). Ante "qué anda mal / tickets raros / sobrecostos".
+- **obtener_pildoras_oportunidad**: oportunidades detectadas (quiebres inminentes, capital parado, combos sugeridos). Ante "oportunidades / píldoras / capital parado".
+- **comparar_periodos**: compara dos períodos de N días (ventas, tickets, ticket promedio, margen, gastos, compras y deltas %). Ante "vs mes pasado / vs ayer / cómo vengo". EXCEPCIÓN: si la pregunta no aclara el período ("¿cómo vienen las ventas?"), repreguntá primero como manda la regla de desambiguación; no elijas un período por tu cuenta.
+- **obtener_analitica_abc**: clasificación ABC/Pareto del catálogo según facturación y margen. Ante "curva ABC / qué productos mantienen el negocio / cuáles liquidar".
+- **obtener_fugas_precio**: ventas por debajo del costo, con ranking por pérdida. Ante "ventas a pérdida / bajo costo / margen negativo / fugas de precio".
+- **comparar_cajeros**: desempeño por cajero/operador (turnos, diferencias de caja, anulaciones, ticket promedio). Ante "cajeros / operadores / diferencias por turno".
+- **simular_escenario**: impacto de cambiar un precio o un costo, calculado con ventas reales de 45 días. Ante "¿qué pasa si...?", "¿cuánto más facturaría si...?", "¿qué me conviene aumentar?". NO calcules vos: invocá la herramienta y narrá el resultado (delta en $, base de 45 días y supuesto de volumen constante).
+- **guardar_memoria**: guarda un dato estable del negocio (ver Reglas de memoria).
 
-Parámetros de la herramienta:
-- **sql**: consulta SQL de lectura (ver Reglas SQL abajo).
-- **descripcion**: frase corta y cálida que verá el comerciante mientras se ejecuta (ej: "Buscando tus ventas de hoy..."). Sin términos técnicos.
+### Operaciones tipadas (datos del negocio)
+Para los datos del negocio NO escribís consultas: elegís una OPERACIÓN y sus filtros, y el sistema arma la consulta por vos (determinista y de solo lectura).
+Operaciones disponibles:
+- **consultar_ventas**: ventas del período; con "id", el detalle de una venta (productos y pagos). Para "qué vendí", "cuánto vendí" o las ventas de un cliente, cajero o turno.
+- **consultar_compras**: compras del período; con "id", el detalle de una compra (proveedor, productos y costos). Para "qué compré", "cuánto compré" o las compras de un proveedor.
+- **consultar_gastos**: gastos del período con su categoría; con "id", el detalle de un gasto. Para "cuánto gasté", los gastos de una categoría o de una forma de pago, o los pagos programados.
+- **consultar_productos**: productos con su stock (y sus presentaciones); con "id", el detalle de un producto. Para "qué productos tengo", stock bajo, sin stock, por categoría o por marca.
+- **consultar_movimientos_stock**: entradas y salidas de stock; con "id", el detalle de un movimiento. Para "cómo se movió el stock de X", los ajustes o los movimientos de un producto.
+- **consultar_presupuestos**: presupuestos (cotizaciones) con su cliente y estado; con "id", el detalle. Para "qué presupuestos tengo", "cuáles están pendientes", los de un cliente o los de un estado.
+- **consultar_clientes**: clientes con su saldo (deuda) y si están activos; con "id", el detalle con sus movimientos de cuenta. Para "quién me debe", "cuánto me debe un cliente", "qué clientes tengo" o los inactivos.
+- **consultar_proveedores**: proveedores con sus datos de contacto y si están activos; con "id", el detalle. Para "qué proveedores tengo", "el teléfono de un proveedor" o los inactivos.
+- **consultar_turnos_caja**: turnos de caja (aperturas y cierres); con "id", el detalle con sus retiros y totales. Para "cómo viene la caja", "los cierres de caja", "el turno abierto" o la caja de un cajero.
+Para los gastos (por categoría o forma de pago), los pagos programados, los productos, el stock bajo/sin stock, los movimientos de stock, los presupuestos, los clientes/deudas, los proveedores y los turnos de caja usá SIEMPRE estas operaciones: no hay consultas libres y NUNCA inventes el dato.
+- El período se elige por NOMBRE en "periodo" (hoy, ayer, semana, semana_pasada, mes, mes_pasado, ultimos_7, ultimos_30, ultimos_90, todo): el sistema lo resuelve a fechas exactas. Usá "desde"/"hasta" (AAAA-MM-DD) SOLO cuando el comerciante te dé un rango con fechas concretas. NUNCA calcules fechas ni rangos por tu cuenta.
+- "orden" tiene valores válidos según la operación (fecha_desc, fecha_asc, total_desc, total_asc, nombre_asc, nombre_desc, cantidad_desc, cantidad_asc, saldo_desc, saldo_asc) y "limite" va de 1 a 200 (por defecto 50). Para la venta o compra MÁS RECIENTE, usá la operación (consultar_ventas / consultar_compras) con orden "fecha_desc" y limite 1: devuelve esa fila con su detalle.
+- Si un filtro no es válido, la operación devuelve un error claro: corregilo y volvé a intentar.
+- Si el pedido es ambiguo en el período, repreguntá primero (regla de desambiguación): no elijas un rango por tu cuenta.
+- **Si el dato que piden no está en ninguna operación ni en las analíticas, decí con honestidad que no lo tenés. NUNCA lo inventes, no lo estimes ni reutilices datos de otra respuesta.**
 
-### Cuándo NO usar la herramienta
-- **Cómo usar el sistema o conversación general**: respondé directamente en texto plano con los pasos del manual (prerrequisito → pasos numerados → camino de menú). NO consultes SQL para explicar cómo se hace algo.
+### Cómo usarlas
+- **OBLIGATORIO (CRÍTICO)**: cuando exista una operación que responda el dato del negocio (ventas, compras, stock, gastos, deudas, caja), invocá PRIMERO esa operación EN ESTE MISMO TURNO y respondé con su resultado. NUNCA contestes con un número de memoria, inventado ni pegado a mano.
+- Invocá la herramienta que corresponda y respondé con su resultado. PROHIBIDO repetir una llamada que ya hiciste en este turno: si ya tenés el resultado arriba, respondé con lo que ya tenés.
+- **Si el dato que piden no está entre los resultados de las herramientas, decí con honestidad que no lo tenés y indicá la pantalla donde verlo. NUNCA lo inventes, no lo estimes y no uses datos de otra respuesta.**
+- **Cómo usar el sistema o conversación general**: respondé directamente en texto plano con los pasos del manual (prerrequisito → pasos numerados → camino de menú). No hace falta ninguna herramienta para explicar cómo se hace algo.
 - **Memoria del comercio**: si surge un dato estable del negocio, invocá guardar_memoria (ver Reglas de memoria). No escribas bloques Markdown para eso.
 
 ### Modo "explicame" (preguntas de cómo se hace)
 Si preguntan cómo hacer algo del sistema ("¿cómo hago un presupuesto?", "¿dónde anulo una venta?", "¿cómo creo un combo?"):
 - Respondé DIRECTO en texto con: 1) el prerrequisito si falta (módulo, permiso o estado), 2) los pasos numerados y 3) el camino exacto de menú (ej: Productos → pestaña Combos → Nuevo Combo).
 - PROHIBIDO inventar menús, botones, campos o rutas que no estén en el manual.
-- PROHIBIDO consultar SQL para esto: la respuesta está en el manual, no en los datos del negocio.
 - Si el manual no cubre lo pedido, decilo con honestidad en vez de improvisar.
 
 ## Compras: NO podés crearlas (CRÍTICO)
@@ -620,29 +614,6 @@ No tenés ninguna herramienta para registrar compras y NO podés emitir tarjetas
 Cuando el comerciante te pida preparar una orden de compra o cargar una compra:
 1. Explicá con calidez que las compras se cargan a mano porque involucran proveedor, items, costos y stock: **Compras > Nueva Compra > seleccionar proveedor > agregar productos con cantidad y costo > confirmar**. Con "Actualizar costo" activo, el stock suma y el costo se actualiza solo.
 2. Lo que SÍ podés hacer por él: consultar rotación (qué conviene reponer y en qué cantidades), último costo de cada producto y cuál es su proveedor habitual, para que cargue la compra con esos datos a mano. Ofrecé ese análisis.
-
-## Simulador de escenarios "¿qué pasa si...?"
-Ante preguntas de impacto ("¿cuánto más facturaría si subo X%?", "¿qué pasa si bajo tal precio?"): invocá simular_escenario (NO calcules vos ni uses SQL). Narrá el resultado en español simple: delta en $, sobre qué base (45 días) y el supuesto de volumen constante. Si el alcance es ambiguo ("las gaseosas" = producto_nombre), usá ese fragmento tal cual.
-
-## Herramientas nativas de analítica (cálculo exacto en Rust, preferilas a SQL manual)
-- "¿qué reponer / qué comprar / quiebre / stock?": invocá predecir_reposicion (dias_cobertura opcional).
-- "¿qué anda mal / anomalías / tickets raros / sobrecostos?": invocá obtener_analitica_anomalias.
-- "oportunidades / pildoras / combos sugeridos / capital parado": invocá obtener_pildoras_oportunidad.
-- "vs mes pasado / vs ayer / cómo vengo / comparar períodos": invocá comparar_periodos (dias opcional). EXCEPCIÓN: si la pregunta no aclara el período ("¿cómo vienen las ventas?"), repreguntá primero como manda la regla de desambiguación; no elijas un período por tu cuenta.
-- "curva ABC / Pareto / qué productos mantienen el negocio / cuáles liquidar": invocá obtener_analitica_abc.
-- "ventas a pérdida / bajo costo / margen negativo / fugas de precio": invocá obtener_fugas_precio.
-- "cajeros / operadores / desempeño por turno / diferencias por usuario": invocá comparar_cajeros.
-
-## Reglas SQL (no las muestres al usuario)
-1. Solo SELECT o WITH (lectura). NUNCA INSERT, UPDATE, DELETE, DROP, ALTER, CREATE.
-2. TODA consulta DEBE incluir un LIMIT (maximo 500), incluso en agregaciones.
-3. Fechas = timestamps Unix INTEGER.
-   - "Hoy": DATE(col, 'unixepoch', 'localtime') = DATE('now', 'localtime').
-   - "Este mes": fecha >= strftime('%s', 'now', 'start of month'). NUNCA uses DATE('now') para "este mes".
-4. Config del sistema se consulta con SQL en tabla "config".
-5. UNA sola sentencia por llamada a la herramienta.
-6. Si tenes muchos resultados, resume la info clave.
-7. Período vacío NO es "sin información": si el rango pedido (hoy, este mes) trae 0 filas, respondé SIEMPRE con la cifra ESCRITA ($0,00 y cantidad 0 cuando corresponda) y una línea de contexto. Si querés, además ampliá la consulta al último período con movimientos (últimos 30/90 días) y avisá el cambio mostrando también esos números ("hoy no hubo ventas: $0,00; te muestro los últimos 30 días: $X"). NUNCA respondas solo "no hay movimientos" ni cierres con una pregunta u oferta en lugar del dato.
 
 ## Respuesta final
 Cuando ya tengas todos los datos que necesitás, respondé en lenguaje natural y amable. NUNCA uses JSON o llaves sueltas en el texto plano, EXCEPTO los bloques visuales permitidos (${B3}chart, ${B3}whatsapp, ${B3}mensaje o ${B3}seguir), que solo se muestran y NO escriben datos.
@@ -680,9 +651,7 @@ ${seccionProveedor}
 
 ${reglasVoz}
 
-${manual}
-
-${schema}`;
+${manual}`;
   }
 
   if (modo === 'brief') {
@@ -729,13 +698,13 @@ ${reglasComunes}`;
 Tu trabajo es atender al comerciante respondiendo en tres casos:
 
 ### Caso 1: Datos del negocio
-Si el usuario pregunta por numeros, reportes, stock, ventas, etc., genera una consulta SQL para obtener la respuesta.
+Si el usuario pregunta por numeros, reportes, stock, ventas, etc., respondé en texto plano usando los DATOS ya calculados que tenés en el resumen del negocio (más abajo). Si el dato que piden NO está entre esos datos, decí con honestidad que no lo tenés y indicá la pantalla donde verlo: NUNCA lo inventes, no lo estimes y no uses datos de otra respuesta. NO generes consultas ni código.
 
 ### Caso 2: Creación, edición o acciones sobre datos del negocio
-Binny NO crea ni modifica datos del negocio (productos, proveedores, clientes, combos, compras, precios, gastos, módulos). Si el usuario pide crear, editar o hacer algo, respondé en texto plano con la guía: primero el prerrequisito si falta y después los pasos numerados con el camino exacto de menú (ej: Productos → pestaña Combos → Nuevo Combo). NUNCA generes SQL ni bloques de creación para esto, ni prometas tarjetas o acciones.
+Binny NO crea ni modifica datos del negocio (productos, proveedores, clientes, combos, compras, precios, gastos, módulos). Si el usuario pide crear, editar o hacer algo, respondé en texto plano con la guía: primero el prerrequisito si falta y después los pasos numerados con el camino exacto de menú (ej: Productos → pestaña Combos → Nuevo Combo). NUNCA emitas bloques de creación para esto, ni prometas tarjetas o acciones.
 
 ### Caso 3: Como usar el sistema y soporte de voz
-Si pregunta cómo hacer algo en general (abrir caja, crear un producto, dictado por voz, escuchar voz, etc.), responde directamente con pasos claros basandote en el manual. NUNCA generes SQL para esto.
+Si pregunta cómo hacer algo en general (abrir caja, crear un producto, dictado por voz, escuchar voz, etc.), responde directamente con pasos claros basandote en el manual.
 
 ${reglasComunes}
 
@@ -747,22 +716,10 @@ ${seccionResumen}
 
 ${seccionMemoria}
 
-## Reglas SQL (no las mostres al usuario)
-0. TODA consulta es SIEMPRE el JSON {tipo:"consulta", id_solicitud, sql, descripcion}: los cuatro campos son obligatorios, incluida "descripcion" (sin ella la respuesta se rechaza).
-1. Solo SELECT o WITH (lectura). NUNCA INSERT, UPDATE, DELETE, DROP, ALTER, CREATE.
-2. TODA consulta DEBE incluir un LIMIT (maximo 500), incluso en agregaciones.
-3. Fechas = timestamps Unix INTEGER.
-   - "Hoy": DATE(col, 'unixepoch', 'localtime') = DATE('now', 'localtime').
-   - "Este mes": fecha >= strftime('%s', 'now', 'start of month'). NUNCA uses DATE('now') para "este mes".
-4. Config del sistema se consulta con SQL en tabla "config".
-5. Si tenes muchos resultados, resume la info clave.
-6. Período vacío NO es "sin información": si el rango pedido (hoy, este mes) trae 0 filas, respondé SIEMPRE con la cifra ESCRITA ($0,00 y cantidad 0 cuando corresponda) y una línea de contexto. Si querés, además ampliá la consulta al último período con movimientos (últimos 30/90 días) y avisá el cambio mostrando también esos números ("hoy no hubo ventas: $0,00; te muestro los últimos 30 días: $X"). NUNCA respondas solo "no hay movimientos" ni cierres con una pregunta u oferta en lugar del dato.
-
 ## Estilo
 - Empezá por el número o resultado y sumá una línea de contexto si aporta; evitá el paso a paso extenso.
 - Precisión siempre: los números y las cifras no se omiten.
 - Para datos, presenta como frases naturales ("Hoy vendiste $45.000 en 12 ventas").
-- Descripciones humanas: "Buscando tus ventas de hoy..." en vez de "Ejecutando SELECT".
 
 ## Ejemplos
 Pregunta: "Como creo un producto nuevo?"
@@ -774,21 +731,7 @@ Respuesta: {tipo: "respuesta", texto: "Para crear un combo andá a Productos →
 Pregunta: "Como anulo una venta?"
 Respuesta: {tipo: "respuesta", texto: "Para anular: 1. Busca la venta. 2. Anular. 3. Motivo. 4. Stock se restaura."}
 
-Pregunta: "Cuanto vendi hoy?"
-Respuesta: {tipo: "consulta", id_solicitud: "vta_hoy_01", sql: "SELECT SUM(total) AS total_hoy FROM venta WHERE estado = 'completada' AND anulada_en IS NULL AND DATE(creada_en, 'unixepoch', 'localtime') = DATE('now', 'localtime') LIMIT 1", descripcion: "Buscando tus ventas de hoy..."}
-
-Pregunta: "Que pagos tengo que hacer esta semana?"
-Respuesta: {tipo: "consulta", id_solicitud: "gastos_prog_01", sql: "SELECT gp.concepto, gp.monto, gp.tipo, gp.frecuencia, gp.auto_generar, DATETIME(gp.proxima_ejecucion, 'unixepoch', 'localtime') AS fecha_pago, cg.nombre AS categoria FROM gasto_programado gp LEFT JOIN categoria_gasto cg ON cg.id = gp.categoria_gasto_id WHERE gp.activo = 1 AND gp.proxima_ejecucion BETWEEN strftime('%s', 'now') AND strftime('%s', 'now', '+7 days') ORDER BY gp.proxima_ejecucion ASC LIMIT 20", descripcion: "Buscando tus pagos programados de la semana..."}
-
-Pregunta: "Stock bajo"
-Respuesta: {tipo: "consulta", id_solicitud: "stock_bajo_01", sql: "SELECT p.nombre, p.cantidad, p.stock_minimo, u.abreviatura FROM producto p JOIN unidad u ON u.id = p.unidad_id WHERE p.cantidad <= p.stock_minimo AND p.activo = 1 ORDER BY p.cantidad ASC LIMIT 50", descripcion: "Buscando productos con stock bajo..."}
-
-Pregunta: "Cliente que mas me debe?"
-Respuesta: {tipo: "consulta", id_solicitud: "deudores_01", sql: "SELECT nombre, documento, saldo_actual FROM cliente WHERE saldo_actual > 0 AND activo = 1 ORDER BY saldo_actual DESC LIMIT 10", descripcion: "Buscando clientes con deuda..."}
-
 ## Formato de respuesta
-Datos del negocio: {tipo: "consulta", id_solicitud: "abc123", sql: "SELECT ...", descripcion: "Buscando tus [datos]..."}
-OBLIGATORIO: toda respuesta de tipo "consulta" lleva SIEMPRE los tres campos id_solicitud, sql y descripcion (nunca omitas descripcion; sin ella la respuesta se rechaza).
 Uso del sistema, conversación o guía: {tipo: "respuesta", texto: "Guía con prerrequisito, pasos y camino de menú"}
 Recordatorio de tablas: las tablas se arman con los DATOS devueltos (títulos de comerciante y sus números), NUNCA con la consulta ni su SQL: está PROHIBIDO pegar SELECT, FROM, JOIN o bloques \`\`\`sql.
 
@@ -804,9 +747,7 @@ ${seccionProveedor}
 
 ${reglasVoz}
 
-${manual}
-
-${schema}`;
+${manual}`;
 }
 
 // --- Servicio principal ---
@@ -968,6 +909,7 @@ export const NOMBRES_INTERNOS: string[] = [
   'movimiento_stock',
   'historial_precio',
   'binny_memoria',
+  'tool_call',
 ];
 
 /**
@@ -975,7 +917,6 @@ export const NOMBRES_INTERNOS: string[] = [
  * la respuesta al comerciante (el modelo a veces filtra una llamada cruda).
  */
 export const NOMBRES_HERRAMIENTAS: string[] = [
-  'ejecutar_consulta',
   'comparar_periodos',
   'predecir_reposicion',
   'obtener_analitica_anomalias',
@@ -984,6 +925,17 @@ export const NOMBRES_HERRAMIENTAS: string[] = [
   'obtener_fugas_precio',
   'comparar_cajeros',
   'simular_escenario',
+  'consultar_ventas',
+  'consultar_compras',
+  'consultar_gastos',
+  'consultar_productos',
+  'consultar_movimientos_stock',
+  'consultar_presupuestos',
+  'consultar_clientes',
+  'consultar_proveedores',
+  'consultar_turnos_caja',
+  'ultima_venta',
+  'ultima_compra',
   'guardar_memoria',
 ];
 
@@ -1087,7 +1039,7 @@ export type ResultadoAuxiliar<T> = { ok: true; valor: T } | { ok: false; error: 
 
 /**
  * Ejecuta un paso AUXILIAR del ciclo (memoria automática, guardián
- * anti-tarjeta-fantasma, reintento de SQL) a prueba de fallos.
+ * anti-tarjeta-fantasma) a prueba de fallos.
  *
  * Una falla auxiliar NUNCA debe abortar la respuesta al comerciante: si el
  * proveedor responde 5xx/429 se reintenta UNA vez (sin espera larga); cualquier
@@ -1119,8 +1071,8 @@ export async function auxiliarConReintento<T>(
 
 
 
-// --- Anti-thrashing: freno determinista a consultas SQL repetidas ---
-// Si el modelo pide tool calls equivalentes a SQL ya ejecutados en este ciclo
+// --- Anti-thrashing: freno determinista a tool calls repetidos ---
+// Si el modelo pide tool calls equivalentes a los ya ejecutados en este ciclo
 // (mismo esqueleto + misma descripción), no se los reenvía al desktop: se le
 // pide una respuesta final con lo que ya tiene.
 // (El prompt también lo prohíbe, pero esto lo garantiza en código.)
@@ -1176,7 +1128,7 @@ function llamadasPrevias(mensajes: AgenteMessage[]): LlamadaPrevia[] {
 }
 
 /**
- * ¿El lote repite consultas ya hechas? true solo si TODOS los SQL del lote
+ * ¿El lote repite tool calls ya hechos? true solo si TODOS los del lote
  * equivalen a alguno previo: igualdad exacta, o esqueleto ≥90% similar con
  * la MISMA descripción (evita falsos positivos tipo "hoy vs ayer", que
  * comparten esqueleto pero describen distinto).
@@ -1298,67 +1250,32 @@ export class ChatService {
     let respuesta: RespuestaLLM;
     let tokens: { prompt_tokens: number; completion_tokens: number; total_tokens: number; cached_tokens: number } = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0, cached_tokens: 0 };
 
-    const MAX_INTENTOS = 3;
-
-    for (let intento = 0; intento < MAX_INTENTOS; intento++) {
-      try {
-        const resultado = await llamarLLM(mensajes, { jsonMode: true, model: modelo });
-        respuesta = resultado.respuesta;
-        tokens.prompt_tokens += resultado.tokens.prompt_tokens;
-        tokens.completion_tokens += resultado.tokens.completion_tokens;
-        tokens.total_tokens += resultado.tokens.total_tokens;
-        tokens.cached_tokens += resultado.tokens.cached_tokens;
-      } catch (error) {
-        await decrementarMensajes(lic.id);
-        throw error;
-      }
-
-      if (respuesta.tipo === 'respuesta') break;
-
-      // tipo === 'consulta': validar SQL
-      const { sql: sqlNormalizado } = normalizarSQL(respuesta.sql);
-      const validacion = validarSQL(sqlNormalizado);
-
-      if (validacion.valido) {
-        return { ...respuesta, sql: sqlNormalizado, tokens, uso };
-      }
-
-      if (intento < MAX_INTENTOS - 1) {
-        // Agregar al historial para que el LLM intente corregir
-        mensajes.push({
-          role: 'assistant',
-          content: JSON.stringify(respuesta),
-        });
-        mensajes.push({
-          role: 'user',
-          content: `Tu consulta fue rechazada: ${validacion.error}. Regenerá SOLO el JSON {tipo:"consulta", id_solicitud, sql, descripcion} con SQL válido: solo SELECT o WITH, LIMIT ≤ 500, una sola sentencia.`,
-        });
-      }
+    try {
+      const resultado = await llamarLLM(mensajes, { jsonMode: true, model: modelo });
+      respuesta = resultado.respuesta;
+      tokens.prompt_tokens += resultado.tokens.prompt_tokens;
+      tokens.completion_tokens += resultado.tokens.completion_tokens;
+      tokens.total_tokens += resultado.tokens.total_tokens;
+      tokens.cached_tokens += resultado.tokens.cached_tokens;
+    } catch (error) {
+      await decrementarMensajes(lic.id);
+      throw error;
     }
 
-    // Si la respuesta final es consulta con SQL inválido: fallback amigable
-    if (respuesta!.tipo === 'consulta') {
-      const { sql: sqlNormalizado } = normalizarSQL(respuesta!.sql);
-      if (!validarSQL(sqlNormalizado).valido) {
-        return {
-          tipo: 'respuesta',
-          texto: 'No pude generar la consulta para eso. ¿Podés reformular la pregunta?',
-          tokens,
-          uso,
-        };
-      }
-    }
+    // El modelo ya no genera consultas SQL: si igual devuelve una, se degrada a texto.
+    const textoRespuesta =
+      respuesta.tipo === 'respuesta'
+        ? respuesta.texto
+        : 'No tengo ese dato a mano. Podés reformular la pregunta o mirarlo en la pantalla correspondiente.';
 
     // Acumular tokens en DB
     if (tokens.total_tokens > 0) {
       await acumularTokens(lic.id, tokens);
     }
 
-    if (respuesta!.tipo === 'respuesta') {
-      auditarTextoFinal('preguntar', respuesta!.texto);
-      respuesta!.texto = quitarNombresInternos(respuesta!.texto);
-    }
-    return { ...respuesta!, tokens, uso };
+    const textoFinal = quitarNombresInternos(textoRespuesta);
+    auditarTextoFinal('preguntar', textoFinal);
+    return { tipo: 'respuesta', texto: textoFinal, tokens, uso };
   }
 
   async resultado(data: ResultadoConsultaDTO): Promise<RespuestaLLM> {
@@ -1551,47 +1468,15 @@ Reglas estrictas:
       if (evento.type === 'chunk' && evento.texto) {
         textoAcumulado += evento.texto;
         yield { type: 'chunk', texto: evento.texto };
-      } else if (evento.type === 'consulta' && evento.respuesta && evento.respuesta.tipo === 'consulta') {
-        const { sql: sqlNormalizado } = normalizarSQL(evento.respuesta.sql);
-        const validacion = validarSQL(sqlNormalizado);
-
-        if (validacion.valido) {
-          yield { type: 'consulta', respuesta: { ...evento.respuesta, sql: sqlNormalizado, tokens: tokensFinales, uso } };
-        } else {
-          // SQL inválido → 1 reintento con llamarLLM (JSON, feedback).
-          // Paso auxiliar: si el proveedor cae (5xx/429) se reintenta una vez y,
-          // si persiste, se degrada con un mensaje amable en vez de romper.
-          mensajes.push({
-            role: 'assistant',
-            content: JSON.stringify(evento.respuesta),
-          });
-          mensajes.push({
-            role: 'user',
-            content: `Tu consulta fue rechazada: ${validacion.error}. Regenerá SOLO el JSON {tipo:"consulta", id_solicitud, sql, descripcion} con SQL válido: solo SELECT o WITH, LIMIT ≤ 500, una sola sentencia.`,
-          });
-          const intento = await auxiliarConReintento('reintento de SQL en preguntarStream', () =>
-            llamarLLM(mensajes, { jsonMode: true, model: modelo }),
-          );
-          if (!intento.ok) {
-            yield { type: 'error', texto: 'No pude generar la consulta. ¿Podés reformular la pregunta?' };
-          } else {
-            const retry = intento.valor;
-            tokensFinales.prompt_tokens += retry.tokens.prompt_tokens;
-            tokensFinales.completion_tokens += retry.tokens.completion_tokens;
-            tokensFinales.total_tokens += retry.tokens.total_tokens;
-            tokensFinales.cached_tokens += retry.tokens.cached_tokens;
-            if (retry.respuesta.tipo === 'consulta') {
-              const { sql: sqlReintentado } = normalizarSQL(retry.respuesta.sql);
-              if (validarSQL(sqlReintentado).valido) {
-                yield { type: 'consulta', respuesta: { ...retry.respuesta, sql: sqlReintentado, tokens: tokensFinales, uso } };
-              } else {
-                yield { type: 'error', texto: 'No pude generar una consulta válida para eso. ¿Podés reformular la pregunta?' };
-              }
-            } else {
-              yield { type: 'error', texto: 'No pude generar la consulta. ¿Podés reformular la pregunta?' };
-            }
-          }
-        }
+      } else if (evento.type === 'consulta') {
+        // El modelo ya no genera consultas SQL: si aparece un centinela legado,
+        // se cierra con lo narrado hasta ahora (nunca se ejecuta SQL).
+        const textoFinal = limpiarTextoFinal(
+          textoAcumulado.trim() || 'No tengo ese dato a mano. Podés mirarlo en la pantalla correspondiente.',
+        );
+        auditarTextoFinal('preguntarStream', textoFinal);
+        yield { type: 'done', texto: textoFinal, tokens: tokensFinales, uso };
+        return;
       } else if (evento.type === 'done') {
         tokensFinales = evento.tokens ?? tokensFinales;
         // Red determinística: si el modelo dejó 2-3 preguntas sueltas al final,
@@ -1612,9 +1497,9 @@ Reglas estrictas:
   // --- Agente multi-paso (function calling) ---
   //
   // El backend es stateless: no guarda sesiones entre pasos. El desktop (Rust)
-  // orquesta el ciclo: ejecuta la herramienta localmente contra su SQLite y
-  // reenvía el array completo de mensajes en cada llamada a `continuarAgente`.
-  // La validación real del SQL ocurre en el desktop, que es donde se ejecuta.
+  // orquesta el ciclo: ejecuta el motor determinista localmente contra su SQLite
+  // y reenvía el array completo de mensajes en cada llamada a `continuarAgente`.
+  // El cálculo exacto ocurre en el desktop, que es donde se ejecuta el motor.
 
   async *preguntarAgente(data: PreguntarAgenteDTO): AsyncGenerator<EventoAgenteServicio> {
     const lic = await validarLicenciaChat(data.clave, data.instalacion_id);
@@ -1702,7 +1587,7 @@ Reglas estrictas:
       if (evento.type === 'chunk' && evento.texto) {
         yield { type: 'chunk', texto: evento.texto };
       } else if (evento.type === 'herramienta') {
-        // Freno anti-thrashing: si TODOS los SQL del lote equivalen a consultas
+        // Freno anti-thrashing: si TODOS los tool calls del lote equivalen a llamadas
         // ya ejecutadas en este ciclo, no se reenvían; se fuerza respuesta
         // final con un nudge.
         const previas = llamadasPrevias(mensajes);
@@ -1759,7 +1644,7 @@ Reglas estrictas:
             };
           }
         } else {
-          // Se reenvían tal cual: el desktop valida el SQL y ejecuta localmente.
+          // Se reenvían tal cual: el desktop ejecuta el motor localmente.
           // Si el desktop rechaza un tool call, devuelve el error como resultado
           // role:"tool" y el loop continúa para que el LLM se autocorrija.
           yield { type: 'herramienta', tool_calls: evento.tool_calls, uso };
@@ -1916,33 +1801,81 @@ export interface EventoAgenteServicio {
   uso?: UsoChat;
 }
 
+// --- Operaciones tipadas: forma de filtros COMPARTIDA (misma para todas) ---
+// El modelo NO escribe SQL: elige una operación y filtros tipados, y el código
+// (el builder del desktop) arma la consulta. Por eso el esquema de cada
+// operación replica EXACTAMENTE la forma de filtros del contrato.
+const PERIODOS_OPERACION = [
+  'hoy',
+  'ayer',
+  'semana',
+  'semana_pasada',
+  'mes',
+  'mes_pasado',
+  'ultimos_7',
+  'ultimos_30',
+  'ultimos_90',
+  'todo',
+] as const;
+
+const ORDENES_FECHA_TOTAL = ['fecha_desc', 'fecha_asc', 'total_desc', 'total_asc'] as const;
+const ORDENES_NOMBRE_CANTIDAD = ['nombre_asc', 'nombre_desc', 'cantidad_desc', 'cantidad_asc'] as const;
+const ORDENES_FECHA_CANTIDAD = ['fecha_desc', 'fecha_asc', 'cantidad_desc', 'cantidad_asc'] as const;
+const ORDENES_NOMBRE = ['nombre_asc', 'nombre_desc'] as const;
+const ORDENES_NOMBRE_SALDO = ['nombre_asc', 'nombre_desc', 'saldo_desc', 'saldo_asc'] as const;
+const ORDENES_FECHA = ['fecha_desc', 'fecha_asc'] as const;
+
+/**
+ * Propiedades comunes de filtros de TODA operación tipada (misma forma).
+ * `ordenes` acota la whitelist de orden por entidad.
+ */
+function filtrosOperacion(ordenes: readonly string[]): Record<string, unknown> {
+  return {
+    id: {
+      type: 'integer',
+      description:
+        'Número de la operación: si lo indicás, devuelve el DETALLE de esa fila (con sus ítems). Omitilo para ver la lista.',
+    },
+    periodo: {
+      type: 'string',
+      enum: [...PERIODOS_OPERACION],
+      description:
+        'Período por NOMBRE; el sistema lo resuelve a fechas exactas (no calcules vos las fechas). Valores: hoy, ayer, semana, semana_pasada, mes, mes_pasado, ultimos_7, ultimos_30, ultimos_90, todo.',
+    },
+    desde: {
+      type: 'string',
+      description:
+        'Fecha de inicio en formato AAAA-MM-DD. Usala junto con "hasta" cuando el comerciante da un rango exacto, en vez de "periodo".',
+    },
+    hasta: {
+      type: 'string',
+      description: 'Fecha de fin en formato AAAA-MM-DD (junto con "desde").',
+    },
+    buscar: {
+      type: 'string',
+      description: 'Texto para filtrar por nombre o código (ej: "coca"). Opcional.',
+    },
+    incluir_anuladas: {
+      type: 'boolean',
+      description: 'true para incluir las anuladas. Por defecto false (se excluyen).',
+    },
+    orden: {
+      type: 'string',
+      enum: [...ordenes],
+      description: `Orden de la lista. Valores válidos: ${ordenes.join(', ')}.`,
+    },
+    limite: {
+      type: 'integer',
+      minimum: 1,
+      maximum: 200,
+      description:
+        'Cuántas filas devolver (1 a 200). Por defecto 50. Para la más reciente usá orden "fecha_desc" y limite 1.',
+    },
+  };
+}
+
 /** Herramientas que el LLM puede invocar en modo agente. */
 export const HERRAMIENTAS_AGENTE: AgenteToolDef[] = [
-  {
-    type: 'function',
-    function: {
-      name: 'ejecutar_consulta',
-      description:
-        'Ejecuta una consulta SQL de SOLO LECTURA contra la información del negocio y devuelve las filas. Usala para obtener datos reales antes de responder. Podés llamarla varias veces si necesitás más datos.',
-      parameters: {
-        type: 'object',
-        properties: {
-          sql: {
-            type: 'string',
-            description:
-              'Consulta SELECT o WITH. Una sola sentencia, siempre con LIMIT (máximo 500). Fechas como timestamps Unix INTEGER.',
-          },
-          descripcion: {
-            type: 'string',
-            description:
-              'Frase corta y cálida que verá el comerciante mientras se ejecuta. Ejemplo: "Buscando tus ventas de hoy...". Sin términos técnicos.',
-          },
-        },
-        required: ['sql', 'descripcion'],
-        additionalProperties: false,
-      },
-    },
-  },
   {
     type: 'function',
     function: {
@@ -1966,7 +1899,7 @@ export const HERRAMIENTAS_AGENTE: AgenteToolDef[] = [
     function: {
       name: 'simular_escenario',
         description:
-          'Simula QUÉ PASARÍA si cambia un precio o un costo: calcula con ventas reales de 45 días cuánto cambiaría la facturación (tipo precio) o el margen (tipo costo). Usala SIEMPRE ante preguntas "¿qué pasa si...?", "¿cuánto más facturaría si...?", "¿qué me conviene aumentar?". JAMÁS calcules vos con aritmética mental ni con SQL: invocá la herramienta y narrá su resultado en español simple, mencionando el supuesto de volumen constante.',
+          'Simula QUÉ PASARÍA si cambia un precio o un costo: calcula con ventas reales de 45 días cuánto cambiaría la facturación (tipo precio) o el margen (tipo costo). Usala SIEMPRE ante preguntas "¿qué pasa si...?", "¿cuánto más facturaría si...?", "¿qué me conviene aumentar?". JAMÁS calcules vos de memoria: invocá la herramienta y narrá su resultado en español simple, mencionando el supuesto de volumen constante.',
         parameters: {
           type: 'object',
           properties: {
@@ -2001,7 +1934,7 @@ export const HERRAMIENTAS_AGENTE: AgenteToolDef[] = [
       function: {
         name: 'obtener_analitica_anomalias',
         description:
-          'Detecta anomalías recientes (tickets atípicos, turnos con muchas anulaciones, compras con sobrecosto, ajustes de stock). Usala para auditorías rápidas sin escribir SQL.',
+          'Detecta anomalías recientes (tickets atípicos, turnos con muchas anulaciones, compras con sobrecosto, ajustes de stock). Usala para auditorías rápidas del negocio.',
         parameters: {
           type: 'object',
           properties: {},
@@ -2078,6 +2011,258 @@ export const HERRAMIENTAS_AGENTE: AgenteToolDef[] = [
           properties: {
             dias: { type: 'number', description: 'Ventana en días (7-90). Por defecto 30.' },
           },
+          additionalProperties: false,
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'consultar_ventas',
+        description:
+          'Consulta las ventas del negocio. Sin "id" devuelve la LISTA de ventas (fecha, total, cliente y forma de pago); con "id" devuelve el DETALLE de esa venta (productos, cantidades, precios y pagos). Usala para "qué vendí", "cuánto vendí", "las ventas de un período", "las ventas de un cliente, cajero o turno" o "el detalle de una venta". El período se elige por nombre con "periodo": el sistema lo resuelve a fechas exactas, no calcules fechas vos.',
+        parameters: {
+          type: 'object',
+          properties: {
+            ...filtrosOperacion(ORDENES_FECHA_TOTAL),
+            cliente_id: {
+              type: 'integer',
+              description: 'Número de cliente: muestra solo las ventas de ese cliente. Opcional.',
+            },
+            medio_pago: {
+              type: 'string',
+              enum: ['efectivo', 'debito', 'credito', 'transferencia', 'mercadopago', 'cuenta_corriente'],
+              description: 'Forma de pago: muestra solo las ventas cobradas así. Opcional.',
+            },
+            usuario_id: {
+              type: 'integer',
+              description: 'Número del cajero/operador: muestra solo las ventas de ese usuario. Opcional.',
+            },
+            turno_id: {
+              type: 'integer',
+              description: 'Número del turno de caja: muestra solo las ventas de ese turno. Opcional.',
+            },
+          },
+          additionalProperties: false,
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'consultar_compras',
+        description:
+          'Consulta las compras a proveedores. Sin "id" devuelve la LISTA de compras (fecha, proveedor y total); con "id" devuelve el DETALLE de esa compra (proveedor, productos, cantidades y costos). Usala para "qué compré", "cuánto compré", "las compras de un período", "las compras de un proveedor" o "el detalle de una compra". El período se elige por nombre con "periodo": el sistema lo resuelve a fechas exactas, no calcules fechas vos.',
+        parameters: {
+          type: 'object',
+          properties: {
+            ...filtrosOperacion(ORDENES_FECHA_TOTAL),
+            proveedor_id: {
+              type: 'integer',
+              description: 'Número de proveedor: muestra solo las compras de ese proveedor. Opcional.',
+            },
+          },
+          additionalProperties: false,
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'consultar_gastos',
+        description:
+          'Consulta los gastos del negocio. Sin "id" devuelve la LISTA de gastos (fecha, concepto, categoría, forma de pago y monto); con "id" devuelve el DETALLE de ese gasto con su categoría. Usala para "cuánto gasté", "los gastos del mes", "los gastos de una categoría" (alquiler, servicios, insumos), "los gastos pagados en efectivo o débito" o "los pagos programados". El período se elige por nombre con "periodo": el sistema lo resuelve a fechas exactas, no calcules fechas vos.',
+        parameters: {
+          type: 'object',
+          properties: {
+            ...filtrosOperacion(ORDENES_FECHA_TOTAL),
+            categoria_id: {
+              type: 'integer',
+              description: 'Número de la categoría de gasto: muestra solo los gastos de esa categoría. Opcional.',
+            },
+            metodo_pago: {
+              type: 'string',
+              description: 'Forma de pago del gasto (efectivo, debito, credito, transferencia, mercado_pago, cuenta_corriente). Opcional.',
+            },
+            programado: {
+              type: 'boolean',
+              description: 'true para ver solo los pagos programados (compromisos futuros); false para ver solo los gastos ya pagados. Omitilo para ver todos. Opcional.',
+            },
+          },
+          additionalProperties: false,
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'consultar_productos',
+        description:
+          'Consulta los productos del catálogo. Sin "id" devuelve la LISTA de productos (nombre, categoría, marca, stock y stock mínimo); con "id" devuelve el DETALLE de ese producto con sus presentaciones. Usala para "qué productos tengo", "los productos de una categoría o marca", "qué tengo con stock bajo o sin stock", "cuántos productos activos tengo" o "buscame el producto X".',
+        parameters: {
+          type: 'object',
+          properties: {
+            ...filtrosOperacion(ORDENES_NOMBRE_CANTIDAD),
+            categoria_id: {
+              type: 'integer',
+              description: 'Número de categoría: muestra solo los productos de esa categoría. Opcional.',
+            },
+            marca_id: {
+              type: 'integer',
+              description: 'Número de marca: muestra solo los productos de esa marca. Opcional.',
+            },
+            con_stock: {
+              type: 'boolean',
+              description: 'true para ver solo los productos con stock (mayor a cero); false para ver solo los que no tienen stock. Omitilo para ver todos. Opcional.',
+            },
+            bajo_minimo: {
+              type: 'boolean',
+              description: 'true para ver solo los productos por debajo de su stock mínimo (incluye los agotados); false para ver solo los que están por encima. Omitilo para ver todos. Opcional.',
+            },
+            activo: {
+              type: 'boolean',
+              description: 'true para ver solo los productos activos; false para ver solo los inactivos. Omitilo para ver todos. Opcional.',
+            },
+          },
+          additionalProperties: false,
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'consultar_movimientos_stock',
+        description:
+          'Consulta los movimientos de stock (entradas y salidas) de los productos. Sin "id" devuelve la LISTA de movimientos (fecha, producto, tipo, cantidad y stock resultante); con "id" devuelve el DETALLE de ese movimiento con su producto. Usala para "cómo se movió el stock de X", "qué entró y qué salió", "los ajustes de stock" o "los movimientos de un producto".',
+        parameters: {
+          type: 'object',
+          properties: {
+            ...filtrosOperacion(ORDENES_FECHA_CANTIDAD),
+            producto_id: {
+              type: 'integer',
+              description: 'Número de producto: muestra solo los movimientos de ese producto. Opcional.',
+            },
+            tipo: {
+              type: 'string',
+              description: 'Tipo de movimiento: COMPRA, VENTA, DEVOLUCION_VENTA, AJUSTE_DE_STOCK o ANULACION_COMPRA. Muestra solo los de ese tipo. Opcional.',
+            },
+          },
+          additionalProperties: false,
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'consultar_presupuestos',
+        description:
+          'Consulta los presupuestos (cotizaciones) del negocio. Sin "id" devuelve la LISTA (número, fecha, cliente, total y estado); con "id" devuelve el DETALLE de ese presupuesto con sus ítems. Usala para "qué presupuestos tengo", "cuáles están pendientes" o vencidos, "los presupuestos de un cliente" o "el detalle de un presupuesto". El período se elige por nombre con "periodo": el sistema lo resuelve a fechas exactas, no calcules fechas vos.',
+        parameters: {
+          type: 'object',
+          properties: {
+            ...filtrosOperacion(ORDENES_FECHA_TOTAL),
+            cliente_id: {
+              type: 'integer',
+              description: 'Número de cliente: muestra solo los presupuestos de ese cliente. Opcional.',
+            },
+            estado: {
+              type: 'string',
+              enum: ['pendiente', 'aprobado', 'vencido', 'cancelado'],
+              description: 'Estado del presupuesto: muestra solo los que están así (pendiente, aprobado, vencido o cancelado). Opcional.',
+            },
+          },
+          additionalProperties: false,
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'consultar_clientes',
+        description:
+          'Consulta los clientes del negocio. Sin "id" devuelve la LISTA (nombre, teléfono, saldo/deuda y si está activo); con "id" devuelve el DETALLE de ese cliente con sus últimos movimientos de cuenta. Usala para "quién me debe", "cuánto me debe un cliente", "qué clientes tengo", los clientes activos o inactivos, o "buscame el cliente X".',
+        parameters: {
+          type: 'object',
+          properties: {
+            ...filtrosOperacion(ORDENES_NOMBRE_SALDO),
+            con_deuda: {
+              type: 'boolean',
+              description: 'true para ver solo los clientes que deben plata (saldo mayor a cero); false para ver solo los que no deben. Omitilo para ver todos. Opcional.',
+            },
+            activo: {
+              type: 'boolean',
+              description: 'true para ver solo los clientes activos; false para ver solo los inactivos. Omitilo para ver todos. Opcional.',
+            },
+          },
+          additionalProperties: false,
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'consultar_proveedores',
+        description:
+          'Consulta los proveedores del negocio. Sin "id" devuelve la LISTA (nombre, teléfono, email y si está activo); con "id" devuelve el DETALLE de ese proveedor. Usala para "qué proveedores tengo", "el teléfono o el contacto de un proveedor", los proveedores activos o inactivos, o "buscame el proveedor X".',
+        parameters: {
+          type: 'object',
+          properties: {
+            ...filtrosOperacion(ORDENES_NOMBRE),
+            activo: {
+              type: 'boolean',
+              description: 'true para ver solo los proveedores activos; false para ver solo los inactivos. Omitilo para ver todos. Opcional.',
+            },
+          },
+          additionalProperties: false,
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'consultar_turnos_caja',
+        description:
+          'Consulta los turnos de caja (aperturas y cierres). Sin "id" devuelve la LISTA (fecha de apertura, cajero, estado y monto inicial); con "id" devuelve el DETALLE de ese turno con sus retiros y totales. Usala para "cómo viene la caja", "los cierres de caja", "el turno abierto", "la caja de esta semana" o "la caja de un cajero". El período se elige por nombre con "periodo": el sistema lo resuelve a fechas exactas, no calcules fechas vos.',
+        parameters: {
+          type: 'object',
+          properties: {
+            ...filtrosOperacion(ORDENES_FECHA),
+            estado: {
+              type: 'string',
+              enum: ['abierto', 'cerrado'],
+              description: 'Estado del turno: "abierto" para el turno en curso, "cerrado" para los ya cerrados. Opcional.',
+            },
+            usuario_id: {
+              type: 'integer',
+              description: 'Número del cajero/operador: muestra solo los turnos de ese usuario. Opcional.',
+            },
+          },
+          additionalProperties: false,
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'ultima_venta',
+        description:
+          'Devuelve la última venta registrada: producto, cantidades, precios y formas de pago. Usala cuando el comerciante pida la última venta, el último ticket o el detalle de la venta más reciente.',
+        parameters: {
+          type: 'object',
+          properties: {},
+          additionalProperties: false,
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'ultima_compra',
+        description:
+          'Devuelve la última compra registrada: proveedor, productos, cantidades y costos. Usala cuando el comerciante pida la última compra o el último ingreso de mercadería.',
+        parameters: {
+          type: 'object',
+          properties: {},
           additionalProperties: false,
         },
       },

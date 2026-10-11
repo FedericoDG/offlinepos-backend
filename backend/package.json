@@ -16,7 +16,9 @@
     "db:reset": "tsx prisma/reset.ts",
     "db:studio": "prisma studio",
     "licencia:generar-claves": "node scripts/generar-claves-licencia.mjs",
-    "licencia:backfill-busqueda": "tsx scripts/backfill-clave-busqueda.mts"
+    "licencia:backfill-busqueda": "tsx scripts/backfill-clave-busqueda.mts",
+    "test:binny": "tsx scripts/prueba-binny-e2e.mts --repes=2",
+    "test:binny:rapido": "tsx scripts/prueba-binny-e2e.mts --repes=1"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",

@@ -28,6 +28,14 @@ export interface ExigenciasE2E {
   sinTerminosTecnicos?: boolean;
   /** Debe incluir al menos un número (idealmente un monto). */
   conNumero?: boolean;
+  /**
+   * El modelo ya no escribe SQL: cuando un dato NO está entre los resultados de
+   * las herramientas (ni en el resumen), debe narrar un motor (con número) o
+   * declarar con honestidad que no lo tiene. Pasa si hay un número o una frase
+   * de "no tengo / no dispongo / no está…". Reemplaza a `conNumero` en los casos
+   * que antes dependían de una consulta SQL.
+   */
+  datosODeclara?: boolean;
   /** Debe ser una repregunta corta de desambiguación. */
   repregunta?: boolean;
   /** Debe guiar con camino de menú + al menos 2 pasos numerados. */
@@ -88,6 +96,12 @@ export interface CasoPruebaE2E {
    * (retrocompatible).
    */
   historial?: MensajeHistorialE2E[];
+  /**
+   * Operaciones que el ejecutor debe haber invocado (al menos UNA). Sirve para
+   * exigir que la respuesta se base en el resultado de una operación tipada y
+   * no en una invención del modelo. La verifica el ejecutor (no es texto puro).
+   */
+  usaHerramienta?: string[];
   /** Nota opcional: por qué está en el corpus (bug que lo motivó). */
   nota?: string;
 }
@@ -135,7 +149,8 @@ export const CORPUS_PRUEBA_E2E: CasoPruebaE2E[] = [
     id: 'datos-vendi-mes',
     pregunta: '¿Cuánto vendí este mes?',
     tipo: 'datos',
-    exige: { conNumero: true },
+    exige: { datosODeclara: true },
+    nota: 'Sin motor de ventas del mes: se espera narración de un motor o declaración honesta.',
   },
   {
     id: 'datos-gaste-mes',
@@ -147,8 +162,8 @@ export const CORPUS_PRUEBA_E2E: CasoPruebaE2E[] = [
     id: 'datos-top5-productos',
     pregunta: '¿Cuáles fueron mis 5 productos más vendidos?',
     tipo: 'datos',
-    exige: { conNumero: true },
-    nota: 'Falló: no traía el ranking real.',
+    exige: { datosODeclara: true },
+    nota: 'Sin motor de ranking: se espera narración o declaración honesta.',
   },
   {
     id: 'datos-comparacion-mes-pasado',
@@ -166,27 +181,187 @@ export const CORPUS_PRUEBA_E2E: CasoPruebaE2E[] = [
   },
   {
     id: 'datos-quien-me-debe',
-    pregunta: '¿Quién me debe plata?',
+    pregunta: '¿Quiénes me deben plata?',
     tipo: 'datos',
-    exige: { conNumero: true },
+    exige: {
+      conNumero: true,
+      // Debe NARRAR el resultado de consultar_clientes con con_deuda:true
+      // (María López $45.000 y Juan Pérez $75.000 en el fixture), no inventar.
+      debeMencionarAlguna: ['maría', 'maria', 'juan', '45.000', '45000', '75.000', '75000'],
+    },
+    usaHerramienta: ['consultar_clientes'],
+    nota: 'Operación tipada consultar_clientes con con_deuda:true: debe invocarse y narrarse el resultado (sin inventar).',
   },
   {
     id: 'datos-sin-movimiento',
     pregunta: '¿Qué productos tengo sin movimiento?',
     tipo: 'datos',
-    exige: { conNumero: true },
+    exige: { datosODeclara: true },
+    nota: 'Sin motor de rotación por producto: narración o declaración honesta.',
   },
   {
     id: 'datos-cobranza',
     pregunta: '¿Cómo viene la cobranza?',
     tipo: 'datos',
-    exige: { conNumero: true },
+    exige: { datosODeclara: true },
+    nota: 'Sin motor de cobranza: narración o declaración honesta.',
   },
   {
     id: 'datos-cantidad-productos',
     pregunta: '¿Cuántos productos tengo?',
     tipo: 'datos',
+    exige: { datosODeclara: true },
+    nota: 'El resumen solo trae agotados/bajo stock, no el total: narración o declaración honesta.',
+  },
+  {
+    id: 'ultima-venta',
+    pregunta: '¿Cuál fue mi última venta?',
+    tipo: 'datos',
     exige: { conNumero: true },
+    usaHerramienta: ['ultima_venta', 'consultar_ventas'],
+    nota: 'Motor determinista ultima_venta (simulado en el banco de pruebas); debe invocarse, no inventar.',
+  },
+  {
+    id: 'ultima-compra',
+    pregunta: '¿Cuál fue mi última compra?',
+    tipo: 'datos',
+    exige: { conNumero: true },
+    usaHerramienta: ['ultima_compra', 'consultar_compras'],
+    nota: 'Motor determinista ultima_compra (simulado en el banco de pruebas); debe invocarse, no inventar.',
+  },
+  {
+    id: 'consultar-ventas-ultima',
+    pregunta: '¿Cuál fue la última venta?',
+    tipo: 'datos',
+    exige: {
+      conNumero: true,
+      // Debe NARRAR el resultado de la operación (fixture simulado), no inventar:
+      // al menos uno de estos valores/productos de la última venta debe aparecer.
+      debeMencionarAlguna: ['pan lactal', '8.750', '8750'],
+    },
+    // El contrato declara ultima_venta equivalente a consultar_ventas(orden:
+    // fecha_desc, limite: 1): se acepta cualquiera de las dos, pero DEBE invocar
+    // una (nunca inventar el resultado).
+    usaHerramienta: ['consultar_ventas', 'ultima_venta'],
+    nota: 'Operación tipada consultar_ventas (o su atajo equivalente ultima_venta) con orden fecha_desc y limite 1: el resultado debe narrarse (sin inventar).',
+  },
+  {
+    id: 'consultar-compras-ultima',
+    pregunta: '¿Qué compré en la última compra?',
+    tipo: 'datos',
+    exige: {
+      conNumero: true,
+      debeMencionarAlguna: ['distribuidora norte', '156.000', '156000'],
+    },
+    usaHerramienta: ['consultar_compras', 'ultima_compra'],
+    nota: 'Operación tipada consultar_compras (o su atajo equivalente ultima_compra) con orden fecha_desc y limite 1: el resultado debe narrarse (sin inventar).',
+  },
+  {
+    id: 'consultar-ventas-ultima-debito',
+    pregunta: '¿Cuál fue la última venta cobrada con débito?',
+    tipo: 'datos',
+    exige: {
+      conNumero: true,
+      // La venta más reciente CON DÉBITO (id 1239) NO es la más reciente a secas
+      // (id 1240, efectivo): el atajo ultima_venta devolvería $8.750 y fallaría.
+      debeMencionarAlguna: ['maría lópez', '15.200', '15200', 'yerba'],
+    },
+    // Filtro por medio de pago: SOLO lo resuelve consultar_ventas (el atajo
+    // ultima_venta no acepta filtros). Ejercita la operación tipada de punta a punta.
+    usaHerramienta: ['consultar_ventas'],
+    nota: 'consultar_ventas con medio_pago "debito", orden fecha_desc y limite 1: la venta más reciente con débito (id 1239).',
+  },
+  {
+    id: 'consultar-compras-ultima-lacteos',
+    pregunta: '¿Qué le compré a Lácteos del Sur en la última compra?',
+    tipo: 'datos',
+    exige: {
+      conNumero: true,
+      // La compra más reciente DE LÁCTEOS DEL SUR (id 89) NO es la más reciente
+      // a secas (id 90, Distribuidora Norte): el atajo ultima_compra fallaría.
+      debeMencionarAlguna: ['lácteos del sur', 'lacteos del sur', '42.000', '42000', 'leche'],
+    },
+    // Filtro por proveedor: SOLO lo resuelve consultar_compras.
+    usaHerramienta: ['consultar_compras'],
+    nota: 'consultar_compras filtrada por proveedor "Lácteos del Sur", orden fecha_desc y limite 1 (id 89).',
+  },
+  {
+    id: 'consultar-gastos-mes-categoria',
+    pregunta: 'Mostrame los gastos del mes por categoría',
+    tipo: 'datos',
+    exige: {
+      conNumero: true,
+      // Debe NARRAR el resultado de consultar_gastos (fixtures del mes en curso:
+      // Alquiler $38.000, Servicios/Luz $42.000, Insumos $12.500), no inventar.
+      debeMencionarAlguna: ['alquiler', 'servicios', 'luz', 'insumos', '38.000', '38000', '42.000', '42000', '12.500', '12500'],
+    },
+    usaHerramienta: ['consultar_gastos'],
+    nota: 'Operación tipada consultar_gastos (periodo "mes"): debe invocarse y narrarse el resultado (sin inventar).',
+  },
+  {
+    id: 'consultar-productos-stock-bajo',
+    pregunta: '¿Qué productos tengo con stock bajo?',
+    tipo: 'datos',
+    exige: {
+      conNumero: true,
+      // Debe NARRAR el resultado de consultar_productos con bajo_minimo:true
+      // (Coca-Cola 3/10 y Leche 0/12 en el fixture), no inventar.
+      debeMencionarAlguna: ['coca-cola', 'coca cola', 'leche'],
+    },
+    usaHerramienta: ['consultar_productos'],
+    nota: 'Operación tipada consultar_productos con bajo_minimo:true: debe invocarse y narrarse el resultado (sin inventar).',
+  },
+  {
+    id: 'consultar-movimientos-stock-coca',
+    pregunta: '¿Cómo se movió el stock de Coca-Cola?',
+    tipo: 'datos',
+    exige: {
+      conNumero: true,
+      // Debe NARRAR el resultado de consultar_movimientos_stock (buscar
+      // "Coca-Cola" o producto_id 12: compra de 24 y venta de 2), no inventar.
+      debeMencionarAlguna: ['coca-cola', 'coca cola', 'compra', '24'],
+    },
+    usaHerramienta: ['consultar_movimientos_stock'],
+    nota: 'Operación tipada consultar_movimientos_stock (buscar "Coca-Cola" o producto_id 12): debe invocarse y narrarse el resultado (sin inventar).',
+  },
+  {
+    id: 'consultar-presupuestos-pendientes',
+    pregunta: '¿Qué presupuestos tengo pendientes?',
+    tipo: 'datos',
+    exige: {
+      conNumero: true,
+      // Debe NARRAR el resultado de consultar_presupuestos con estado "pendiente"
+      // (presupuesto 45 de María López por $15.200 en el fixture), no inventar.
+      debeMencionarAlguna: ['maría', 'maria', 'lópez', 'lopez', '15.200', '15200', '45'],
+    },
+    usaHerramienta: ['consultar_presupuestos'],
+    nota: 'Operación tipada consultar_presupuestos con estado "pendiente": debe invocarse y narrarse el resultado (sin inventar).',
+  },
+  {
+    id: 'consultar-turnos-caja-semana',
+    pregunta: '¿Cómo viene la caja de esta semana?',
+    tipo: 'datos',
+    exige: {
+      conNumero: true,
+      // Debe NARRAR el resultado de consultar_turnos_caja (turnos de Ana/Beto en
+      // el fixture), no inventar.
+      debeMencionarAlguna: ['ana', 'beto', 'abierto', 'cerrado', 'turno'],
+    },
+    usaHerramienta: ['consultar_turnos_caja'],
+    nota: 'Operación tipada consultar_turnos_caja (periodo "semana"): debe invocarse y narrarse el resultado (sin inventar).',
+  },
+  {
+    id: 'consultar-proveedores',
+    pregunta: '¿Qué proveedores tengo?',
+    tipo: 'datos',
+    exige: {
+      conNumero: true,
+      // Debe NARRAR el resultado de consultar_proveedores (Distribuidora Norte,
+      // Lácteos del Sur y Bebidas Oeste en el fixture), no inventar.
+      debeMencionarAlguna: ['distribuidora norte', 'lácteos del sur', 'lacteos del sur', 'bebidas oeste'],
+    },
+    usaHerramienta: ['consultar_proveedores'],
+    nota: 'Operación tipada consultar_proveedores: debe invocarse y narrarse el resultado (sin inventar).',
   },
 
   // ------------------------------------------------------------- Ambiguas
@@ -297,7 +472,8 @@ export const CORPUS_PRUEBA_E2E: CasoPruebaE2E[] = [
     id: 'var-clientes-inactivos',
     pregunta: '¿Qué clientes no me compran hace tiempo?',
     tipo: 'variada',
-    exige: { conNumero: true },
+    exige: { datosODeclara: true },
+    nota: 'Sin motor de clientes inactivos: narración o declaración honesta.',
   },
   {
     id: 'var-gastos-programados',
@@ -309,7 +485,8 @@ export const CORPUS_PRUEBA_E2E: CasoPruebaE2E[] = [
     id: 'var-medios-pago',
     pregunta: '¿Cómo se cobró hoy? Quiero el total por cada forma de pago',
     tipo: 'variada',
-    exige: { conNumero: true },
+    exige: { datosODeclara: true },
+    nota: 'Sin motor de medios de pago: narración o declaración honesta.',
   },
   {
     id: 'var-reponer',
@@ -334,7 +511,8 @@ export const CORPUS_PRUEBA_E2E: CasoPruebaE2E[] = [
     id: 'var-balance',
     pregunta: '¿Cuál es mi balance de este mes?',
     tipo: 'variada',
-    exige: { conNumero: true },
+    exige: { datosODeclara: true },
+    nota: 'Sin motor de balance del mes: narración o declaración honesta.',
   },
   {
     id: 'var-ticket-promedio',
@@ -346,13 +524,15 @@ export const CORPUS_PRUEBA_E2E: CasoPruebaE2E[] = [
     id: 'var-mejores-clientes',
     pregunta: '¿Quiénes son mis mejores clientes?',
     tipo: 'variada',
-    exige: { conNumero: true },
+    exige: { datosODeclara: true },
+    nota: 'Sin motor de ranking de clientes: narración o declaración honesta.',
   },
   {
     id: 'var-margen',
     pregunta: '¿Cuánto margen me dejaron las ventas de este mes?',
     tipo: 'variada',
-    exige: { conNumero: true },
+    exige: { datosODeclara: true },
+    nota: 'Sin motor de margen del mes: narración o declaración honesta.',
   },
   {
     id: 'var-fugas-precio',
@@ -382,7 +562,8 @@ export const CORPUS_PRUEBA_E2E: CasoPruebaE2E[] = [
     id: 'var-proveedores',
     pregunta: '¿Cuánto le compré a cada proveedor este mes?',
     tipo: 'variada',
-    exige: { conNumero: true },
+    exige: { datosODeclara: true },
+    nota: 'Sin motor de compras por proveedor: narración o declaración honesta.',
   },
   {
     id: 'var-caja',
@@ -432,7 +613,7 @@ export const CORPUS_PRUEBA_E2E: CasoPruebaE2E[] = [
     id: 'sin-oferta-final',
     pregunta: '¿Cuáles fueron mis 5 productos más vendidos este mes?',
     tipo: 'datos',
-    exige: { conNumero: true, sinOfertaFinal: true },
+    exige: { datosODeclara: true, sinOfertaFinal: true },
     nota: 'Bug real: Binny cerraba análisis con contenido con "¿Querés que te arme algo más?" en vez de terminar con el dato.',
   },
 ];
@@ -562,6 +743,36 @@ export function cumpleConNumero(texto: string): boolean {
   return /\d/.test(t);
 }
 
+// Frases con las que el modelo declara con honestidad que no tiene el dato
+// (se comparan normalizadas: minúsculas y sin acentos).
+const FRASES_FALTA_DATO = [
+  'no tengo',
+  'no dispongo',
+  'no cuento con',
+  'no lo tengo',
+  'no puedo',
+  'no esta',
+  'no aparece',
+  'no veo',
+  'no figuran',
+  'no hay dato',
+  'no tengo acceso',
+  'no tengo forma',
+  'no me consta',
+];
+
+/**
+ * `datosODeclara`: el modelo narró un motor (hay un número) o declaró con
+ * honestidad que no tiene el dato. Reemplaza a `conNumero` en los casos que
+ * antes se respondían con SQL libre.
+ */
+export function cumpleDatosODeclara(texto: string): boolean {
+  const t = quitarBloquesDeCodigo(texto ?? '');
+  if (/\d/.test(t)) return true;
+  const n = normalizar(t);
+  return FRASES_FALTA_DATO.some((f) => n.includes(f));
+}
+
 /**
  * `respuestaCompleta`: el texto útil (sin bloques de código ni ```seguir) NO
  * debe ser un ANUNCIO sin contenido. Misma semántica que la guarda del desktop:
@@ -570,6 +781,9 @@ export function cumpleConNumero(texto: string): boolean {
  * "### 1. Las 2 alertas críticas de hoy\n\nConsulté ... para confirmar:".
  */
 export function cumpleRespuestaCompleta(texto: string): boolean {
+  // Un bloque ```whatsapp / ```mensaje ES la respuesta (se muestra como mensaje):
+  // el texto que lo precede puede terminar en ":" y sigue siendo una respuesta completa.
+  if (/```(?:whatsapp|mensaje)\b/i.test(texto ?? '')) return true;
   const util = quitarBloquesDeCodigo(texto ?? '').replace(/[ \t]+\n/g, '\n').trim();
   // El vacío lo cubre `tieneRespuesta`; acá solo se juzga la forma del cierre.
   if (util.length === 0) return true;
@@ -665,6 +879,13 @@ const RE_OFERTA_FINAL =
   /(?:queres|quieres|te gustaria|te armo|te preparo|te genero|te muestro|te paso|te dejo|te hago|te calculo)\b/;
 
 /**
+ * Pregunta de aclaración de período/rango: es la repregunta de desambiguación
+ * que el prompt EXIGE cuando falta el período. No cuenta como oferta de cierre.
+ */
+const RE_PREGUNTA_PERIODO =
+  /\b(?:periodo|período|rango|dias?|días?|semanas?|mes(?:es)?|hoy|ayer|trimestre|anio|año)\b/i;
+
+/**
  * `sinOfertaFinal`: cuando la respuesta YA tiene contenido (una tabla de
  * resultados o ≥120 caracteres), NO debe TERMINAR con una pregunta de oferta
  * ("¿querés que…?", "¿querés ver…?", "¿te gustaría…?", "¿te armo…?"). Si la
@@ -685,6 +906,9 @@ export function cumpleSinOfertaFinal(texto: string): boolean {
   const ultima = lineas[lineas.length - 1] ?? '';
   const esPregunta = ultima.endsWith('?') || ultima.endsWith('？');
   if (!esPregunta) return true;
+  // Repregunta de período/rango (desambiguación legítima exigida por el prompt):
+  // no es una oferta de cierre aunque mencione días/meses con cifras.
+  if (RE_PREGUNTA_PERIODO.test(ultima)) return true;
   return !RE_OFERTA_FINAL.test(normalizar(ultima));
 }
 
@@ -795,6 +1019,8 @@ export function evaluarCasoE2E(texto: string, caso: CasoPruebaE2E): ResultadoCas
       `no reutilizó los datos previos (esperaba mencionar: ${exige.debeMencionarAlguna.slice(0, 3).join(', ')}…)`,
     );
   if (exige.conNumero && !cumpleConNumero(texto)) fallas.push('sin ningún número');
+  if (exige.datosODeclara && !cumpleDatosODeclara(texto))
+    fallas.push('no narró un motor (sin número) ni declaró que no tiene el dato');
   if (exige.repregunta && !cumpleRepregunta(texto)) fallas.push('no repreguntó (o repreguntó mal)');
   if (exige.guiaConPasos && !cumpleGuiaConPasos(texto)) fallas.push('sin camino de menú/pasos numerados');
   if (exige.seNiega && !cumpleSeNiega(texto)) fallas.push('no se negó explícitamente a crear/modificar');

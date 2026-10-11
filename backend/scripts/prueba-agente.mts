@@ -4,9 +4,12 @@
  * Simula el loop que hará el desktop (Rust) pero con datos falsos, sin tocar
  * la base de datos ni la cuota de ninguna licencia:
  *   1. Envía una pregunta con la definición REAL de herramientas.
- *   2. Espera un evento `herramienta` con SQL válido.
- *   3. Devuelve filas falsas como resultado role:"tool".
+ *   2. Espera un evento `herramienta` con una tool determinista válida.
+ *   3. Devuelve un resultado simulado como role:"tool".
  *   4. Verifica que el segundo turno complete (otra herramienta o texto final).
+ *
+ * El modelo ya NO escribe SQL: solo invoca motores deterministas. Este smoke
+ * test usa `ultima_venta` (sin parámetros) como caso mínimo.
  *
  * Uso: npx tsx scripts/prueba-agente.mts
  * Requiere LLM_API_KEY en el .env (consume llamadas reales al proveedor).
@@ -16,15 +19,9 @@ import { HERRAMIENTAS_AGENTE } from '../src/features/chat/chat.service';
 
 const SISTEMA = `Sos Binny, asistente de un sistema POS. Respondés en español, simple y sin tecnicismos.
 
-Tenés la herramienta ejecutar_consulta para obtener datos reales del negocio. Podés llamarla VARIAS VECES antes de responder. NUNCA inventes números.
+Tenés herramientas deterministas que calculan datos exactos del negocio (ultima_venta, ultima_compra, predecir_reposicion, comparar_periodos, etc.). Invocá la que corresponda ANTES de responder y narrá su resultado. NO escribas SQL. NUNCA inventes números: si el dato no está entre los resultados de las herramientas, decí que no lo tenés.`;
 
-Reglas SQL: solo SELECT o WITH, siempre con LIMIT (máximo 500), fechas como timestamps Unix INTEGER.
-"Hoy": DATE(col, 'unixepoch', 'localtime') = DATE('now', 'localtime').
-
-Esquema (SQLite):
-venta (id, total, estado, anulada_en, creada_en)
-producto (id, nombre, cantidad, stock_minimo, precio_venta, activo)
-Enums: venta.estado "completada" | "anulada". Válidas: estado='completada' AND anulada_en IS NULL.`;
+const NOMBRES_VALIDOS = new Set(HERRAMIENTAS_AGENTE.map((t) => t.function.name));
 
 async function paso(mensajes: AgenteMessage[], etiqueta: string) {
   console.log(`\n=== ${etiqueta} ===`);
@@ -51,40 +48,38 @@ async function paso(mensajes: AgenteMessage[], etiqueta: string) {
 async function main() {
   const mensajes: AgenteMessage[] = [
     { role: 'system', content: SISTEMA },
-    { role: 'user', content: '¿Cuánto vendí hoy y qué producto tengo con menos stock?' },
+    { role: 'user', content: '¿Cuál fue mi última venta?' },
   ];
 
-  // Paso 1: el modelo DEBE pedir datos con la herramienta (pregunta multi-dato)
+  // Paso 1: el modelo DEBE pedir datos con una herramienta determinista.
   const r1 = await paso(mensajes, 'Paso 1 (pregunta inicial)');
   if (r1.error) throw new Error(`Paso 1 falló: ${r1.error}`);
   if (r1.herramientas.length === 0) {
-    throw new Error('FALLO: el modelo respondió sin usar ejecutar_consulta (se esperaba tool call)');
+    throw new Error('FALLO: el modelo respondió sin usar ninguna herramienta (se esperaba tool call)');
   }
 
   const tc = r1.herramientas[0];
   console.log(`\n[tool] ${tc.nombre} id=${tc.id}`);
   console.log(`[tool] args=${tc.argumentos}`);
-  const args = JSON.parse(tc.argumentos) as { sql?: string; descripcion?: string };
-  if (tc.nombre !== 'ejecutar_consulta' || typeof args.sql !== 'string' || !/^\s*(SELECT|WITH)/i.test(args.sql)) {
-    throw new Error('FALLO: tool call con nombre o SQL inesperado');
+  if (!NOMBRES_VALIDOS.has(tc.nombre)) {
+    throw new Error(`FALLO: tool call con nombre inesperado: ${tc.nombre}`);
   }
-  console.log(`[tool] descripcion="${args.descripcion ?? ''}"`);
-  console.log('OK: tool call válido con SQL de lectura');
+  console.log('OK: tool call válido con una herramienta determinista');
 
-  // Paso 2: devolver filas falsas y verificar que el ciclo continúa
+  // Paso 2: devolver un resultado simulado y verificar que el ciclo continúa.
   mensajes.push({
     role: 'assistant',
     content: '',
     tool_calls: [{ id: tc.id, type: 'function', function: { name: tc.nombre, arguments: tc.argumentos } }],
   });
-  const filasFalsas =
-    /venta/i.test(args.sql) || /total/i.test(args.sql)
-      ? [{ total_hoy: 45250, cantidad_ventas: 12 }]
-      : [{ nombre: 'Leche Entera 1L', cantidad: 3, stock_minimo: 6 }];
+  const resultado =
+    tc.nombre === 'ultima_venta'
+      ? { venta: { id: 1234, fecha: '2026-10-10 19:42', total: 8750, items: [{ producto: 'Coca-Cola 1.5L', cantidad: 2, precio_unitario: 2500, subtotal: 5000 }], pagos: [{ metodo: 'efectivo', monto: 8750 }] } }
+      : { herramienta: tc.nombre, simulado: true, items: [{ producto: 'Coca-Cola 1.5L', reponer: 24 }] };
   mensajes.push({
     role: 'tool',
     tool_call_id: tc.id,
-    content: `Tus datos: (${filasFalsas.length} resultados):\n${JSON.stringify(filasFalsas)}\n\nAnalizá y respondé en español simple. Si necesitás más datos, usá la herramienta otra vez.`,
+    content: `Resultado de la herramienta:\n${JSON.stringify(resultado)}\n\nAnalizá y respondé en español simple. Si necesitás más datos, usá otra herramienta.`,
   });
 
   const r2 = await paso(mensajes, 'Paso 2 (con resultado de la herramienta)');

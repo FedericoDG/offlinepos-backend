@@ -9,7 +9,7 @@
  *  (a) `FENCES_AUTORIZADOS` es EXACTAMENTE ['chart', 'whatsapp', 'mensaje', 'seguir'].
  *  (b) Ningún modo del prompt enseña a emitir bloques de creación
  *      (identificadores `crear_*` / `cambiar_modulo` ni fences ```crear…).
- *  (c) `HERRAMIENTAS_AGENTE` contiene solo lectura + analítica + la memoria
+ *  (c) `HERRAMIENTAS_AGENTE` contiene solo motores deterministas + la memoria
  *      (ninguna tool de creación/edición de entidades del negocio).
  *  (d) Los guardianes/símbolos de la etapa de tarjetas ya NO existen:
  *      prometeSinTarjeta, jsonSueltoEntidad, reintentarTarjetaFaltante,
@@ -44,9 +44,8 @@ const FENCES_PROHIBIDOS = [
   '```crear',
 ];
 
-/** Tools permitidas: lectura + analítica + memoria (única escritura, no toca datos). */
+/** Tools permitidas: motores deterministas + memoria (única escritura, no toca datos). */
 const TOOLS_ESPERADAS = [
-  'ejecutar_consulta',
   'guardar_memoria',
   'simular_escenario',
   'predecir_reposicion',
@@ -56,6 +55,17 @@ const TOOLS_ESPERADAS = [
   'obtener_analitica_abc',
   'obtener_fugas_precio',
   'comparar_cajeros',
+  'consultar_ventas',
+  'consultar_compras',
+  'consultar_gastos',
+  'consultar_productos',
+  'consultar_movimientos_stock',
+  'consultar_presupuestos',
+  'consultar_clientes',
+  'consultar_proveedores',
+  'consultar_turnos_caja',
+  'ultima_venta',
+  'ultima_compra',
 ];
 
 /** Tools de escritura de entidades que NO deben existir. */

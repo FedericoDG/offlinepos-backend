@@ -21,7 +21,7 @@
  *      `consultar_presupuestos`, `consultar_clientes`, `consultar_proveedores`
  *      y `consultar_turnos_caja` también se simulan
  *      con el contrato JSON del desktop (respetando `limite`, `orden` e `id`).
- *   4. Se sigue el loop hasta texto final (máx. 10 pasos con herramientas).
+ *   4. Se sigue el loop hasta texto final (máx. MAX_PASOS pasos con herramientas).
  *   5. Se aplica el ESPEJO de guardas determinísticas del producto
  *      (`aplicarGuardasEspejo`): normalizarSeguir + quitarNombresInternos +
  *      quitarBloquesTecnicos + quitarOfertaFinal + quitarDisculpas, en ese
@@ -55,7 +55,12 @@ import {
   aplicarGuardasEspejo,
   type DisparosGuardas,
 } from '../src/features/chat/chat.guardas.espejo';
-import { llamarLLMAgenteStream, type AgenteMessage, type AgenteToolCall } from '../src/features/chat/chat.llm';
+import { llamarLLMAgenteStream, type AgenteMessage, type AgenteToolCall, type TokensUsados } from '../src/features/chat/chat.llm';
+import {
+  costoUSDDeModelo,
+  PRECIOS_POR_MODELO,
+  PRECIOS_USD_POR_1M,
+} from '../src/features/chat/chat.pricing';
 import {
   CORPUS_PRUEBA_E2E,
   evaluarCasoE2E,
@@ -77,7 +82,10 @@ const FILTRO = valorArg('--filtro')?.trim().toLowerCase();
 const REPES = Math.max(1, Number(valorArg('--repes') ?? '1') || 1);
 const CONCURRENCIA = Math.max(1, Number(valorArg('--concurrencia') ?? '2') || 2);
 const RUTA_REPORTE = '/tmp/opencode/prueba-binny-e2e.md';
-const MAX_PASOS = 10;
+// Espejo del tope de pasos del producto (`AGENTE_MAX_PASOS` del desktop, M3:
+// 10 -> 6). El desktop es quien corre el loop; esta batería lo replica, así que
+// el valor debe seguir al del desktop para medir el peor caso real.
+const MAX_PASOS = 6;
 const MAX_JSON_CHARS = 6000;
 
 // --- Contexto del comercio (el desktop lo manda fresco en cada turno) ---
@@ -1626,6 +1634,10 @@ interface TurnoAgente {
   acumulado: string;
   toolCalls: AgenteToolCall[];
   error?: string;
+  /** Costo: `usage` de ESTA llamada al modelo (ceros si el proveedor no lo mandó). */
+  tokens: TokensUsados;
+  /** Costo: true si el proveedor expuso `usage` en este turno. */
+  tieneUso: boolean;
 }
 
 async function llamarTurno(mensajes: AgenteMessage[], forzar: boolean): Promise<TurnoAgente> {
@@ -1633,17 +1645,25 @@ async function llamarTurno(mensajes: AgenteMessage[], forzar: boolean): Promise<
   let final: string | null = null;
   let toolCalls: AgenteToolCall[] = [];
   let error: string | undefined;
+  let tokens: TokensUsados = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0, cached_tokens: 0 };
+  let tieneUso = false;
   const opciones = forzar
     ? { forzarRespuestaFinal: true, sinHerramientas: true, model: env.LLM_MODEL }
     : { model: env.LLM_MODEL };
 
   for await (const ev of llamarLLMAgenteStream(mensajes, HERRAMIENTAS_AGENTE, opciones)) {
     if (ev.type === 'chunk' && ev.texto) acumulado += ev.texto;
-    else if (ev.type === 'done') final = ev.texto;
-    else if (ev.type === 'herramienta') toolCalls = ev.tool_calls ?? [];
-    else if (ev.type === 'error') error = ev.texto ?? 'error del proveedor';
+    else if (ev.type === 'done') {
+      final = ev.texto;
+      tokens = ev.tokens;
+      tieneUso = true;
+    } else if (ev.type === 'herramienta') {
+      toolCalls = ev.tool_calls ?? [];
+      tokens = ev.tokens;
+      tieneUso = true;
+    } else if (ev.type === 'error') error = ev.texto ?? 'error del proveedor';
   }
-  return { texto: final ?? acumulado, acumulado, toolCalls, error };
+  return { texto: final ?? acumulado, acumulado, toolCalls, error, tokens, tieneUso };
 }
 
 // --- Corrida de un caso (repite todo el flujo real) ---
@@ -1658,6 +1678,24 @@ interface CorridaCaso {
   disparos: DisparosGuardas;
   error?: string;
   ms: number;
+  /** M1 latencia: cantidad de llamadas al modelo (turnos del agente). */
+  llamadasModelo: number;
+  /** M1 latencia: ms acumulados esperando al modelo. */
+  msModelo: number;
+  /**
+   * M1 latencia: ms acumulados ejecutando herramientas. Las herramientas de esta
+   * batería son SIMULADAS (fixtures en proceso, sin I/O), así que rondan ~0 ms;
+   * el tiempo real de las operaciones vive en el desktop (Rust), no acá.
+   */
+  msHerramientas: number;
+  /** Costo: tokens de ENTRADA acumulados de todas las llamadas al modelo del caso. */
+  tokensPrompt: number;
+  /** Costo: tokens de SALIDA acumulados de todas las llamadas al modelo del caso. */
+  tokensCompletion: number;
+  /** Costo: tokens de entrada CACHEADOS acumulados (subconjunto de `tokensPrompt`). */
+  tokensCached: number;
+  /** Costo: llamadas al modelo que NO expusieron `usage` (costo subestimado). */
+  llamadasSinUso: number;
 }
 
 const SIN_DISPAROS: DisparosGuardas = {
@@ -1685,10 +1723,31 @@ async function correrCaso(caso: CasoPruebaE2E): Promise<CorridaCaso> {
   let error: string | undefined;
   let reintentoSugerenciasHecho = false;
   const herramientas: string[] = [];
+  // M1 latencia: instrumentación sin cambiar el flujo.
+  let llamadasModelo = 0;
+  let msModelo = 0;
+  let msHerramientas = 0;
+  // Costo: tokens de cada llamada al modelo, acumulados por caso.
+  let tokensPrompt = 0;
+  let tokensCompletion = 0;
+  let tokensCached = 0;
+  let llamadasSinUso = 0;
 
   try {
     while (true) {
+      llamadasModelo++;
+      const tModelo = Date.now();
       const turno = await llamarTurno(mensajes, forzar);
+      msModelo += Date.now() - tModelo;
+      // Costo: acumular tokens. Si el proveedor no mandó `usage`, la llamada se
+      // cuenta igual (llamadasModelo++) pero se marca para documentar el sesgo.
+      if (turno.tieneUso) {
+        tokensPrompt += turno.tokens.prompt_tokens;
+        tokensCompletion += turno.tokens.completion_tokens;
+        tokensCached += turno.tokens.cached_tokens;
+      } else {
+        llamadasSinUso++;
+      }
       if (turno.error) {
         // Una llamada a herramienta que el proveedor no pudo interpretar NO debe
         // matar la corrida: devolvemos un resultado de herramienta con el error y
@@ -1728,11 +1787,16 @@ async function correrCaso(caso: CasoPruebaE2E): Promise<CorridaCaso> {
           })),
         });
         for (const tc of turno.toolCalls) {
+          // M1 latencia: las herramientas de esta batería son fixtures en proceso
+          // (sin I/O), así que este tiempo es ~0 ms por diseño.
+          const tHerramienta = Date.now();
+          const contenido = resolverHerramienta(tc);
+          msHerramientas += Date.now() - tHerramienta;
           mensajes.push({
             role: 'tool',
             tool_call_id: tc.id,
             name: tc.nombre,
-            content: resolverHerramienta(tc),
+            content: contenido,
           });
         }
         if (pasos >= MAX_PASOS) forzar = true;
@@ -1765,6 +1829,13 @@ async function correrCaso(caso: CasoPruebaE2E): Promise<CorridaCaso> {
       disparos: { ...SIN_DISPAROS },
       error,
       ms: Date.now() - inicio,
+      llamadasModelo,
+      msModelo,
+      msHerramientas,
+      tokensPrompt,
+      tokensCompletion,
+      tokensCached,
+      llamadasSinUso,
     };
   }
 
@@ -1784,7 +1855,23 @@ async function correrCaso(caso: CasoPruebaE2E): Promise<CorridaCaso> {
     resultado.fallas.push(`no invocó la operación esperada (${caso.usaHerramienta.join(' | ')})`);
     resultado.detalle = resultado.fallas.join('; ');
   }
-  return { caso, texto: final, resultado, pasos, herramientas, disparos: espejo.disparos, error, ms: Date.now() - inicio };
+  return {
+    caso,
+    texto: final,
+    resultado,
+    pasos,
+    herramientas,
+    disparos: espejo.disparos,
+    error,
+    ms: Date.now() - inicio,
+    llamadasModelo,
+    msModelo,
+    msHerramientas,
+    tokensPrompt,
+    tokensCompletion,
+    tokensCached,
+    llamadasSinUso,
+  };
 }
 
 // --- Pool de concurrencia ---
@@ -1809,6 +1896,13 @@ async function correrConPool(tareas: Array<() => Promise<CorridaCaso>>, limite: 
           disparos: { ...SIN_DISPAROS },
           error: e instanceof Error ? e.message : String(e),
           ms: 0,
+          llamadasModelo: 0,
+          msModelo: 0,
+          msHerramientas: 0,
+          tokensPrompt: 0,
+          tokensCompletion: 0,
+          tokensCached: 0,
+          llamadasSinUso: 0,
         };
       }
     }
@@ -1845,6 +1939,95 @@ function percentil(valores: number[], p: number): number {
   const orden = [...valores].sort((a, b) => a - b);
   const idx = Math.min(orden.length - 1, Math.max(0, Math.ceil(p * orden.length) - 1));
   return orden[idx]!;
+}
+
+// --- M1 latencia: desglose por fase (modelo vs herramientas) ---
+
+interface DesgloseFase {
+  llamadas: { prom: number; mediana: number; p95: number };
+  msModelo: { prom: number; mediana: number; p95: number };
+  msHerramientas: { prom: number; mediana: number; p95: number; total: number };
+}
+
+/** Estadísticas de llamadas/modelo/herramientas para un conjunto de corridas. */
+function desgloseDeFase(corridas: CorridaCaso[]): DesgloseFase {
+  const llamadas = corridas.map((c) => c.llamadasModelo);
+  const modelo = corridas.map((c) => c.msModelo);
+  const herr = corridas.map((c) => c.msHerramientas);
+  return {
+    llamadas: { prom: promedio(llamadas), mediana: mediana(llamadas), p95: percentil(llamadas, 0.95) },
+    msModelo: { prom: promedio(modelo), mediana: mediana(modelo), p95: percentil(modelo, 0.95) },
+    msHerramientas: {
+      prom: promedio(herr),
+      mediana: mediana(herr),
+      p95: percentil(herr, 0.95),
+      total: herr.reduce((a, b) => a + b, 0),
+    },
+  };
+}
+
+// --- Costo de la corrida (USD) ---
+//
+// Los precios NO se hardcodean: salen de `chat.pricing.ts` (única fuente de
+// verdad). El modelo vigente es `env.LLM_MODEL`; si no tiene tarifa cargada, se
+// cae a las tarifas del modelo vigente (mismo criterio que `costoUSDDeModelo`).
+
+/** Tarifas vigentes del modelo en uso (leídas del módulo de precios). */
+const TARIFAS_MODELO = PRECIOS_POR_MODELO[env.LLM_MODEL] ?? PRECIOS_USD_POR_1M;
+
+/** Costo en USD de una corrida según sus tokens acumulados. */
+function costoDeCorrida(c: CorridaCaso): number {
+  return costoUSDDeModelo(env.LLM_MODEL, c.tokensPrompt, c.tokensCompletion, c.tokensCached);
+}
+
+/** Formato de costo con coma decimal (es): 0.1523 → "$0,1523". */
+function fmtCostoUSD(valor: number): string {
+  return `$${valor.toFixed(4).replace('.', ',')}`;
+}
+
+/** Tokens en formato compacto (es): 3145728 → "3,1M". */
+function fmtTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1).replace('.', ',')}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1).replace('.', ',')}k`;
+  return String(n);
+}
+
+interface ResumenCosto {
+  totalUSD: number;
+  tokensPrompt: number;
+  tokensCompletion: number;
+  tokensCached: number;
+  /** prompt + completion (prompt ya incluye los cacheados). */
+  tokensTotal: number;
+  llamadas: number;
+  llamadasSinUso: number;
+}
+
+/** Agrega el costo y los tokens de todas las corridas. */
+function resumenDeCosto(corridas: CorridaCaso[]): ResumenCosto {
+  let totalUSD = 0;
+  let tokensPrompt = 0;
+  let tokensCompletion = 0;
+  let tokensCached = 0;
+  let llamadas = 0;
+  let llamadasSinUso = 0;
+  for (const c of corridas) {
+    totalUSD += costoDeCorrida(c);
+    tokensPrompt += c.tokensPrompt;
+    tokensCompletion += c.tokensCompletion;
+    tokensCached += c.tokensCached;
+    llamadas += c.llamadasModelo;
+    llamadasSinUso += c.llamadasSinUso;
+  }
+  return {
+    totalUSD,
+    tokensPrompt,
+    tokensCompletion,
+    tokensCached,
+    tokensTotal: tokensPrompt + tokensCompletion,
+    llamadas,
+    llamadasSinUso,
+  };
 }
 
 /** Cuenta cuántas corridas dispararon cada guarda del espejo. */
@@ -1937,6 +2120,85 @@ function escribirReporte(corridas: CorridaCaso[], nota?: string): void {
     lineas.push(`| ${tipo} | ${promedio(ms)} ms | ${mediana(ms)} ms | ${percentil(ms, 0.95)} ms | ${ms.length} |`);
   }
   lineas.push('');
+
+  // --- Desglose por fase (M1 latencia): cuánto es modelo y cuánto herramientas ---
+  const faseGlobal = desgloseDeFase(corridas);
+  const topModelo = [...corridas].sort((a, b) => b.msModelo - a.msModelo).slice(0, 5);
+  const fasePorTipo = new Map<string, CorridaCaso[]>();
+  for (const c of corridas) {
+    const arr = fasePorTipo.get(c.caso.tipo) ?? [];
+    arr.push(c);
+    fasePorTipo.set(c.caso.tipo, arr);
+  }
+
+  lineas.push('## Desglose por fase');
+  lineas.push('');
+  lineas.push('Cuánto del total es esperar al modelo y cuánto ejecutar herramientas.');
+  lineas.push('Las herramientas de esta batería son SIMULADAS (fixtures en proceso, sin I/O): su tiempo ronda ~0 ms por diseño; el tiempo real de las operaciones vive en el desktop (Rust).');
+  lineas.push('');
+  lineas.push('### Global');
+  lineas.push('');
+  lineas.push('| métrica | promedio | mediana | p95 |');
+  lineas.push('| --- | :-: | :-: | :-: |');
+  lineas.push(`| llamadas al modelo | ${faseGlobal.llamadas.prom} | ${faseGlobal.llamadas.mediana} | ${faseGlobal.llamadas.p95} |`);
+  lineas.push(`| ms de modelo | ${faseGlobal.msModelo.prom} ms | ${faseGlobal.msModelo.mediana} ms | ${faseGlobal.msModelo.p95} ms |`);
+  lineas.push(`| ms de herramientas | ${faseGlobal.msHerramientas.prom} ms | ${faseGlobal.msHerramientas.mediana} ms | ${faseGlobal.msHerramientas.p95} ms |`);
+  lineas.push('');
+  lineas.push(`- ms de herramientas (total acumulado en toda la corrida): ${faseGlobal.msHerramientas.total} ms`);
+  lineas.push('');
+  lineas.push('### Top 5 por ms de modelo');
+  lineas.push('');
+  lineas.push('| id | llamadas | ms modelo |');
+  lineas.push('| --- | :-: | :-: |');
+  for (const c of topModelo) {
+    lineas.push(`| ${c.caso.id} | ${c.llamadasModelo} | ${c.msModelo} |`);
+  }
+  lineas.push('');
+  lineas.push('### Desglose por tipo');
+  lineas.push('');
+  lineas.push('| tipo | llamadas prom | llamadas mediana | llamadas p95 | ms modelo prom | ms modelo mediana | ms modelo p95 | ms herr. prom |');
+  lineas.push('| --- | :-: | :-: | :-: | :-: | :-: | :-: | :-: |');
+  for (const [tipo, cs] of fasePorTipo) {
+    const d = desgloseDeFase(cs);
+    lineas.push(
+      `| ${tipo} | ${d.llamadas.prom} | ${d.llamadas.mediana} | ${d.llamadas.p95} | ${d.msModelo.prom} ms | ${d.msModelo.mediana} ms | ${d.msModelo.p95} ms | ${d.msHerramientas.prom} ms |`,
+    );
+  }
+  lineas.push('');
+
+  // --- Costo de la corrida (USD): cuánto costó esta corrida, según los tokens ---
+  const costo = resumenDeCosto(corridas);
+  const costoTipo = new Map<string, number>();
+  for (const c of corridas) {
+    costoTipo.set(c.caso.tipo, (costoTipo.get(c.caso.tipo) ?? 0) + costoDeCorrida(c));
+  }
+  lineas.push('## Costo de la corrida');
+  lineas.push('');
+  lineas.push('Costo estimado en USD de las llamadas al modelo de ESTA corrida, con las tarifas de `chat.pricing.ts`.');
+  lineas.push('');
+  lineas.push(`- **Total:** ${fmtCostoUSD(costo.totalUSD)} (${costo.llamadas} llamadas al modelo)`);
+  lineas.push(`- **Costo promedio por caso:** ${fmtCostoUSD(total ? costo.totalUSD / total : 0)}`);
+  lineas.push(
+    `- **Tokens totales:** ${costo.tokensTotal.toLocaleString('es-AR')} (entrada ${costo.tokensPrompt.toLocaleString('es-AR')} · salida ${costo.tokensCompletion.toLocaleString('es-AR')} · cacheados ${costo.tokensCached.toLocaleString('es-AR')})`,
+  );
+  lineas.push(
+    `- **Modelo y tarifas usadas:** ${env.LLM_MODEL} — entrada $${TARIFAS_MODELO.entrada}/1M · caché $${TARIFAS_MODELO.entradaCacheada}/1M · salida $${TARIFAS_MODELO.salida}/1M`,
+  );
+  lineas.push('');
+  lineas.push('### Costo por tipo');
+  lineas.push('');
+  lineas.push('| tipo | costo |');
+  lineas.push('| --- | :-: |');
+  for (const [tipo, monto] of costoTipo) {
+    lineas.push(`| ${tipo} | ${fmtCostoUSD(monto)} |`);
+  }
+  lineas.push('');
+  if (costo.llamadasSinUso > 0) {
+    lineas.push(
+      `> ${costo.llamadasSinUso} llamada(s) al modelo no expusieron \`usage\`: se contaron igual, pero su costo puede quedar subestimado.`,
+    );
+    lineas.push('');
+  }
 
   // --- Disparos por guarda (informativo, no afecta la nota) ---
   const disparos = contarDisparos(corridas);
@@ -2062,6 +2324,18 @@ async function main() {
   for (const [tipo, ms] of msPorTipo) {
     console.log(`    ${tipo.padEnd(16)} promedio ${promedio(ms)} ms · mediana ${mediana(ms)} ms · p95 ${percentil(ms, 0.95)} ms`);
   }
+
+  // --- Desglose por fase (M1 latencia): resumen en una línea ---
+  const fase = desgloseDeFase(corridas);
+  console.log(
+    `Modelo: ${fase.msModelo.prom} ms prom · ${fase.llamadas.prom} llamadas prom · herramientas: ${fase.msHerramientas.prom} ms`,
+  );
+
+  // --- Costo de la corrida (USD): resumen en una línea ---
+  const costo = resumenDeCosto(corridas);
+  console.log(
+    `Costo: ${fmtCostoUSD(costo.totalUSD)} (${total} casos · ${costo.llamadas} llamadas · ${fmtTokens(costo.tokensTotal)} tokens)`,
+  );
 
   // --- Disparos por guarda (informativo) ---
   console.log('\n--- Disparos por guarda (informativo) ---');

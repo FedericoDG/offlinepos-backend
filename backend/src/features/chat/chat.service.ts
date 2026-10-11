@@ -1175,6 +1175,81 @@ export function intentoMemoria(textoUsuarios: string): boolean {
   return RE_INTENTO_MEMORIA.some((re) => re.test(texto));
 }
 
+// --- Pre-chequeo determinista de memoria (M2 latencia) ---
+//
+// La llamada automática de memoria (`forzarHerramienta: 'guardar_memoria'` en
+// `streamAgente`) es UNA llamada extra al modelo por turno. Para no gastarla en
+// turnos que claramente no la necesitan, se decide por CÓDIGO si el mensaje del
+// comerciante PARECE una preferencia o un dato estable ANTES de dispararla. La
+// herramienta `guardar_memoria` sigue disponible en `HERRAMIENTAS_AGENTE`: si el
+// modelo decide invocarla por su cuenta, se respeta igual.
+//
+// Criterio (lista documentada; el texto se normaliza a minúsculas y SIN acentos,
+// misma convención que las guardas):
+//   A) Marca EXPLÍCITA de "recordalo": recordá/acordate/acordá, anotá, guardá,
+//      "tenés que saber", "ojo con".
+//   B) Permanencia en el tiempo: "de ahora en más", "a partir de", "siempre",
+//      "nunca".
+//   C) Preferencia: "me gusta", "no me gusta", "prefiero/preferimos".
+//   D) Pertenencia o rutina estable: "mi ", "mis ", "nuestro/a(s)", "usamos",
+//      "trabajo con".
+//   E) Además se conservan los patrones "con hecho" del gate histórico
+//      (`intentoMemoria`: "mi proveedor … es …", "abrimos … a las …", "anotá que
+//      …") para no perder ninguna memoria que antes se detectaba.
+//
+// NO dispara en preguntas normales de datos ("¿cuánto vendí hoy?"), guías
+// ("¿cómo creo un combo?") ni pedidos ("cargame un gasto"): esas formas no traen
+// ninguna marca de la lista. Además, una PREGUNTA o un PEDIDO directo solo
+// dispara si trae una marca EXPLÍCITA (A) o de permanencia (B), para evitar
+// falsos positivos como "¿cómo se movieron mis ventas?" o "mostrame mis ventas".
+const RE_MEMORIA_FUERTE: RegExp[] = [
+  /\b(recorda|acordate|acorda|anota|anotate|guarda|guardate)\b/,
+  /\btenes que saber\b/,
+  /\bojo con\b/,
+  /\bde ahora en mas\b/,
+  /\ba partir de\b/,
+];
+const RE_MEMORIA_ESTABLE: RegExp[] = [
+  /\bsiempre\b/,
+  /\bnunca\b/,
+  /\bme gusta\b/,
+  /\bno me gusta\b/,
+  /\bprefier\w*\b/,
+  /\bprefer\w*\b/,
+  /\bmi\s/,
+  /\bmis\s/,
+  /\bnuestr[oa]s?\b/,
+  /\busamos\b/,
+  /\btrabajo con\b/,
+];
+const RE_PREGUNTA_MEMORIA = /[?¿]/;
+const RE_PEDIDO_DIRECTO =
+  /\b(mostra|mostrame|dame|decime|mandame|cargame|creame|activame|borrame|armame|pasame|haceme)\b/;
+
+/** Normaliza a minúsculas y sin acentos (para el pre-chequeo de memoria). */
+function normalizarParaMemoria(texto: string): string {
+  return (texto ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+
+/**
+ * ¿El mensaje del comerciante PARECE una preferencia o un dato estable que vale
+ * la pena guardar en memoria? Función PURA (sin red, sin DB): se usa como
+ * pre-chequeo para saltear la llamada automática de `guardar_memoria` en turnos
+ * que no la necesitan. Ver la lista y el criterio documentados arriba.
+ */
+export function mensajePareceMemorable(texto: string): boolean {
+  const crudo = texto ?? '';
+  if (crudo.trim().length < 4) return false;
+  // Patrones "con hecho" del gate histórico: no se pierde nada de lo que antes
+  // se detectaba.
+  if (intentoMemoria(crudo)) return true;
+  const t = normalizarParaMemoria(crudo);
+  if (RE_MEMORIA_FUERTE.some((re) => re.test(t))) return true;
+  // Una pregunta o un pedido directo solo dispara con marca explícita/permanencia.
+  if (RE_PREGUNTA_MEMORIA.test(t) || RE_PEDIDO_DIRECTO.test(t)) return false;
+  return RE_MEMORIA_ESTABLE.some((re) => re.test(t));
+}
+
 /**
  * Recorte con gracia del historial del agente (nunca 400 al usuario).
  * Si supera HISTORIAL_MAX_AGENTE: conserva siempre el primer mensaje de
@@ -1664,10 +1739,17 @@ Reglas estrictas:
         // sería una promesa vacía. Se pide UNA vez más con tools habilitadas;
         // lo que emita se reenvía tal cual (el desktop ejecuta directo con
         // automatico o muestra tarjeta). Si insiste sin invocar, se acepta.
+        //
+        // M2 latencia: antes de disparar esta llamada EXTRA se decide por código
+        // (pre-chequeo determinista `mensajePareceMemorable`) si el mensaje del
+        // comerciante parece una preferencia/dato estable. En turnos que no lo
+        // parecen (preguntas de datos, guías, pedidos) se SALTEA la llamada; la
+        // herramienta `guardar_memoria` sigue disponible para que el modelo la
+        // use si él decide.
         const hayToolMemoria = mensajes.some((m) =>
           (m.tool_calls ?? []).some((tc: any) => tc?.function?.name === 'guardar_memoria'),
         );
-        if (!hayToolMemoria && !omitirDoneFinal && intentoMemoria(textoUsuariosDone)) {
+        if (!hayToolMemoria && !omitirDoneFinal && mensajePareceMemorable(textoUsuariosDone)) {
           console.warn('[Binny-memoria] dato estable sin guardar; pidiendo tool una vez');
           mensajes.push({
             role: 'user',

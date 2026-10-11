@@ -380,7 +380,9 @@ export interface AgenteToolDef {
 
 export type AgenteEvento =
   | { type: 'chunk'; texto: string }
-  | { type: 'herramienta'; tool_calls: AgenteToolCall[] }
+  // `tokens` viaja también en el turno de herramientas para poder contabilizar
+  // el costo de TODAS las llamadas al modelo (no solo las que terminan en texto).
+  | { type: 'herramienta'; tool_calls: AgenteToolCall[]; tokens: TokensUsados }
   | { type: 'done'; texto: string; tokens: TokensUsados }
   | { type: 'error'; texto: string };
 
@@ -400,6 +402,8 @@ export async function* llamarLLMAgenteStream(
 ): AsyncGenerator<AgenteEvento> {
   const { forzarRespuestaFinal = false, model = env.LLM_MODEL, sinHerramientas = false, forzarHerramienta, continuacion = false } = opciones;
   const ctrl = new AbortController();
+  // Solo medición (M1 latencia): duración de ESTA llamada al agente, para el log.
+  const inicioAgente = Date.now();
 
   try {
     const body: Record<string, unknown> = {
@@ -546,7 +550,7 @@ export async function* llamarLLMAgenteStream(
     }
 
     console.log(
-      `[LLM Agente] Tokens — prompt: ${tokens.prompt_tokens}, completion: ${tokens.completion_tokens}, total: ${tokens.total_tokens}, cached: ${tokens.cached_tokens}, finish: ${finishReason}, tools: ${llamadas.length}`
+      `[LLM Agente] Tokens — prompt: ${tokens.prompt_tokens}, completion: ${tokens.completion_tokens}, total: ${tokens.total_tokens}, cached: ${tokens.cached_tokens}, finish: ${finishReason}, tools: ${llamadas.length}, dur: ${Date.now() - inicioAgente}ms`
     );
 
     // Flush del supresor: cola retenida por posible tag cortado (vacío si quedó think abierto).
@@ -560,7 +564,7 @@ export async function* llamarLLMAgenteStream(
         yield { type: 'error', texto: 'El LLM pidió usar una herramienta pero no pude interpretar la llamada' };
         return;
       }
-      yield { type: 'herramienta', tool_calls: completas };
+      yield { type: 'herramienta', tool_calls: completas, tokens };
       return;
     }
 

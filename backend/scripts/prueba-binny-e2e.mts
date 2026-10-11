@@ -5,6 +5,10 @@
  * `src/features/chat/chat.prueba.e2e.ts`:
  *
  *   1. Prompt de sistema con `construirPromptSistema('agente', contexto, pregunta)`.
+ *      Si el caso declara `historial` (OPCIONAL), esos turnos previos se insertan
+ *      entre el prompt de sistema y la pregunta, para probar referencias a la
+ *      respuesta anterior ("esos datos", "esa tabla"). Los casos sin `historial`
+ *      corren igual que siempre (retrocompatible).
  *   2. Llamada al proveedor CON herramientas (`HERRAMIENTAS_AGENTE`) usando la
  *      misma capa que el servicio (`llamarLLMAgenteStream`), no `llamarLLM` suelto.
  *   3. Si el modelo pide `ejecutar_consulta`, se ejecuta el SQL DE VERDAD contra
@@ -322,8 +326,13 @@ async function correrCaso(db: DatabaseSync, caso: CasoPruebaE2E): Promise<Corrid
   const inicio = Date.now();
   const mensajes: AgenteMessage[] = [
     { role: 'system', content: construirPromptSistema('agente', CONTEXTO, caso.pregunta) },
-    { role: 'user', content: caso.pregunta },
   ];
+  // Historial OPCIONAL del caso (retrocompatible): se inserta entre el prompt de
+  // sistema y la pregunta, tal como lo hace `preguntarAgente` con `data.historial`.
+  for (const m of caso.historial ?? []) {
+    mensajes.push({ role: m.rol === 'asistente' ? 'assistant' : 'user', content: m.contenido });
+  }
+  mensajes.push({ role: 'user', content: caso.pregunta });
   let pasos = 0;
   let forzar = false;
   let textoFinal = '';

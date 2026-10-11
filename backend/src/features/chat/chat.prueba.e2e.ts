@@ -55,6 +55,21 @@ export interface ExigenciasE2E {
    * ("¿Querés que te muestre de hoy, de la semana o del mes?").
    */
   sinOfrecerLoPedido?: boolean;
+  /**
+   * La respuesta, cuando YA tiene contenido (una tabla de resultados o ≥120
+   * caracteres), NO debe TERMINAR con una pregunta de oferta ("¿querés que…?",
+   * "¿querés ver…?", "¿te gustaría…?", "¿te armo…?"). El sistema ya le ofrece
+   * opciones de seguimiento al comerciante. La repregunta corta de
+   * desambiguación queda exceptuada. Bug real: Binny cierra un análisis con
+   * "¿Querés que te arme algo más?".
+   */
+  sinOfertaFinal?: boolean;
+  /**
+   * Al menos UNA de estas frases (case/acento-insensible) debe aparecer en la
+   * respuesta. Se usa para probar que el modelo REUTILIZÓ datos de un turno
+   * anterior (ej: la tabla que él mismo mostró) en vez de cambiar de tema.
+   */
+  debeMencionarAlguna?: string[];
 }
 
 export interface CasoPruebaE2E {
@@ -66,8 +81,21 @@ export interface CasoPruebaE2E {
   tipo: TipoPruebaE2E;
   /** Qué exige este caso (además de las 4 comunes). */
   exige: ExigenciasE2E;
+  /**
+   * Historial OPCIONAL de turnos previos que el ejecutor incluye ANTES de la
+   * pregunta del caso, para probar referencias a la respuesta anterior
+   * ("esos datos", "esa tabla"). Si se omite, el caso corre igual que siempre
+   * (retrocompatible).
+   */
+  historial?: MensajeHistorialE2E[];
   /** Nota opcional: por qué está en el corpus (bug que lo motivó). */
   nota?: string;
+}
+
+/** Un turno previo de la conversación (rol + contenido textual). */
+export interface MensajeHistorialE2E {
+  rol: 'usuario' | 'asistente';
+  contenido: string;
 }
 
 // --- Reglas comunes a TODOS los casos ---
@@ -82,6 +110,7 @@ export const EXIGENCIAS_COMUNES: Required<
     | 'respuestaCompleta'
     | 'sinDisculpas'
     | 'sinOfrecerLoPedido'
+    | 'sinOfertaFinal'
   >
 > = {
   sinSql: true,
@@ -91,6 +120,7 @@ export const EXIGENCIAS_COMUNES: Required<
   respuestaCompleta: true,
   sinDisculpas: true,
   sinOfrecerLoPedido: true,
+  sinOfertaFinal: true,
 };
 
 export const CORPUS_PRUEBA_E2E: CasoPruebaE2E[] = [
@@ -360,6 +390,51 @@ export const CORPUS_PRUEBA_E2E: CasoPruebaE2E[] = [
     tipo: 'variada',
     exige: { conNumero: true },
   },
+
+  // -------------------------------------------- Referencias y cierre
+  {
+    id: 'ref-esos-datos',
+    pregunta: 'con esos datos puedes armarme un mensaje de whatsapp?',
+    tipo: 'variada',
+    historial: [
+      { rol: 'usuario', contenido: '¿Qué productos me dejaron más ganancia este mes?' },
+      {
+        rol: 'asistente',
+        contenido:
+          'Estos son tus 3 productos con más ganancia este mes:\n\n' +
+          '| Producto | Ganancia |\n' +
+          '| --- | --- |\n' +
+          '| Fernet Branca 1L | $60.000 |\n' +
+          "| Gin Gordon's | $27.000 |\n" +
+          '| Alfajor Fulbito | $25.600 |\n\n' +
+          'El Fernet Branca 1L fue tu producto estrella, seguido por el Gin Gordon\'s y el Alfajor Fulbito.',
+      },
+    ],
+    exige: {
+      // Al menos uno de estos productos/montos debe aparecer: prueba que Binny
+      // reutilizó la tabla que él mismo mostró y no volvió a consultar ni cambió de tema.
+      debeMencionarAlguna: [
+        'fernet',
+        'gordon',
+        'fulbito',
+        '60.000',
+        '60000',
+        '27.000',
+        '27000',
+        '25.600',
+        '25600',
+      ],
+      sinOfrecerLoPedido: true,
+    },
+    nota: 'Bug real: con la tabla de ganancias en el historial, ante "con esos datos… whatsapp" Binny respondió un resumen de ventas totales en vez de armar el mensaje con esos productos.',
+  },
+  {
+    id: 'sin-oferta-final',
+    pregunta: '¿Cuáles fueron mis 5 productos más vendidos este mes?',
+    tipo: 'datos',
+    exige: { conNumero: true, sinOfertaFinal: true },
+    nota: 'Bug real: Binny cerraba análisis con contenido con "¿Querés que te arme algo más?" en vez de terminar con el dato.',
+  },
 ];
 
 // ============================================================================
@@ -470,7 +545,14 @@ export function cumpleSinTerminosTecnicos(texto: string): boolean {
 
 /** `tieneRespuesta`: el texto útil (sin bloques de código ni ```seguir) es real. */
 export function cumpleTieneRespuesta(texto: string): boolean {
-  const util = quitarBloquesDeCodigo(texto ?? '').replace(/\s+/g, ' ').trim();
+  // Los bloques ```whatsapp / ```mensaje SON la respuesta al comerciante (se
+  // muestran como mensaje): su contenido cuenta como texto útil. Los demás
+  // bloques (chart/seguir/sql) se descartan.
+  const conMensajes = (texto ?? '').replace(
+    /```(?:whatsapp|mensaje)\b([\s\S]*?)```/gi,
+    (_m, cuerpo: string) => ` ${cuerpo} `,
+  );
+  const util = quitarBloquesDeCodigo(conMensajes).replace(/\s+/g, ' ').trim();
   return util.length >= 25;
 }
 
@@ -574,6 +656,48 @@ export function cumpleSinOfrecerLoPedido(texto: string): boolean {
   return !RE_OFRECER_LO_PEDIDO.test(normalizar(texto ?? ''));
 }
 
+/**
+ * Pregunta de oferta al cierre (el sistema ya ofrece el seguimiento). Incluye
+ * "¿querés que…?", "¿querés ver…?", "¿te gustaría…?", "¿te armo…?" y variantes
+ * de ofrecer una acción más. Se evalúa sobre el texto normalizado (sin acentos).
+ */
+const RE_OFERTA_FINAL =
+  /(?:queres|quieres|te gustaria|te armo|te preparo|te genero|te muestro|te paso|te dejo|te hago|te calculo)\b/;
+
+/**
+ * `sinOfertaFinal`: cuando la respuesta YA tiene contenido (una tabla de
+ * resultados o ≥120 caracteres), NO debe TERMINAR con una pregunta de oferta
+ * ("¿querés que…?", "¿querés ver…?", "¿te gustaría…?", "¿te armo…?"). Si la
+ * respuesta es una repregunta corta de desambiguación (o no tiene contenido
+ * real), el criterio NO aplica.
+ */
+export function cumpleSinOfertaFinal(texto: string): boolean {
+  const t = quitarBloquesDeCodigo(texto ?? '').trim();
+  if (t.length === 0) return true;
+  const tieneTabla = TIENE_TABLA_MARKDOWN.test(t);
+  const tieneContenido = tieneTabla || t.length >= 120;
+  // Sin contenido real: no aplica (cubre la repregunta corta de desambiguación).
+  if (!tieneContenido) return true;
+  // Repregunta de desambiguación (sin datos a la vista): no aplica. Se exige que
+  // no haya cifras ni tabla para no dejar pasar un análisis que cierre ofreciendo.
+  if (cumpleRepregunta(t) && !/\d/.test(t) && !tieneTabla) return true;
+  const lineas = t.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
+  const ultima = lineas[lineas.length - 1] ?? '';
+  const esPregunta = ultima.endsWith('?') || ultima.endsWith('？');
+  if (!esPregunta) return true;
+  return !RE_OFERTA_FINAL.test(normalizar(ultima));
+}
+
+/**
+ * `debeMencionarAlguna`: al menos UNA de las frases aparece en el texto
+ * (case/acento-insensible). Sirve para probar que el modelo reutilizó datos de
+ * un turno anterior (ej: la tabla que él mismo mostró).
+ */
+export function cumpleDebeMencionarAlguna(texto: string, frases: string[]): boolean {
+  const t = normalizar(texto ?? '');
+  return frases.some((f) => t.includes(normalizar(f)));
+}
+
 /** `guiaConPasos`: camino de menú (→ o "Menú") + al menos 2 pasos numerados. */
 export function cumpleGuiaConPasos(texto: string): boolean {
   const t = quitarBloqueSeguir(texto ?? '');
@@ -660,6 +784,16 @@ export function evaluarCasoE2E(texto: string, caso: CasoPruebaE2E): ResultadoCas
     fallas.push(`se disculpó o habló de su proceso (${disculpasDetectadas(texto).join(', ') || 'disculpa'})`);
   if (exige.sinOfrecerLoPedido && !cumpleSinOfrecerLoPedido(texto))
     fallas.push('ofreció hacer algo que el comerciante ya había pedido');
+  if (exige.sinOfertaFinal && !cumpleSinOfertaFinal(texto))
+    fallas.push('cerró con una pregunta de oferta (¿querés que…?)');
+  if (
+    exige.debeMencionarAlguna &&
+    exige.debeMencionarAlguna.length > 0 &&
+    !cumpleDebeMencionarAlguna(texto, exige.debeMencionarAlguna)
+  )
+    fallas.push(
+      `no reutilizó los datos previos (esperaba mencionar: ${exige.debeMencionarAlguna.slice(0, 3).join(', ')}…)`,
+    );
   if (exige.conNumero && !cumpleConNumero(texto)) fallas.push('sin ningún número');
   if (exige.repregunta && !cumpleRepregunta(texto)) fallas.push('no repreguntó (o repreguntó mal)');
   if (exige.guiaConPasos && !cumpleGuiaConPasos(texto)) fallas.push('sin camino de menú/pasos numerados');

@@ -95,6 +95,12 @@ model ChatConsumo {
   licencia_id       String
   licencia          Licencia @relation(fields: [licencia_id], references: [id], onDelete: Cascade)
   periodo           String   // "2026-09"
+  /// Modelo LLM que genero estos tokens. Necesario para resolver el precio por
+  /// modelo: los tokens se acumulan por licencia/periodo y si el modelo cambia
+  /// a mitad de camino, recalcular el historico con los precios nuevos lo
+  /// sobre-estima. El @default backfillea las filas historicas como el modelo
+  /// anterior (qwen3.7-flash).
+  modelo            String   @default("qwen3.7-flash")
   mensajes          Int      @default(0)
   prompt_tokens     BigInt   @default(0)
   completion_tokens BigInt   @default(0)

@@ -12,11 +12,13 @@ import { informe } from './ayuda';
 import * as suscripciones from './suscripciones.prueba';
 import * as licencias from './licencias.prueba';
 import * as estadisticas from './estadisticas.prueba';
+import * as guardasEspejo from './chat-guardas-espejo.prueba';
 
 console.log('\n=== Pruebas de logica del panel ===');
 
 await suscripciones.correr();
 await licencias.correr();
 await estadisticas.correr();
+guardasEspejo.correr();
 
 informe();

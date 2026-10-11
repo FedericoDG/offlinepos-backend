@@ -4,6 +4,7 @@ import { env } from '../../config/env';
 import type { ClienteRaiz } from '../../config/prisma.tipos';
 import { diasDeCalendarioHasta, DIAS_GRACIA, MS_POR_DIA } from '../suscripcion/suscripcion.reglas';
 import { IngresoMensualDTO } from './estadistica.dtos';
+import { costoUSDDeModelo } from '../chat/chat.pricing';
 
 
 const MESES_CORTOS = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
@@ -281,7 +282,10 @@ export class EstadisticaService {
       const limite = override != null ? override : plan ? (plan.chat_mensajes_mes as number) : env.CHAT_MENSAJES_MES;
       const pt = Number(c.prompt_tokens);
       const ct = Number(c.completion_tokens);
-      const costoUsd = Math.round((pt * 0.03 / 1_000_000 + ct * 0.13 / 1_000_000) * 10_000) / 10_000;
+      // Costo real: una sola fuente de verdad (chat.pricing.ts), resolviendo
+      // la tarifa POR MODELO de la fila. Incluye la tarifa de caché implícito.
+      const costoUsd =
+        Math.round(costoUSDDeModelo(c.modelo, pt, ct, Number(c.cached_tokens)) * 10_000) / 10_000;
 
       return {
         comercio_id: c.licencia_id,

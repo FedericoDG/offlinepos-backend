@@ -9,8 +9,11 @@ import {
 import { LicenciaPanelService } from '../src/features/licencia/licencia.panel';
 import { crearBaseFalsa, enDias, falla, igual, prueba, seccion, vacia, type Datos } from './ayuda';
 
-const BASICO = { id: 'plan-basico', codigo: 'BASICO', nombre: 'Básico', precio_mensual: 25000, precio_anual: 250000, moneda: 'ARS', max_servidores: 1, max_clientes: 0, activo: true };
-const PRO = { id: 'plan-pro', codigo: 'PRO', nombre: 'Pro', precio_mensual: 45000, precio_anual: 450000, moneda: 'ARS', max_servidores: 1, max_clientes: 2, activo: true };
+const BASICO = { id: 'plan-basico', codigo: 'BASICO', nombre: 'Básico', precio_mensual: 25000, precio_anual: 250000, moneda: 'ARS', max_servidores: 1, activo: true };
+// PRO es un fixture de tres puestos para ejercitar emision y suspension en bloque.
+const PRO = { id: 'plan-pro', codigo: 'PRO', nombre: 'Pro', precio_mensual: 45000, precio_anual: 450000, moneda: 'ARS', max_servidores: 3, activo: true };
+// Plan sin cupo de servidores: sirve para comprobar que no se emite nada.
+const SIN_SERVIDOR = { id: 'plan-sin-servidor', codigo: 'SIN_SERVIDOR', nombre: 'Sin servidor', precio_mensual: 0, precio_anual: 0, moneda: 'ARS', max_servidores: 0, activo: true };
 
 function escenario(): Datos {
   const d = vacia();
@@ -18,7 +21,7 @@ function escenario(): Datos {
     { id: 'com-1', nombre: 'Almacén San Martín', createdAt: enDias(-200), updatedAt: enDias(-200) },
     { id: 'com-2', nombre: 'Kiosco La Esquina', createdAt: enDias(-100), updatedAt: enDias(-100) }
   );
-  d.planes.push({ ...BASICO }, { ...PRO });
+  d.planes.push({ ...BASICO }, { ...PRO }, { ...SIN_SERVIDOR });
   return d;
 }
 
@@ -37,11 +40,11 @@ export async function correr(): Promise<void> {
 
   {
     const datos = escenario();
-    conPlan(datos, 'com-1', 'plan-basico');
+    conPlan(datos, 'com-1', 'plan-sin-servidor');
     const { db } = crearBaseFalsa(datos);
-    await falla('Basico no habilita clientes, y pide mejorar el plan',
-      /no incluye licencias de cliente.*mejora el plan/i,
-      () => verificarCupoDisponible(db, 'com-1', 'CLIENTE'));
+    await falla('un plan sin servidores no emite y pide mejorar el plan',
+      /no incluye licencias de servidor.*mejora el plan/i,
+      () => verificarCupoDisponible(db, 'com-1'));
   }
 
   {
@@ -50,32 +53,32 @@ export async function correr(): Promise<void> {
     datos.licencias.push({ id: 'l1', comercio_id: 'com-1', rol: 'SERVIDOR', estado: 'activa', clave_hash: 'x', max_activaciones: 1, activado_en: null, createdAt: enDias(-5), updatedAt: enDias(-5) });
     const { db } = crearBaseFalsa(datos);
     await falla('tampoco un segundo servidor', /cubre 1 servidor.*mejora el plan/i,
-      () => verificarCupoDisponible(db, 'com-1', 'SERVIDOR'));
+      () => verificarCupoDisponible(db, 'com-1'));
   }
 
   {
     const datos = escenario();
     conPlan(datos, 'com-1', 'plan-pro');
-    for (let i = 0; i < 2; i++) {
-      datos.licencias.push({ id: `c${i}`, comercio_id: 'com-1', rol: 'CLIENTE', estado: 'activa', clave_hash: 'x', max_activaciones: 1, activado_en: null, createdAt: enDias(-5), updatedAt: enDias(-5) });
+    for (let i = 0; i < 3; i++) {
+      datos.licencias.push({ id: `s${i}`, comercio_id: 'com-1', rol: 'SERVIDOR', estado: 'activa', clave_hash: 'x', max_activaciones: 1, activado_en: null, createdAt: enDias(-5), updatedAt: enDias(-5) });
     }
     const { db } = crearBaseFalsa(datos);
-    await falla('Pro no habilita un tercer cliente', /cubre 2 clientes.*mejora el plan/i,
-      () => verificarCupoDisponible(db, 'com-1', 'CLIENTE'));
+    await falla('Pro no habilita un cuarto servidor', /cubre 3 servidores.*mejora el plan/i,
+      () => verificarCupoDisponible(db, 'com-1'));
 
-    // Con una sola ocupada, si.
+    // Con una sola libre, si.
     datos.licencias.pop();
     const { db: db2 } = crearBaseFalsa(datos);
     let hubo = false;
-    try { await verificarCupoDisponible(db2, 'com-1', 'CLIENTE'); } catch { hubo = true; }
-    prueba('pero el segundo pasa sin problema', !hubo);
+    try { await verificarCupoDisponible(db2, 'com-1'); } catch { hubo = true; }
+    prueba('pero el tercero pasa sin problema', !hubo);
   }
 
   {
     const datos = escenario();
     const { db } = crearBaseFalsa(datos);
     await falla('sin plan contratado no se emite nada', /no tiene un plan contratado/i,
-      () => verificarCupoDisponible(db, 'com-1', 'SERVIDOR'));
+      () => verificarCupoDisponible(db, 'com-1'));
   }
 
   {
@@ -83,7 +86,7 @@ export async function correr(): Promise<void> {
     conPlan(datos, 'com-1', 'plan-pro', 'CANCELADA');
     const { db } = crearBaseFalsa(datos);
     await falla('una suscripcion cancelada no habilita cupo', /no tiene un plan contratado/i,
-      () => verificarCupoDisponible(db, 'com-1', 'CLIENTE'));
+      () => verificarCupoDisponible(db, 'com-1'));
   }
 
   {
@@ -92,7 +95,7 @@ export async function correr(): Promise<void> {
     datos.licencias.push({ id: 'sus1', comercio_id: 'com-1', rol: 'SERVIDOR', estado: 'suspendida', clave_hash: 'x', max_activaciones: 1, activado_en: null, createdAt: enDias(-5), updatedAt: enDias(-5) });
     const { db } = crearBaseFalsa(datos);
     let hubo = false;
-    try { await verificarCupoDisponible(db, 'com-1', 'SERVIDOR'); } catch { hubo = true; }
+    try { await verificarCupoDisponible(db, 'com-1'); } catch { hubo = true; }
     prueba('una licencia suspendida no ocupa cupo', !hubo);
   }
 
@@ -104,8 +107,7 @@ export async function correr(): Promise<void> {
     const { db } = crearBaseFalsa(datos);
     const a = await sincronizarLicenciasConPlan(db, 'com-1', PRO);
     igual('Pro emite 3 licencias', a.emitidas.length, 3);
-    igual('una de servidor', a.emitidas.filter((l) => l.rol === 'SERVIDOR').length, 1);
-    igual('y dos de cliente', a.emitidas.filter((l) => l.rol === 'CLIENTE').length, 2);
+    igual('las tres son de servidor', a.emitidas.filter((l) => l.rol === 'SERVIDOR').length, 3);
     prueba('con el formato de clave de siempre',
       a.emitidas.every((l) => /^LIC-\d{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(l.clave)));
     prueba('todas distintas', new Set(a.emitidas.map((l) => l.clave)).size === 3);
@@ -121,14 +123,14 @@ export async function correr(): Promise<void> {
     const datos = escenario();
     const { db } = crearBaseFalsa(datos);
     await sincronizarLicenciasConPlan(db, 'com-1', PRO);
-    const clientes = datos.licencias.filter((l) => l.rol === 'CLIENTE');
-    datos.activaciones.push({ id: 'act-1', licencia_id: clientes[0].id, instalacion_id: 'pc-en-uso', ultima_validacion: new Date() });
+    const licencias = datos.licencias.filter((l) => l.rol === 'SERVIDOR');
+    datos.activaciones.push({ id: 'act-1', licencia_id: licencias[0].id, instalacion_id: 'pc-en-uso', ultima_validacion: new Date() });
 
-    const a = await sincronizarLicenciasConPlan(db, 'com-1', { max_servidores: 1, max_clientes: 1 });
-    igual('bajar a un solo cliente suspende una', a.suspendidas.length, 1);
-    igual('y es la que nadie estaba usando', a.suspendidas[0].id, clientes[1].id);
+    const a = await sincronizarLicenciasConPlan(db, 'com-1', { max_servidores: 1 });
+    igual('bajar a un solo servidor suspende dos', a.suspendidas.length, 2);
+    prueba('y apaga las que nadie estaba usando', a.suspendidas.every((l) => l.id !== licencias[0].id));
     igual('la terminal en uso sigue viva',
-      datos.licencias.find((l) => l.id === clientes[0].id)?.estado, 'activa');
+      datos.licencias.find((l) => l.id === licencias[0].id)?.estado, 'activa');
   }
 
   // ------------------------------------------------------- listado paginado
@@ -162,8 +164,10 @@ export async function correr(): Promise<void> {
     const sinNada = await servicio.listar({ q: 'zzz', pagina: 1, limite: 20 } as any);
     igual('una busqueda sin resultados da cero, no error', sinNada.total, 0);
 
-    const porRol = await servicio.listar({ rol: 'CLIENTE', pagina: 1, limite: 20 } as any);
-    igual('tambien se puede filtrar por rol', porRol.total, 2);
+    // Suspende una para poder filtrar por estado.
+    datos.licencias[0].estado = 'suspendida';
+    const porEstado = await servicio.listar({ estado: 'suspendida', pagina: 1, limite: 20 } as any);
+    igual('tambien se puede filtrar por estado', porEstado.total, 1);
 
     prueba('las claves vuelven descifradas y legibles',
       p1.datos.every((l) => /^LIC-/.test(l.clave_original ?? '')));

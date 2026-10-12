@@ -8,8 +8,8 @@ import { PlanService } from '../src/features/plan/plan.service';
 import { DIAS_GRACIA } from '../src/features/suscripcion/suscripcion.reglas';
 import { crearBaseFalsa, enDias, falla, igual, prueba, seccion, vacia, type Datos } from './ayuda';
 
-const BASICO = { id: 'plan-basico', codigo: 'BASICO', nombre: 'Básico', precio_mensual: 25000, precio_anual: 250000, moneda: 'ARS', max_servidores: 1, max_clientes: 0, activo: true, createdAt: enDias(-300), updatedAt: enDias(-300) };
-const PRO = { id: 'plan-pro', codigo: 'PRO', nombre: 'Pro', precio_mensual: 45000, precio_anual: 450000, moneda: 'ARS', max_servidores: 1, max_clientes: 2, activo: true, createdAt: enDias(-300), updatedAt: enDias(-300) };
+const BASICO = { id: 'plan-basico', codigo: 'BASICO', nombre: 'Básico', precio_mensual: 25000, precio_anual: 250000, moneda: 'ARS', max_servidores: 1, activo: true, createdAt: enDias(-300), updatedAt: enDias(-300) };
+const PRO = { id: 'plan-pro', codigo: 'PRO', nombre: 'Pro', precio_mensual: 45000, precio_anual: 450000, moneda: 'ARS', max_servidores: 1, activo: true, createdAt: enDias(-300), updatedAt: enDias(-300) };
 
 /** Primer dia del mes actual y del anterior, para ubicar pagos sin ambiguedad. */
 function esteMes(dia: number): Date {
@@ -245,6 +245,6 @@ export async function correr(): Promise<void> {
     igual('pero si desactivarlo', desactivado.activo, false);
 
     await falla('no crea dos planes con el mismo codigo', /ya existe un plan/i, () =>
-      servicio.crear({ codigo: 'PRO', nombre: 'Otro Pro', precio_mensual: 1, moneda: 'ARS', max_servidores: 1, max_clientes: 0, activo: true } as any));
+      servicio.crear({ codigo: 'PRO', nombre: 'Otro Pro', precio_mensual: 1, moneda: 'ARS', max_servidores: 1, activo: true } as any));
   }
 }

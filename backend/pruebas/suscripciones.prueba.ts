@@ -6,8 +6,8 @@ import { SuscripcionService, sumarMeses } from '../src/features/suscripcion/susc
 import { diasDeCalendarioHasta, DIAS_GRACIA } from '../src/features/suscripcion/suscripcion.reglas';
 import { crearBaseFalsa, enDias, falla, igual, prueba, seccion, vacia, type Datos } from './ayuda';
 
-const BASICO = { id: 'plan-basico', codigo: 'BASICO', nombre: 'Básico', precio_mensual: 25000, precio_anual: 250000, moneda: 'ARS', max_servidores: 1, max_clientes: 0, activo: true };
-const PRO = { id: 'plan-pro', codigo: 'PRO', nombre: 'Pro', precio_mensual: 45000, precio_anual: 450000, moneda: 'ARS', max_servidores: 1, max_clientes: 2, activo: true };
+const BASICO = { id: 'plan-basico', codigo: 'BASICO', nombre: 'Básico', precio_mensual: 25000, precio_anual: 250000, moneda: 'ARS', max_servidores: 1, activo: true };
+const PRO = { id: 'plan-pro', codigo: 'PRO', nombre: 'Pro', precio_mensual: 45000, precio_anual: 450000, moneda: 'ARS', max_servidores: 3, activo: true };
 
 function escenario(): Datos {
   const d = vacia();
@@ -172,7 +172,7 @@ export async function correr(): Promise<void> {
     } as any);
 
     igual('toma el precio de lista del plan', s.precio_pactado, 45000);
-    igual('emite el cupo del plan: 1 servidor + 2 clientes', datos.licencias.length, 3);
+    igual('emite el cupo del plan: 3 servidores', datos.licencias.length, 3);
     igual('asienta el primer pago', datos.pagos.length, 1);
     igual('el pago es por el precio pactado', datos.pagos[0].monto, 45000);
     prueba('el pago cubre el primer periodo',
@@ -230,11 +230,11 @@ export async function correr(): Promise<void> {
     igual('arranca en Basico con 1 licencia', datos.licencias.length, 1);
 
     const aPro = await servicio.actualizar(creada.id, { plan_id: 'plan-pro' } as any);
-    igual('pasar a Pro emite las 2 de cliente', aPro.ajuste_licencias?.emitidas.length, 2);
+    igual('pasar a Pro emite los 2 servidores que faltan', aPro.ajuste_licencias?.emitidas.length, 2);
     igual('y no suspende nada', aPro.ajuste_licencias?.suspendidas.length, 0);
 
     const aBasico = await servicio.actualizar(creada.id, { plan_id: 'plan-basico' } as any);
-    igual('volver a Basico suspende las 2 de cliente', aBasico.ajuste_licencias?.suspendidas.length, 2);
+    igual('volver a Basico suspende los 2 servidores que sobran', aBasico.ajuste_licencias?.suspendidas.length, 2);
     igual('el servidor sigue activo',
       datos.licencias.filter((l) => l.rol === 'SERVIDOR' && l.estado === 'activa').length, 1);
 

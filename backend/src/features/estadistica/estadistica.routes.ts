@@ -12,5 +12,6 @@ router.get('/ingresos-mensuales', (req, res) => estadisticaController.ingresosMe
 router.get('/ingresos-por-plan', (req, res) => estadisticaController.ingresosPorPlan(req, res));
 router.get('/proximos-vencimientos', (req, res) => estadisticaController.proximosVencimientos(req, res));
 router.get('/chat-consumo', (req, res) => estadisticaController.chatConsumo(req, res));
+router.get('/valoraciones', (req, res) => estadisticaController.valoraciones(req, res));
 
 export default router;

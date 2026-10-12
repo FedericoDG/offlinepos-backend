@@ -334,6 +334,27 @@ export interface ChatConsumoResponse {
   detalle: ChatConsumoDetalle[];
 }
 
+/** Una valoración 👍/👎 de Binny, tal como la devuelve el panel. */
+export interface ValoracionDetalle {
+  id: string;
+  fecha: string;
+  comercio: string;
+  /** 1 = 👍, -1 = 👎. */
+  valoracion: number;
+  pregunta: string;
+  respuesta: string;
+  fuente: string | null;
+}
+
+export interface ValoracionesResponse {
+  resumen: {
+    total: number;
+    positivas: number;
+    negativas: number;
+  };
+  detalle: ValoracionDetalle[];
+}
+
 export interface ArchivoVersion {
   nombre: string;
   url: string;

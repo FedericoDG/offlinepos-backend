@@ -228,3 +228,21 @@ export interface FacturaOcrResponseDTO {
   datos: FacturaOcrResultadoDTO;
   uso: UsoDTO & { mensajes_descontados: number };
 }
+
+/**
+ * Valoración 👍/👎 que el POS manda best-effort sobre una respuesta de Binny.
+ * No consume cuota: es feedback, no consulta. El tope de texto es sanitario
+ * (la respuesta de Binny puede ser larga, pero no ilimitada).
+ */
+export const ValoracionDTO = z.object({
+  clave: z.string().trim().min(1, 'La clave de licencia es obligatoria'),
+  instalacion_id: z.string().trim().min(1, 'El identificador de instalación es obligatorio'),
+  valoracion: z.union([z.literal(1), z.literal(-1)], {
+    error: 'La valoración debe ser 1 (👍) o -1 (👎)',
+  }),
+  pregunta: z.string().trim().min(1, 'La pregunta es obligatoria').max(4000),
+  respuesta: z.string().trim().min(1, 'La respuesta es obligatoria').max(20000),
+  fuente: z.string().trim().max(200).optional(),
+});
+
+export type ValoracionDTO = z.infer<typeof ValoracionDTO>;

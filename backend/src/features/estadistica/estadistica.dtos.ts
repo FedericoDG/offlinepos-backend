@@ -12,6 +12,19 @@ export const RangoDiasDTO = z.object({
 
 export type RangoDiasDTO = z.infer<typeof RangoDiasDTO>;
 
+/**
+ * Filtros de la lectura de valoraciones de Binny del panel.
+ * Solo el período: el detalle ya es, por diseño, únicamente negativas.
+ */
+export const ValoracionesFiltroDTO = z.object({
+  periodo: z
+    .string()
+    .regex(/^\d{4}-\d{2}$/, 'El período debe tener el formato AAAA-MM')
+    .optional(),
+});
+
+export type ValoracionesFiltroDTO = z.infer<typeof ValoracionesFiltroDTO>;
+
 export interface IngresoMensualDTO {
   /** Clave ordenable: 2026-08 */
   periodo: string;

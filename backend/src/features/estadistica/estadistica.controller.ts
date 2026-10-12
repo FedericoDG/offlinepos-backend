@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { EstadisticaService } from './estadistica.service';
-import { RangoDiasDTO, RangoMesesDTO } from './estadistica.dtos';
+import { RangoDiasDTO, RangoMesesDTO, ValoracionesFiltroDTO } from './estadistica.dtos';
 import { handleApiError } from '../../utils/api-error';
 
 const estadisticaService = new EstadisticaService();
@@ -47,6 +47,15 @@ export class EstadisticaController {
       res.status(200).json(await estadisticaService.chatConsumo(periodo));
     } catch (error: any) {
       handleApiError(error, res, 'Error al obtener el consumo del chat');
+    }
+  }
+
+  async valoraciones(req: Request, res: Response): Promise<void> {
+    try {
+      const filtros = ValoracionesFiltroDTO.parse(req.query);
+      res.status(200).json(await estadisticaService.valoraciones(filtros));
+    } catch (error: any) {
+      handleApiError(error, res, 'Error al obtener las valoraciones de Binny');
     }
   }
 }

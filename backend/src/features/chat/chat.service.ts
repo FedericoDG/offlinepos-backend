@@ -1,21 +1,22 @@
 import prisma from '../../config/prisma';
+import type { ClienteRaiz } from '../../config/prisma.tipos';
 import { decrypt, hmacBusqueda } from '../../utils/encryption';
 import { env } from '../../config/env';
 import { httpError } from '../../utils/api-error';
-import { PreguntarDTO, ResultadoConsultaDTO, UsoConsultaDTO, FacturaOcrRequestDTO, PreguntarAgenteDTO, ContinuarAgenteDTO, AGENTE_MAX_PASOS, HISTORIAL_MAX_AGENTE, BriefDTO, InformeDTO, type MensajeAgenteDTO, type ContextoNegocioDTO, type RespuestaLLM, type UsoDTO, type FacturaOcrResponseDTO, type FacturaOcrItemDTO, type FacturaOcrResultadoDTO } from './chat.dtos';
+import { PreguntarDTO, ResultadoConsultaDTO, UsoConsultaDTO, FacturaOcrRequestDTO, PreguntarAgenteDTO, ContinuarAgenteDTO, AGENTE_MAX_PASOS, HISTORIAL_MAX_AGENTE, BriefDTO, InformeDTO, ValoracionDTO, type MensajeAgenteDTO, type ContextoNegocioDTO, type RespuestaLLM, type UsoDTO, type FacturaOcrResponseDTO, type FacturaOcrItemDTO, type FacturaOcrResultadoDTO } from './chat.dtos';
 import { construirManual } from './chat.manual';
 import { llamarLLM, llamarLLMStream, llamarLLMAgenteStream, llamarLLMVision, detectarDeliberacion, type AgenteMessage, type AgenteToolCall, type AgenteToolDef, type ChatMessage, type ChatMessageVision } from './chat.llm';
 
 // --- Validacion de licencia (devuelve la licencia encontrada) ---
 
-export async function validarLicenciaChat(clave: string, instalacionId: string) {
-  let licenciaEncontrada = await prisma.licencia.findUnique({
+export async function validarLicenciaChat(clave: string, instalacionId: string, db: ClienteRaiz = prisma) {
+  let licenciaEncontrada = await db.licencia.findUnique({
     where: { clave_busqueda: hmacBusqueda(clave) },
   });
 
   // Fallback pre-backfill
   if (!licenciaEncontrada) {
-    const licencias = await prisma.licencia.findMany();
+    const licencias = await db.licencia.findMany();
     for (const lic of licencias) {
       try {
         if (decrypt(lic.clave_hash) === clave) {
@@ -36,7 +37,7 @@ export async function validarLicenciaChat(clave: string, instalacionId: string) 
     throw httpError('La licencia no esta activa', 403);
   }
 
-  const activacion = await prisma.activacion.findUnique({
+  const activacion = await db.activacion.findUnique({
     where: {
       licencia_id_instalacion_id: {
         licencia_id: licenciaEncontrada!.id,
@@ -1293,6 +1294,14 @@ export function recortarHistorialAgente(historial: MensajeAgenteDTO[]): {
 }
 
 export class ChatService {
+  /**
+   * El cliente de base entra por constructor (igual que en EstadisticaService)
+   * para poder ejercitar la valoración contra una base en memoria. En
+   * producción nadie pasa nada y usa el cliente real; el resto del servicio
+   * sigue apoyándose en el `prisma` global.
+   */
+  constructor(private readonly db: ClienteRaiz = prisma) {}
+
   async preguntar(data: PreguntarDTO): Promise<RespuestaLLM> {
     const lic = await validarLicenciaChat(data.clave, data.instalacion_id);
 
@@ -1374,6 +1383,71 @@ export class ChatService {
   async uso(data: UsoConsultaDTO): Promise<UsoDTO> {
     const lic = await validarLicenciaChat(data.clave, data.instalacion_id);
     return obtenerUso(lic.id);
+  }
+
+  /**
+   * Guarda una valoración 👍/👎 del POS sobre una respuesta de Binny.
+   *
+   * Valida la licencia igual que el chat, pero NO consume cuota: es feedback,
+   * no una consulta. La persistencia es best-effort a propósito: si la DB
+   * falla, se loguea y se responde `ok` igual. El cliente lo manda sin
+   * esperar respuesta y una valoración perdida no puede romper su flujo.
+   *
+   * El backend decide por el signo:
+   *  - 👍: NO se guarda fila ni texto. Solo suma al contador agregado del
+   *    comercio y período. Son ~90% del volumen y nadie lee su texto.
+   *  - 👎: se guarda la fila con pregunta/respuesta (el caso concreto que se
+   *    quiere revisar) y, si hay comercio, se suma al contador en la misma
+   *    transacción para que no queden desfasados.
+   */
+  async valorar(data: ValoracionDTO): Promise<{ ok: true }> {
+    const lic = await validarLicenciaChat(data.clave, data.instalacion_id, this.db);
+    const periodo = periodoActual();
+
+    try {
+      if (data.valoracion === 1) {
+        // 👍: solo contador. Sin comercio no se puede atribuir: no se hace nada.
+        if (lic.comercio_id) {
+          await this.db.chatValoracionResumen.upsert({
+            where: { comercio_id_periodo: { comercio_id: lic.comercio_id, periodo } },
+            update: { positivas: { increment: 1 } },
+            create: { comercio_id: lic.comercio_id, periodo, positivas: 1 },
+          });
+        }
+      } else {
+        // 👎: fila con el texto y, si hay comercio, el contador en la misma
+        // transacción (atómico). Sin comercio la fila se guarda igual.
+        const fila = {
+          licencia_id: lic.id,
+          comercio_id: lic.comercio_id,
+          valoracion: data.valoracion,
+          pregunta: data.pregunta,
+          respuesta: data.respuesta,
+          fuente: data.fuente ?? null,
+          creado_en: new Date(),
+        };
+
+        if (lic.comercio_id) {
+          await this.db.$transaction([
+            this.db.chatValoracion.create({ data: fila }),
+            this.db.chatValoracionResumen.upsert({
+              where: { comercio_id_periodo: { comercio_id: lic.comercio_id, periodo } },
+              update: { negativas: { increment: 1 } },
+              create: { comercio_id: lic.comercio_id, periodo, negativas: 1 },
+            }),
+          ]);
+        } else {
+          await this.db.chatValoracion.create({ data: fila });
+        }
+      }
+    } catch (error) {
+      console.error(
+        '[chat] no se pudo guardar la valoración:',
+        error instanceof Error ? error.message : error,
+      );
+    }
+
+    return { ok: true };
   }
 
   async procesarFacturaOcr(data: FacturaOcrRequestDTO): Promise<FacturaOcrResponseDTO> {

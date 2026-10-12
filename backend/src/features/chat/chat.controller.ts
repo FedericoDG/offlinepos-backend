@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import { handleApiError } from '../../utils/api-error';
 import { resolverBasePublica } from '../../utils/base-publica';
-import { PreguntarDTO, ResultadoConsultaDTO, UsoConsultaDTO, FacturaOcrRequestDTO, PreguntarAgenteDTO, ContinuarAgenteDTO, BriefDTO, InformeDTO } from './chat.dtos';
+import { PreguntarDTO, ResultadoConsultaDTO, UsoConsultaDTO, FacturaOcrRequestDTO, PreguntarAgenteDTO, ContinuarAgenteDTO, BriefDTO, InformeDTO, ValoracionDTO } from './chat.dtos';
 import { ChatService, type EventoAgenteServicio } from './chat.service';
 import {
   construirMensajesResultado,
@@ -99,6 +99,21 @@ export class ChatController {
       res.json(respuesta);
     } catch (error) {
       handleApiError(error, res);
+    }
+  }
+
+  /**
+   * Valoración 👍/👎 del POS. Público como el resto del chat (valida licencia,
+   * no usa JWT de admin). No consume cuota y es best-effort: responde
+   * `{ ok: true }` aunque la persistencia falle, para no romper al cliente.
+   */
+  async valorar(req: Request, res: Response): Promise<void> {
+    try {
+      const data = ValoracionDTO.parse(req.body);
+      const respuesta = await chatService.valorar(data);
+      res.json(respuesta);
+    } catch (error) {
+      handleApiError(error, res, 'Error al guardar la valoración');
     }
   }
 

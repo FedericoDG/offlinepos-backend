@@ -40,6 +40,11 @@ model Comercio {
   /// comercio sigue el camino viejo, vive solo su Suscripcion y aca es null.
   plan_id String?
   licencias     Licencia[]
+  /// Valoraciones 👍/👎 que manda el POS sobre las respuestas de Binny.
+  valoraciones  ChatValoracion[]
+  /// Contador agregado de valoraciones por comercio y período: las 👍 no
+  /// guardan texto, solo suman acá; las 👎 suman y además dejan su fila.
+  chatValoracionResumen ChatValoracionResumen[]
   /// Consumo de Binny a nivel comercio: el cupo es del comercio y se comparte
   /// entre todas sus claves. Una fila por comercio + periodo.
   chatConsumosComercio ChatConsumoComercio[]
@@ -72,6 +77,7 @@ model Licencia {
   max_activaciones Int          @default(1)
   activaciones     Activacion[]
   chatConsumos     ChatConsumo[]
+  valoraciones     ChatValoracion[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -129,6 +135,58 @@ model ChatConsumoComercio {
 
   @@unique([comercio_id, periodo])
   @@map("chat_consumo_comercio")
+}
+
+/// Valoración 👍/👎 que el POS manda sobre una respuesta concreta de Binny.
+/// Es best-effort: no consume cuota y su fallo nunca debe romper el chat. Se
+/// guarda la pregunta y la respuesta tal cual para poder revisar el caso malo
+/// desde el panel, empezando por las peores (negativas).
+model ChatValoracion {
+  id          String    @id @default(uuid())
+  licencia_id String
+  licencia    Licencia  @relation(fields: [licencia_id], references: [id], onDelete: Cascade)
+  /// Comercio dueño de la licencia al momento de valorar. Null = clave libre:
+  /// se guarda para poder agrupar las valoraciones por comercio en el panel.
+  comercio_id String?
+  comercio    Comercio? @relation(fields: [comercio_id], references: [id], onDelete: SetNull)
+
+  /// 1 = 👍, -1 = 👎. Solo estos dos valores (validado en el DTO).
+  valoracion  Int
+  pregunta    String
+  respuesta   String
+  /// De dónde salió la respuesta (ej. "agente", "resultado"). Opcional.
+  fuente      String?
+
+  /// Cuándo el POS emitió la valoración (reloj del cliente).
+  creado_en   DateTime
+  createdAt   DateTime  @default(now())
+
+  @@index([comercio_id])
+  @@index([licencia_id])
+  @@index([creado_en])
+}
+
+/// Contador agregado de valoraciones 👍/👎 por comercio y período.
+///
+/// Reemplaza el conteo por filas de ChatValoracion: las 👍 son ~90% del
+/// volumen y nadie va a leer su texto, así que no se guardan como fila; solo
+/// suman acá. Las 👎 sí dejan su fila (con pregunta/respuesta) porque son el
+/// caso concreto que se quiere revisar. El endpoint y el POS no cambian: el
+/// backend decide por el signo.
+model ChatValoracionResumen {
+  id          String   @id @default(uuid())
+  comercio_id String
+  comercio    Comercio @relation(fields: [comercio_id], references: [id], onDelete: Cascade)
+  /// "YYYY-MM" en hora del servidor, mismo formato que ChatConsumo.periodo.
+  periodo     String
+  positivas   Int      @default(0)
+  negativas   Int      @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([comercio_id, periodo])
+  @@map("chat_valoracion_resumen")
 }
 
 

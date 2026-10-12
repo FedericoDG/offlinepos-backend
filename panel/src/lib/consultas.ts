@@ -8,6 +8,7 @@ import type {
   Paginado,
   Plan,
   Suscripcion,
+  ValoracionesResponse,
   VersionVigente,
 } from './tipos';
 
@@ -50,6 +51,10 @@ export const consultas = {
 
   chatConsumo: (periodo?: string) =>
     api.get<ChatConsumoResponse>(`/api/estadisticas/chat-consumo${periodo ? `?periodo=${periodo}` : ''}`),
+
+  /** Valoraciones 👍/👎 de Binny. El detalle ya es, por diseño, solo negativas. */
+  valoraciones: (filtros: { periodo?: string } = {}) =>
+    api.get<ValoracionesResponse>(`/api/estadisticas/valoraciones${query({ ...filtros })}`),
 
   /** Versión del POS vigente publicada (lo que descargan los updater). */
   actualizacionVigente: () => api.get<VersionVigente>('/api/updates/admin/actual'),

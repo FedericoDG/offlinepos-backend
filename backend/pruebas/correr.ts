@@ -12,6 +12,7 @@ import { informe } from './ayuda';
 import * as suscripciones from './suscripciones.prueba';
 import * as licencias from './licencias.prueba';
 import * as estadisticas from './estadisticas.prueba';
+import * as valoraciones from './valoraciones.prueba';
 import * as guardasEspejo from './chat-guardas-espejo.prueba';
 
 console.log('\n=== Pruebas de logica del panel ===');
@@ -19,6 +20,7 @@ console.log('\n=== Pruebas de logica del panel ===');
 await suscripciones.correr();
 await licencias.correr();
 await estadisticas.correr();
+await valoraciones.correr();
 guardasEspejo.correr();
 
 informe();

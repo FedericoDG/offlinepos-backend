@@ -70,10 +70,21 @@ export interface Datos {
   activaciones: any[];
   suscripciones: any[];
   pagos: any[];
+  valoraciones: any[];
+  valoracionesResumen: any[];
 }
 
 export function vacia(): Datos {
-  return { comercios: [], planes: [], licencias: [], activaciones: [], suscripciones: [], pagos: [] };
+  return {
+    comercios: [],
+    planes: [],
+    licencias: [],
+    activaciones: [],
+    suscripciones: [],
+    pagos: [],
+    valoraciones: [],
+    valoracionesResumen: [],
+  };
 }
 
 /** Fechas relativas a hoy, que es como se escriben casi todos los casos. */
@@ -159,6 +170,10 @@ export function crearBaseFalsa(datos: Datos): { db: ClienteRaiz; datos: Datos } 
     comercio: {
       licencias: { tabla: 'licencia', lista: true, resolver: (c) => datos.licencias.filter((l) => l.comercio_id === c.id) },
     },
+    chatValoracion: {
+      comercio: { tabla: 'comercio', lista: false, resolver: (v) => datos.comercios.find((c) => c.id === v.comercio_id) ?? null },
+      licencia: { tabla: 'licencia', lista: false, resolver: (v) => datos.licencias.find((l) => l.id === v.licencia_id) ?? null },
+    },
   };
 
   function expandir(tabla: string, fila: any, args: any): any {
@@ -188,12 +203,18 @@ export function crearBaseFalsa(datos: Datos): { db: ClienteRaiz; datos: Datos } 
 
   function ordenar(filas: any[], orderBy: any): any[] {
     if (!orderBy) return filas;
-    const [campo, direccion] = Object.entries(orderBy)[0] as [string, string];
+    // Prisma acepta un objeto o un array de criterios. El array importa para
+    // ordenamientos compuestos (ej. negativas primero y luego por fecha).
+    const criterios = Array.isArray(orderBy) ? orderBy : [orderBy];
     return [...filas].sort((a, b) => {
-      const x = a[campo] instanceof Date ? a[campo].getTime() : a[campo];
-      const y = b[campo] instanceof Date ? b[campo].getTime() : b[campo];
-      if (x === y) return 0;
-      return (x < y ? -1 : 1) * (direccion === 'desc' ? -1 : 1);
+      for (const criterio of criterios) {
+        const [campo, direccion] = Object.entries(criterio)[0] as [string, string];
+        const x = a[campo] instanceof Date ? a[campo].getTime() : a[campo];
+        const y = b[campo] instanceof Date ? b[campo].getTime() : b[campo];
+        if (x === y) continue;
+        return (x < y ? -1 : 1) * (direccion === 'desc' ? -1 : 1);
+      }
+      return 0;
     });
   }
 
@@ -209,7 +230,24 @@ export function crearBaseFalsa(datos: Datos): { db: ClienteRaiz; datos: Datos } 
     return Object.entries<any>(where).every(([campo, condicion]) => {
       const relacion = relaciones[tabla]?.[campo];
 
-      if (!relacion) return coincideEscalar(fila[campo], condicion);
+      if (!relacion) {
+        // Clave compuesta (ej. `licencia_id_instalacion_id` o
+        // `comercio_id_periodo`): no es una columna de la fila, sino un objeto
+        // con las columnas que la forman. Se compara cada una.
+        if (
+          !(campo in fila) &&
+          condicion !== null &&
+          typeof condicion === 'object' &&
+          !(condicion instanceof Date) &&
+          !Array.isArray(condicion) &&
+          !esFiltroDeOperadores(condicion)
+        ) {
+          return Object.entries<any>(condicion).every(([columna, valor]) =>
+            coincideEscalar(fila[columna], valor),
+          );
+        }
+        return coincideEscalar(fila[campo], condicion);
+      }
 
       const relacionado = relacion.resolver(fila);
 
@@ -267,12 +305,26 @@ export function crearBaseFalsa(datos: Datos): { db: ClienteRaiz; datos: Datos } 
         coleccion().push(fila);
         return expandir(tabla, fila, args);
       },
+      async upsert(args: any) {
+        // Si ya hay una fila que matchea el `where`, se aplica el `update`
+        // (soporta increment/decrement); si no, se crea con `create`.
+        const existente = filtrar(tabla, coleccion(), args.where)[0];
+        if (existente) {
+          return this.update({ ...args, data: args.update });
+        }
+        return this.create({ data: args.create, include: args.include, select: args.select });
+      },
       async update(args: any) {
         const fila = filtrar(tabla, coleccion(), args.where)[0];
         if (!fila) throw new Error(`No se encontro la fila a actualizar en ${tabla}`);
         for (const [campo, valor] of Object.entries<any>(args.data)) {
-          if (valor && typeof valor === 'object' && 'increment' in valor) fila[campo] += valor.increment;
-          else if (valor && typeof valor === 'object' && 'decrement' in valor) fila[campo] -= valor.decrement;
+          // Un campo ausente se trata como 0 al incrementar/decrementar: la
+          // base real lo hace por el @default del schema y este falso no los
+          // aplica.
+          if (valor && typeof valor === 'object' && 'increment' in valor)
+            fila[campo] = Number(fila[campo] ?? 0) + valor.increment;
+          else if (valor && typeof valor === 'object' && 'decrement' in valor)
+            fila[campo] = Number(fila[campo] ?? 0) - valor.decrement;
           else fila[campo] = valor;
         }
         fila.updatedAt = new Date();
@@ -294,6 +346,8 @@ export function crearBaseFalsa(datos: Datos): { db: ClienteRaiz; datos: Datos } 
     activacion: delegado('activacion', () => datos.activaciones),
     suscripcion: delegado('suscripcion', () => datos.suscripciones),
     pago: delegado('pago', () => datos.pagos),
+    chatValoracion: delegado('chatValoracion', () => datos.valoraciones),
+    chatValoracionResumen: delegado('chatValoracionResumen', () => datos.valoracionesResumen),
     async $transaction(arg: any) {
       // Sin rollback: alcanza para comprobar el resultado de un camino feliz
       // y el mensaje de uno que falla.

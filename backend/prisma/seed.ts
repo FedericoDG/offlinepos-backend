@@ -27,6 +27,8 @@ async function limpiarTodo(): Promise<void> {
   await prisma.activacion.deleteMany({});
   await prisma.chatConsumo.deleteMany({});
   await prisma.chatConsumoComercio.deleteMany({});
+  await prisma.chatValoracion.deleteMany({});
+  await prisma.chatValoracionResumen.deleteMany({});
   await prisma.pago.deleteMany({});
   await prisma.licencia.deleteMany({});
   await prisma.suscripcion.deleteMany({});

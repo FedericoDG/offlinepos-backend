@@ -9,6 +9,8 @@ router.post('/mensajes/stream', (req, res) => chatController.preguntarStream(req
 router.post('/resultado', (req, res) => chatController.resultado(req, res));
 router.post('/resultado/stream', (req, res) => chatController.resultadoStream(req, res));
 router.post('/uso', (req, res) => chatController.uso(req, res));
+// Valoración 👍/👎 de una respuesta de Binny. No consume cuota.
+router.post('/valoracion', (req, res) => chatController.valorar(req, res));
 // Agente multi-paso (function calling). Los endpoints legacy /mensajes* y
 // /resultado* se mantienen para versiones viejas del desktop ya distribuidas.
 router.post('/agente/stream', (req, res) => chatController.agenteStream(req, res));

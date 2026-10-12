@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { BarChart3, Building2, KeyRound, Layers, MessageSquare, Rocket, Users } from 'lucide-react';
+import { BarChart3, Building2, KeyRound, Layers, MessageSquare, Rocket, ThumbsUp, Users } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const SECCIONES = [
@@ -11,6 +11,7 @@ const SECCIONES = [
   { href: '/licencias', etiqueta: 'Claves', icono: KeyRound },
   { href: '/planes', etiqueta: 'Planes', icono: Layers },
   { href: '/chat', etiqueta: 'Consumo Chat', icono: MessageSquare },
+  { href: '/valoraciones', etiqueta: 'Valoraciones de Binny', icono: ThumbsUp },
   { href: '/actualizaciones', etiqueta: 'Actualizaciones', icono: Rocket },
   { href: '/administradores', etiqueta: 'Administradores', icono: Users },
 ];

@@ -309,4 +309,70 @@ export class EstadisticaService {
 
     return { resumen, detalle };
   }
+
+  /**
+   * Valoraciones 👍/👎 que el POS mandó sobre respuestas de Binny.
+   *
+   * El resumen sale del contador agregado por comercio/período
+   * (ChatValoracionResumen): las 👍 no guardan fila ni texto, así que contar
+   * filas de ChatValoracion las perdería. El detalle, en cambio, solo trae
+   * negativas: son las únicas que conservan la pregunta y la respuesta del
+   * caso concreto que se quiere revisar.
+   */
+  async valoraciones(filtros: { periodo?: string }): Promise<{
+    resumen: { total: number; positivas: number; negativas: number };
+    detalle: Array<{
+      id: string;
+      fecha: Date;
+      comercio: string;
+      valoracion: number;
+      pregunta: string;
+      respuesta: string;
+      fuente: string | null;
+    }>;
+  }> {
+    // El contador está indexado por período (mismo "YYYY-MM" que ChatConsumo),
+    // así que se filtra directo; sin período, se suman todos.
+    const whereResumen = filtros.periodo ? { periodo: filtros.periodo } : {};
+
+    // El detalle sigue acotando por el rango de creado_en del mes pedido.
+    const wherePeriodo: { creado_en?: { gte: Date; lt: Date } } = {};
+    if (filtros.periodo) {
+      const [anio, mes] = filtros.periodo.split('-').map(Number);
+      wherePeriodo.creado_en = {
+        gte: new Date(anio, mes - 1, 1, 0, 0, 0, 0),
+        lt: new Date(anio, mes, 1, 0, 0, 0, 0),
+      };
+    }
+
+    const [suma, filas] = await Promise.all([
+      this.db.chatValoracionResumen.aggregate({
+        where: whereResumen,
+        _sum: { positivas: true, negativas: true },
+      }),
+      this.db.chatValoracion.findMany({
+        // Solo negativas: son las únicas con el caso concreto. El filtro
+        // también descarta las 👍 históricas guardadas antes de este diseño.
+        where: { ...wherePeriodo, valoracion: { lt: 0 } },
+        orderBy: { creado_en: 'desc' },
+        take: 200,
+        include: { comercio: { select: { nombre: true } } },
+      }),
+    ]);
+
+    const positivas = Number(suma._sum.positivas ?? 0);
+    const negativas = Number(suma._sum.negativas ?? 0);
+
+    const detalle = filas.map((v) => ({
+      id: v.id,
+      fecha: v.creado_en,
+      comercio: v.comercio?.nombre ?? 'Sin comercio',
+      valoracion: v.valoracion,
+      pregunta: v.pregunta,
+      respuesta: v.respuesta,
+      fuente: v.fuente,
+    }));
+
+    return { resumen: { total: positivas + negativas, positivas, negativas }, detalle };
+  }
 }

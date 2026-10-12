@@ -2397,7 +2397,12 @@ export interface SesionMovilFactura {
 
 const sesionesMovil = new Map<string, SesionMovilFactura>();
 
-// Limpiar sesiones expiradas periódicamente cada 5 minutos
+// Limpiar sesiones expiradas periódicamente cada 5 minutos.
+//
+// `unref()` para que este timer no mantenga vivo el proceso: al estar en el
+// scope del módulo, cualquier script o prueba que importe este archivo queda
+// colgado al terminar su trabajo. En el servidor el listener HTTP mantiene el
+// proceso arriba igual, así que la limpieza sigue corriendo como siempre.
 setInterval(() => {
   const ahora = Date.now();
   for (const [id, s] of sesionesMovil.entries()) {
@@ -2405,7 +2410,7 @@ setInterval(() => {
       sesionesMovil.delete(id);
     }
   }
-}, 5 * 60 * 1000);
+}, 5 * 60 * 1000).unref();
 
 export function crearSesionMovil(): { sessionId: string; expiraEn: number } {
   const sessionId = 'movil_' + Math.random().toString(36).substring(2, 10) + Date.now().toString(36);

@@ -1,4 +1,5 @@
 import prisma from '../../config/prisma';
+import { esConsultaDePrecio, responderConsultaDePrecio } from '../precios-mayoristas/consulta';
 import type { ClienteRaiz } from '../../config/prisma.tipos';
 import { decrypt, hmacBusqueda } from '../../utils/encryption';
 import { env } from '../../config/env';
@@ -1664,6 +1665,13 @@ Reglas estrictas:
     }
     const uso = usoCheck!;
 
+    // Comando de precios mayoristas: camino dedicado, sin modelo. La respuesta
+    // se arma con los datos de la base (ver precios-mayoristas/consulta.ts).
+    if (esConsultaDePrecio(data.pregunta)) {
+      yield* this.streamConsultaDePrecio(data.pregunta, uso);
+      return;
+    }
+
     const mensajes: AgenteMessage[] = [
       { role: 'system', content: construirPromptSistema('agente', data.contexto, data.pregunta) },
       { role: 'system', content: mensajeCuotaSistema(uso) },
@@ -1680,6 +1688,43 @@ Reglas estrictas:
     const modelo = elegirModeloParaPregunta(data.pregunta);
 
     yield* this.streamAgente(mensajes, lic.id, uso, false, modelo);
+  }
+
+  /**
+   * Respuesta del comando `/consultar-precio`.
+   *
+   * No usa el modelo: el tokenizador se queda con las palabras útiles y la
+   * respuesta se arma con los precios de la base. Instantánea, gratis y sin
+   * posibilidad de inventar un precio.
+   */
+  private async *streamConsultaDePrecio(
+    pregunta: string,
+    uso: UsoChat,
+  ): AsyncGenerator<EventoAgenteServicio> {
+    let texto: string;
+    try {
+      texto = await responderConsultaDePrecio(prisma, pregunta);
+    } catch (error) {
+      console.error(
+        '[precios] falló la consulta de precios mayoristas:',
+        error instanceof Error ? error.message : error,
+      );
+      texto =
+        'No pude consultar los precios mayoristas ahora mismo. Probá de nuevo en unos segundos.';
+    }
+
+    yield { type: 'chunk', texto };
+    yield {
+      type: 'done',
+      texto,
+      tokens: {
+        prompt_tokens: 0,
+        completion_tokens: 0,
+        total_tokens: 0,
+        cached_tokens: 0,
+      },
+      uso,
+    };
   }
 
   async *continuarAgente(data: ContinuarAgenteDTO): AsyncGenerator<EventoAgenteServicio> {

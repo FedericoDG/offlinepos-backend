@@ -13,6 +13,7 @@ import pagoRoutes from './features/pago/pago.routes';
 import estadisticaRoutes from './features/estadistica/estadistica.routes';
 import chatRoutes from './features/chat/chat.routes';
 import actualizacionesRoutes from './features/actualizaciones/actualizaciones.routes';
+import preciosMayoristasRoutes from './features/precios-mayoristas/precios.routes';
 import { dirUpdates, repararLatest } from './features/actualizaciones/actualizaciones.service';
 import { esBasePublica, resolverBasePublica } from './utils/base-publica';
 
@@ -105,6 +106,7 @@ app.use('/api/pagos', pagoRoutes);
 app.use('/api/estadisticas', estadisticaRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/updates/admin', actualizacionesRoutes);
+app.use('/api/precios-mayoristas', preciosMayoristasRoutes);
 
 // Auto-reparación de latest.json: un archivo publicado antes de configurar
 // PUBLIC_BASE_URL puede tener URLs con localhost. Antes de servir el estático,

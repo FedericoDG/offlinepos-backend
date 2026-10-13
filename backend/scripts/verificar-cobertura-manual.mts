@@ -164,6 +164,7 @@ const CLAVES_PANTALLA: Record<string, string[]> = {
   ComprasScreen: ['compras'],
   ConfiguracionScreen: ['configuracion'],
   CrearAdminScreen: ['crear admin', 'administrador'],
+  FaqScreen: ['ayuda', 'faq'],
   GastosScreen: ['gastos'],
   HomeScreen: ['dashboard', 'inicio'],
   InformeFinancieroScreen: ['informe financiero'],

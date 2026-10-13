@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import Link from 'next/link';
 import { EncabezadoPagina } from '@/components/panel/encabezado';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
@@ -69,7 +70,12 @@ export default async function PaginaPreciosMayoristas() {
                   <TableRow key={cadena.id}>
                     <TableCell>
                       <div className="flex flex-col gap-0.5">
-                        <span className="font-medium text-foreground">{cadena.bandera_nombre}</span>
+                        <Link
+                          href={`/precios-mayoristas/${cadena.id}`}
+                          className="font-medium text-foreground hover:underline"
+                        >
+                          {cadena.bandera_nombre}
+                        </Link>
                         <span className="text-xs text-muted-foreground">
                           {cadena.razon_social} · CUIT {cadena.cuit}
                         </span>

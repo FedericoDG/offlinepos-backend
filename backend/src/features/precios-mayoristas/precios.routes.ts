@@ -276,6 +276,76 @@ router.get('/', async (_req, res) => {
 });
 
 /**
+ * Productos de UNA cadena, paginados y con buscador.
+ *
+ * Es el detalle de la tabla del panel: 10.800 productos no se pueden mandar de
+ * una, así que viene de a páginas y se puede filtrar por nombre o por código
+ * de barras.
+ */
+router.get('/:id/productos', async (req, res) => {
+  try {
+    const cadena = await prisma.cadena.findUnique({ where: { id: req.params.id } });
+    if (!cadena) throw httpError('La cadena no existe', 404);
+
+    const pagina = Math.max(1, Number(req.query.pagina) || 1);
+    const limite = Math.min(100, Math.max(5, Number(req.query.limite) || 25));
+    const q = String(req.query.q ?? '').trim();
+
+    // El buscador mira el nombre y el código de barras: son las dos formas en
+    // que alguien busca un producto.
+    const where: any = { cadena_id: cadena.id };
+    if (q) {
+      where.OR = [
+        { descripcion: { contains: q, mode: 'insensitive' } },
+        { marca: { contains: q, mode: 'insensitive' } },
+        { ean: { contains: q } },
+      ];
+    }
+
+    // El total se cuenta con el mismo `where`: si no, el paginador miente en
+    // cuanto alguien escribe algo en el buscador.
+    const [total, productos] = await Promise.all([
+      prisma.precioMayorista.count({ where }),
+      prisma.precioMayorista.findMany({
+        where,
+        orderBy: { descripcion: 'asc' },
+        skip: (pagina - 1) * limite,
+        take: limite,
+      }),
+    ]);
+
+    res.status(200).json({
+      cadena: {
+        id: cadena.id,
+        cuit: cadena.cuit,
+        razon_social: cadena.razon_social,
+        bandera_nombre: cadena.bandera_nombre,
+        bandera_url: cadena.bandera_url,
+        actualizado_sepa_en: cadena.actualizado_sepa_en,
+        importado_en: cadena.importado_en,
+      },
+      datos: productos.map((p) => ({
+        ean: p.ean,
+        descripcion: p.descripcion,
+        marca: p.marca,
+        es_ean: p.es_ean,
+        precio_con_iva: Number(p.precio_con_iva),
+        precio_min: Number(p.precio_min),
+        precio_max: Number(p.precio_max),
+        sucursales: p.sucursales,
+        importado_en: p.importado_en,
+      })),
+      total,
+      pagina,
+      limite,
+      paginas: Math.max(1, Math.ceil(total / limite)),
+    });
+  } catch (error) {
+    handleApiError(error, res, 'No se pudieron listar los productos de la cadena');
+  }
+});
+
+/**
  * Borra TODAS las cadenas cargadas, con sus sucursales y sus precios.
  * Sirve para vaciar la sección y volver a empezar de cero.
  */

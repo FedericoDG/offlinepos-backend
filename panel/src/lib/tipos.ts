@@ -395,6 +395,38 @@ export interface CadenasMayoristasResponse {
   cadenas: CadenaMayorista[];
 }
 
+/** Un producto de una cadena, ya agregado (una fila por EAN). */
+export interface ProductoMayorista {
+  ean: string;
+  descripcion: string;
+  marca: string | null;
+  /** `false` = el código es interno del comercio, no un código de barras real. */
+  es_ean: boolean;
+  precio_con_iva: number;
+  precio_min: number;
+  precio_max: number;
+  sucursales: number;
+  importado_en: string;
+}
+
+/** Detalle de una cadena con sus productos paginados. */
+export interface CadenaConProductos {
+  cadena: {
+    id: string;
+    cuit: string;
+    razon_social: string;
+    bandera_nombre: string;
+    bandera_url: string | null;
+    actualizado_sepa_en: string | null;
+    importado_en: string;
+  };
+  datos: ProductoMayorista[];
+  total: number;
+  pagina: number;
+  limite: number;
+  paginas: number;
+}
+
 /** Resultado de importar un ZIP de SEPA (o un lote con varios). */
 export interface ReporteImportacionMayorista {
   ok: boolean;

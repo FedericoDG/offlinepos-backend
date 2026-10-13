@@ -29,10 +29,22 @@ export async function importarDumpMayorista(
 
   const resultado = await ejecutar(
     (reporte: ReporteImportacionMayorista) => {
-      const cadena = reporte.cadenas?.[0];
-      if (!cadena) return 'El ZIP no traía ninguna bandera para importar';
-      const { total, creados, actualizados } = cadena.productos;
-      return `${cadena.bandera_nombre}: ${total} productos (${creados} nuevos, ${actualizados} actualizados) en ${(reporte.ms / 1000).toFixed(1)} s`;
+      const cadenas = reporte.cadenas ?? [];
+      if (cadenas.length === 0) return 'El ZIP no traía ningún comercio para importar';
+
+      const segundos = `${(reporte.ms / 1000).toFixed(1)} s`;
+      const totalProductos = cadenas.reduce((suma, c) => suma + c.productos.total, 0);
+
+      // Un lote: se resumen todos los comercios y, si alguno falló, se avisa.
+      if (cadenas.length > 1 || (reporte.archivos ?? 0) > 1) {
+        const omitidos = reporte.omitidos?.length
+          ? ` · ${reporte.omitidos.length} sin importar`
+          : '';
+        return `${cadenas.length} comercios: ${totalProductos.toLocaleString('es-AR')} productos en ${segundos}${omitidos}`;
+      }
+
+      const { total, creados, actualizados } = cadenas[0].productos;
+      return `${cadenas[0].bandera_nombre}: ${total.toLocaleString('es-AR')} productos (${creados} nuevos, ${actualizados} actualizados) en ${segundos}`;
     },
     () => api.subir<ReporteImportacionMayorista>('/api/precios-mayoristas/importar', reenvio),
   );

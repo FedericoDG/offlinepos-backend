@@ -12,14 +12,17 @@ import {
   parsearSucursales,
   validarEncabezado,
 } from './parser';
-import { importarDump } from './importar';
+import { importarDump, type ReporteImportacion } from './importar';
 
 /**
  * Precios mayoristas (SEPA).
  *
- * El dueño sube, desde el panel, un ZIP con los tres CSV que publica cada
- * mayorista (`comercio.csv`, `sucursales.csv`, `productos.csv`). Acá se
- * descomprime, se valida el formato y se guarda con upsert.
+ * El dueño sube, desde el panel, el ZIP con los tres CSV que publica cada
+ * mayorista (`comercio.csv`, `sucursales.csv`, `productos.csv`).
+ *
+ * También acepta el **lote del día**: un ZIP que adentro trae los ZIP de varios
+ * comercios (es como lo baja la mayoría). En ese caso se procesan todos y se
+ * devuelve un reporte con cada uno.
  *
  * Solo admins: es data del sistema, no de un comercio.
  */
@@ -28,15 +31,15 @@ const router = Router();
 router.use(authenticateJWT, requireAdmin);
 
 /**
- * El ZIP va a memoria: un dump de 20 MB se descomprime y se procesa en
- * segundos, no hace falta tocar el disco.
+ * Los dumps van a memoria: uno de 20 MB se descomprime y se procesa en
+ * segundos, y un lote completo (varios comercios) entra cómodo.
  */
 const subida = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 120 * 1024 * 1024, files: 1 },
+  limits: { fileSize: 200 * 1024 * 1024, files: 1 },
 });
 
-/** Busca un archivo dentro del ZIP por su nombre, sin importar la subcarpeta. */
+/** Busca un archivo dentro de un ZIP por su nombre, sin importar la subcarpeta. */
 function buscarEntrada(entradas: AdmZip.IZipEntry[], nombre: string) {
   const buscado = nombre.toLowerCase();
   return entradas.find(
@@ -44,11 +47,129 @@ function buscarEntrada(entradas: AdmZip.IZipEntry[], nombre: string) {
   );
 }
 
+/** Los tres CSV que tiene que traer un dump. */
+const ARCHIVOS_SEPA = ['comercio.csv', 'sucursales.csv', 'productos.csv'] as const;
+
 /**
- * Importa un dump: `POST /api/precios-mayoristas/importar` (multipart, campo
- * `archivo`). Devuelve el reporte de lo que se creó y actualizó.
+ * Procesa las entradas de UN dump (los tres CSV) y lo importa.
+ *
+ * Tira `httpError` con un mensaje que explica qué pasó si el formato no es el
+ * esperado, si algún archivo viene vacío o si es otra versión del estándar.
+ * Ese mensaje es lo que ve el dueño en el panel, así que dice el detalle.
+ */
+async function importarEntradas(entradas: AdmZip.IZipEntry[]): Promise<ReporteImportacion> {
+  const faltantes = ARCHIVOS_SEPA.filter((nombre) => !buscarEntrada(entradas, nombre));
+  if (faltantes.length > 0) {
+    throw httpError(
+      `Al ZIP le faltan archivos: ${faltantes.join(', ')}. ` +
+        'Tiene que traer los tres CSV que publica el mayorista.',
+      400,
+    );
+  }
+
+  const texto = (nombre: string) =>
+    buscarEntrada(entradas, nombre)!.getData().toString('utf8');
+
+  const comercioCsv = texto('comercio.csv');
+  const sucursalesCsv = texto('sucursales.csv');
+  const productosCsv = texto('productos.csv');
+
+  /**
+   * Filas de datos reales: sin el encabezado ni las líneas vacías, y sin
+   * contar la línea de pie (`última actualización: …`), que tiene un solo
+   * campo y no es un dato.
+   */
+  const filasDeDatos = (contenido: string) =>
+    contenido
+      .replace(/^\uFEFF/, '')
+      .split(/\r?\n/)
+      .slice(1)
+      .filter((linea) => linea.trim().length > 0 && linea.split('|').length >= 5).length;
+
+  /** Cuántas columnas trae el encabezado de un archivo. */
+  const columnasDe = (contenido: string) =>
+    (contenido.replace(/^\uFEFF/, '').split(/\r?\n/)[0] ?? '').split('|').length;
+
+  /**
+   * La versión del estándar SEPA que declara el dump (`comercio_version_sepa`,
+   * el 8vo campo de la fila de comercio).
+   */
+  const versionDeclarada = (contenido: string): string | null => {
+    const fila = contenido.replace(/^\uFEFF/, '').split(/\r?\n/)[1] ?? '';
+    return fila.split('|')[7]?.trim() || null;
+  };
+
+  const archivos = [
+    ['comercio.csv', comercioCsv, ENCABEZADOS.comercio],
+    ['sucursales.csv', sucursalesCsv, ENCABEZADOS.sucursales],
+    ['productos.csv', productosCsv, ENCABEZADOS.productos],
+  ] as const;
+
+  const conFormatoDistinto = archivos.filter(
+    ([, contenido, esperado]) => !validarEncabezado(contenido, esperado),
+  );
+
+  if (conFormatoDistinto.length > 0) {
+    const version = versionDeclarada(comercioCsv);
+    const detalle = conFormatoDistinto
+      .map(([nombre, contenido, esperado]) =>
+        `${nombre} (trae ${columnasDe(contenido)} columnas y se esperaban ${columnasDe(esperado)})`,
+      )
+      .join(', ');
+
+    // Un archivo que solo trae el encabezado merece decirlo aparte: el usuario
+    // puede pensar que el problema es el formato cuando en realidad no hay
+    // nada para importar.
+    const vacios = conFormatoDistinto.filter(([, contenido]) => filasDeDatos(contenido) <= 0);
+    const aclaracionVacio =
+      vacios.length > 0
+        ? ` Además, ${vacios.map(([n]) => n).join(' y ')} viene vacío (solo el encabezado).`
+        : '';
+
+    const aclaracionVersion = version
+      ? ` El archivo declara la versión ${version} del estándar y el sistema lee la 0.`
+      : '';
+
+    throw httpError(
+      `El formato de ${detalle} no es el que entiende el sistema. Pasa cuando el ` +
+        `mayorista publica otra versión del estándar SEPA: las columnas cambian de ` +
+        `nombre y de orden.${aclaracionVersion} No se importó nada.${aclaracionVacio}`,
+      400,
+    );
+  }
+
+  const comercio = parsearComercio(comercioCsv);
+  const sucursales = parsearSucursales(sucursalesCsv);
+  const productos = parsearProductos(productosCsv);
+
+  if (comercio.items.length === 0) {
+    throw httpError(
+      'comercio.csv no tiene ninguna fila de comercio adentro (solo el encabezado o datos incompletos).',
+      400,
+    );
+  }
+  if (productos.items.length === 0) {
+    throw httpError(
+      'El ZIP trae productos.csv pero sin ningún producto adentro: no hay precios para importar.',
+      400,
+    );
+  }
+
+  return importarDump(prisma, {
+    comercios: comercio.items,
+    sucursales: sucursales.items,
+    productos: productos.items,
+    descartadas: comercio.descartadas + sucursales.descartadas + productos.descartadas,
+  });
+}
+
+/**
+ * Importa un dump, o un lote entero si el ZIP trae otros ZIP adentro.
+ *
+ * `POST /api/precios-mayoristas/importar` (multipart, campo `archivo`).
  */
 router.post('/importar', subida.single('archivo'), async (req, res) => {
+  const inicio = Date.now();
   try {
     if (!req.file) {
       throw httpError('Falta el archivo ZIP (campo "archivo")', 400);
@@ -62,118 +183,65 @@ router.post('/importar', subida.single('archivo'), async (req, res) => {
     }
 
     const entradas = zip.getEntries();
-    const faltantes = ['comercio.csv', 'sucursales.csv', 'productos.csv'].filter(
-      (nombre) => !buscarEntrada(entradas, nombre),
-    );
-    if (faltantes.length > 0) {
+    const traeLosCsv = ARCHIVOS_SEPA.every((nombre) => buscarEntrada(entradas, nombre));
+
+    // Lote del día: un ZIP que adentro trae los ZIP de cada comercio. Es como
+    // lo baja la mayoría, así que se procesa todo de una y se devuelve el
+    // detalle de cada comercio (y de los que fallaron, con su motivo).
+    if (!traeLosCsv) {
+      const internos = entradas.filter(
+        (e) => !e.isDirectory && e.entryName.toLowerCase().endsWith('.zip'),
+      );
+
+      if (internos.length > 0) {
+        const cadenas: ReporteImportacion['cadenas'] = [];
+        const omitidos: Array<{ archivo: string; motivo: string }> = [];
+
+        for (const interno of internos) {
+          try {
+            const reporte = await importarEntradas(
+              new AdmZip(interno.getData()).getEntries(),
+            );
+            cadenas.push(...reporte.cadenas);
+          } catch (error: any) {
+            omitidos.push({
+              archivo: path.basename(interno.entryName),
+              motivo: error?.message ?? 'no se pudo importar',
+            });
+          }
+        }
+
+        if (cadenas.length === 0) {
+          throw httpError(
+            `El ZIP trae ${internos.length} archivos adentro pero ninguno se pudo importar. ` +
+              `Primer motivo: ${omitidos[0]?.motivo ?? 'desconocido'}`,
+            400,
+          );
+        }
+
+        return res.status(200).json({
+          ok: true,
+          cadenas,
+          sucursales: cadenas.length,
+          descartadas: 0,
+          ms: Date.now() - inicio,
+          archivos: internos.length,
+          omitidos,
+        });
+      }
+
+      // Ni CSV ni ZIPs adentro: el error de siempre, que ya explica qué falta.
       throw httpError(
-        `Al ZIP le faltan archivos: ${faltantes.join(', ')}. ` +
-          'Tiene que traer los tres CSV que publica el mayorista.',
+        `Al ZIP le faltan archivos: ${['comercio.csv', 'sucursales.csv', 'productos.csv']
+          .filter((nombre) => !buscarEntrada(entradas, nombre))
+          .join(', ')}. ` +
+          'Tiene que traer los tres CSV que publica el mayorista, o los ZIP de cada comercio.',
         400,
       );
     }
 
-    const texto = (nombre: string) =>
-      buscarEntrada(entradas, nombre)!.getData().toString('utf8');
-
-    const comercioCsv = texto('comercio.csv');
-    const sucursalesCsv = texto('sucursales.csv');
-    const productosCsv = texto('productos.csv');
-
-    /**
-     * Filas de datos reales: sin el encabezado ni las líneas vacías, y sin
-     * contar la línea de pie (`última actualización: …`), que tiene un solo
-     * campo y no es un dato.
-     */
-    const filasDeDatos = (contenido: string) =>
-      contenido
-        .replace(/^\uFEFF/, '')
-        .split(/\r?\n/)
-        .slice(1)
-        .filter((linea) => linea.trim().length > 0 && linea.split('|').length >= 5).length;
-
-    /** Cuántas columnas trae el encabezado de un archivo. */
-    const columnasDe = (contenido: string) =>
-      (contenido.replace(/^\uFEFF/, '').split(/\r?\n/)[0] ?? '').split('|').length;
-
-    // Validar el encabezado antes de parsear. El mensaje tiene que decir QUÉ
-    // cambió: mandar al usuario a comparar encabezados a mano no sirve, y este
-    // caso ya nos pasó (un comercio publica otra versión del estándar SEPA,
-    // con las columnas con otros nombres y en otro orden).
-    const archivos = [
-      ['comercio.csv', comercioCsv, ENCABEZADOS.comercio],
-      ['sucursales.csv', sucursalesCsv, ENCABEZADOS.sucursales],
-      ['productos.csv', productosCsv, ENCABEZADOS.productos],
-    ] as const;
-
-    const conFormatoDistinto = archivos.filter(
-      ([, contenido, esperado]) => !validarEncabezado(contenido, esperado),
-    );
-
-    /**
-     * La versión del estándar SEPA que declara el dump (`comercio_version_sepa`,
-     * el 8vo campo de la fila de comercio). Sirve para que el mensaje de error
-     * diga con qué versión nos encontramos y no solo "el formato cambió".
-     */
-    const versionDeclarada = (contenido: string): string | null => {
-      const fila = contenido.replace(/^\uFEFF/, '').split(/\r?\n/)[1] ?? '';
-      return fila.split('|')[7]?.trim() || null;
-    };
-
-    if (conFormatoDistinto.length > 0) {
-      const version = versionDeclarada(comercioCsv);
-      const detalle = conFormatoDistinto
-        .map(([nombre, contenido, esperado]) =>
-          `${nombre} (trae ${columnasDe(contenido)} columnas y se esperaban ${columnasDe(esperado)})`,
-        )
-        .join(', ');
-
-      // Un archivo que solo trae el encabezado merece decirlo aparte: el
-      // usuario puede pensar que el problema es el formato cuando en realidad
-      // no hay nada para importar.
-      const vacios = conFormatoDistinto.filter(([, contenido]) => filasDeDatos(contenido) <= 0);
-      const aclaracionVacio =
-        vacios.length > 0
-          ? ` Además, ${vacios.map(([n]) => n).join(' y ')} viene vacío (solo el encabezado).`
-          : '';
-
-      const aclaracionVersion = version
-        ? ` El archivo declara la versión ${version} del estándar y el sistema lee la 0.`
-        : '';
-
-      throw httpError(
-        `El formato de ${detalle} no es el que entiende el sistema. Pasa cuando el ` +
-          `mayorista publica otra versión del estándar SEPA: las columnas cambian de ` +
-          `nombre y de orden.${aclaracionVersion} No se importó nada.${aclaracionVacio}`,
-        400,
-      );
-    }
-
-    const comercio = parsearComercio(comercioCsv);
-    const sucursales = parsearSucursales(sucursalesCsv);
-    const productos = parsearProductos(productosCsv);
-
-    if (comercio.items.length === 0) {
-      throw httpError(
-        'comercio.csv no tiene ninguna fila de comercio adentro (solo el encabezado o datos incompletos).',
-        400,
-      );
-    }
-    if (productos.items.length === 0) {
-      throw httpError(
-        'El ZIP trae productos.csv pero sin ningún producto adentro: no hay precios para importar.',
-        400,
-      );
-    }
-
-    const reporte = await importarDump(prisma, {
-      comercios: comercio.items,
-      sucursales: sucursales.items,
-      productos: productos.items,
-      descartadas: comercio.descartadas + sucursales.descartadas + productos.descartadas,
-    });
-
-    res.status(200).json({ ok: true, ...reporte });
+    const reporte = await importarEntradas(entradas);
+    res.status(200).json({ ok: true, ...reporte, ms: Date.now() - inicio });
   } catch (error) {
     handleApiError(error, res, 'No se pudo importar el dump de precios');
   }

@@ -395,7 +395,7 @@ export interface CadenasMayoristasResponse {
   cadenas: CadenaMayorista[];
 }
 
-/** Resultado de importar un ZIP de SEPA. */
+/** Resultado de importar un ZIP de SEPA (o un lote con varios). */
 export interface ReporteImportacionMayorista {
   ok: boolean;
   cadenas: Array<{
@@ -408,4 +408,8 @@ export interface ReporteImportacionMayorista {
   sucursales: number;
   descartadas: number;
   ms: number;
+  /** Solo cuando se subió un lote: cuántos ZIP traía. */
+  archivos?: number;
+  /** Solo cuando se subió un lote: los que no se pudieron importar. */
+  omitidos?: Array<{ archivo: string; motivo: string }>;
 }

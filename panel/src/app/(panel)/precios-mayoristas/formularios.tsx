@@ -1,10 +1,24 @@
 'use client';
 
 import { useState } from 'react';
-import { Upload } from 'lucide-react';
-import { importarDumpMayorista } from '@/actions/precios-mayoristas';
+import { Trash2, Upload } from 'lucide-react';
+import { toast } from 'sonner';
+import {
+  eliminarCadena,
+  importarDumpMayorista,
+  vaciarCadenas,
+} from '@/actions/precios-mayoristas';
 import { AccionModal } from '@/components/ui/accion-modal';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
 import { Field, FieldGroup } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 
@@ -51,5 +65,125 @@ export function ImportarDump() {
         )}
       </FieldGroup>
     </AccionModal>
+  );
+}
+
+/** Borra una cadena completa (sus precios y sucursales) de la base. */
+export function EliminarCadena({
+  id,
+  nombre,
+  productos,
+}: {
+  id: string;
+  nombre: string;
+  productos: number;
+}) {
+  const [abierto, setAbierto] = useState(false);
+  const [borrando, setBorrando] = useState(false);
+
+  async function confirmar() {
+    setBorrando(true);
+    try {
+      const r = await eliminarCadena(id);
+      if (r.ok) {
+        toast.success(r.mensaje ?? `${nombre} eliminada`);
+        setAbierto(false);
+      } else {
+        toast.error(r.error ?? 'No se pudo eliminar');
+      }
+    } finally {
+      setBorrando(false);
+    }
+  }
+
+  return (
+    <Dialog open={abierto} onOpenChange={setAbierto}>
+      <DialogTrigger asChild>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
+          title={`Eliminar ${nombre} por completo`}
+        >
+          <Trash2 className="size-3.5" />
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>¿Eliminar {nombre}?</DialogTitle>
+          <DialogDescription>
+            Se borran sus {productos.toLocaleString('es-AR')} precios y sus sucursales de la base.
+            No se puede deshacer. Para volver a tenerlos, subí de nuevo el ZIP del mayorista.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button type="button" variant="ghost" onClick={() => setAbierto(false)}>
+            Cancelar
+          </Button>
+          <Button variant="destructive" onClick={confirmar} disabled={borrando}>
+            {borrando ? 'Eliminando…' : 'Sí, eliminar'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/**
+ * Vacía la sección entera: borra TODAS las cadenas con sus precios.
+ * Para cuando hay que empezar de cero (por ejemplo, después de una carga
+ * masiva equivocada).
+ */
+export function VaciarTodo({
+  cadenas,
+  productos,
+}: {
+  cadenas: number;
+  productos: number;
+}) {
+  const [abierto, setAbierto] = useState(false);
+  const [borrando, setBorrando] = useState(false);
+
+  async function confirmar() {
+    setBorrando(true);
+    try {
+      const r = await vaciarCadenas();
+      if (r.ok) {
+        toast.success(r.mensaje ?? 'Se borraron todas las cadenas');
+        setAbierto(false);
+      } else {
+        toast.error(r.error ?? 'No se pudieron borrar');
+      }
+    } finally {
+      setBorrando(false);
+    }
+  }
+
+  return (
+    <Dialog open={abierto} onOpenChange={setAbierto}>
+      <DialogTrigger asChild>
+        <Button variant="outline" className="text-destructive hover:text-destructive">
+          <Trash2 /> Vaciar todo
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>¿Borrar todas las cadenas?</DialogTitle>
+          <DialogDescription>
+            Se borran las {cadenas} cadenas cargadas con sus {productos.toLocaleString('es-AR')}{' '}
+            precios y sus sucursales. Los comerciantes dejan de poder consultar precios
+            mayoristas hasta que vuelvas a subir los ZIP. No se puede deshacer.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button type="button" variant="ghost" onClick={() => setAbierto(false)}>
+            Cancelar
+          </Button>
+          <Button variant="destructive" onClick={confirmar} disabled={borrando}>
+            {borrando ? 'Borrando…' : 'Sí, borrar todo'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

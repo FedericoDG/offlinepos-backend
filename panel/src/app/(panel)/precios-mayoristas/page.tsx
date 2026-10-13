@@ -12,7 +12,7 @@ import {
 } from '@/components/ui/table';
 import { consultas } from '@/lib/consultas';
 import { fecha } from '@/lib/formato';
-import { ImportarDump } from './formularios';
+import { EliminarCadena, ImportarDump, VaciarTodo } from './formularios';
 
 export const metadata: Metadata = { title: 'Precios mayoristas' };
 export const dynamic = 'force-dynamic';
@@ -32,7 +32,17 @@ export default async function PaginaPreciosMayoristas() {
       <EncabezadoPagina
         titulo="Precios mayoristas"
         descripcion="Los precios de lista que publican los mayoristas (SEPA). Los comerciantes los consultan desde el chat del POS con /consultar-precio y el nombre del producto."
-        accion={<ImportarDump />}
+        accion={
+          <>
+            {cadenas.length > 0 && (
+              <VaciarTodo
+                cadenas={cadenas.length}
+                productos={cadenas.reduce((suma, c) => suma + c.productos, 0)}
+              />
+            )}
+            <ImportarDump />
+          </>
+        }
       />
 
       <Card className="gap-0 py-0">
@@ -51,6 +61,7 @@ export default async function PaginaPreciosMayoristas() {
                   <TableHead className="text-right">Sucursales</TableHead>
                   <TableHead>Actualizado por el mayorista</TableHead>
                   <TableHead>Importado</TableHead>
+                  <TableHead className="w-12" />
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -75,6 +86,13 @@ export default async function PaginaPreciosMayoristas() {
                     </TableCell>
                     <TableCell className="text-muted-foreground">
                       {fecha(cadena.importado_en)}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <EliminarCadena
+                        id={cadena.id}
+                        nombre={cadena.bandera_nombre}
+                        productos={cadena.productos}
+                      />
                     </TableCell>
                   </TableRow>
                 ))}

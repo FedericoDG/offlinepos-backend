@@ -41,3 +41,27 @@ export async function importarDumpMayorista(
 
   return resultado;
 }
+
+/** Borra una cadena completa: sus precios y sucursales caen en cascada. */
+export async function eliminarCadena(id: string): Promise<EstadoAccion> {
+  const resultado = await ejecutar(
+    (r: { message?: string }) => r.message ?? 'Cadena borrada',
+    () => api.delete(`/api/precios-mayoristas/${encodeURIComponent(id)}`),
+  );
+
+  if (resultado.ok) revalidatePath('/precios-mayoristas');
+
+  return resultado;
+}
+
+/** Borra TODAS las cadenas cargadas: vacía la sección para empezar de nuevo. */
+export async function vaciarCadenas(): Promise<EstadoAccion> {
+  const resultado = await ejecutar(
+    (r: { message?: string }) => r.message ?? 'Se borraron todas las cadenas',
+    () => api.delete('/api/precios-mayoristas'),
+  );
+
+  if (resultado.ok) revalidatePath('/precios-mayoristas');
+
+  return resultado;
+}

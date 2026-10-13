@@ -192,4 +192,44 @@ router.get('/', async (_req, res) => {
   }
 });
 
+/**
+ * Borra TODAS las cadenas cargadas, con sus sucursales y sus precios.
+ * Sirve para vaciar la sección y volver a empezar de cero.
+ */
+router.delete('/', async (_req, res) => {
+  try {
+    const { count } = await prisma.cadena.deleteMany({});
+
+    res.status(200).json({
+      ok: true,
+      message:
+        count === 0
+          ? 'No había ninguna cadena cargada.'
+          : `Se borraron ${count} ${count === 1 ? 'cadena' : 'cadenas'} con todos sus precios y sucursales.`,
+    });
+  } catch (error) {
+    handleApiError(error, res, 'No se pudieron borrar las cadenas');
+  }
+});
+
+/**
+ * Borra UNA cadena completa. Sus precios y sucursales caen en cascada
+ * (las relaciones están declaradas `onDelete: Cascade`).
+ */
+router.delete('/:id', async (req, res) => {
+  try {
+    const cadena = await prisma.cadena.findUnique({ where: { id: req.params.id } });
+    if (!cadena) throw httpError('La cadena no existe', 404);
+
+    await prisma.cadena.delete({ where: { id: cadena.id } });
+
+    res.status(200).json({
+      ok: true,
+      message: `${cadena.bandera_nombre} se borró con todos sus precios y sucursales.`,
+    });
+  } catch (error) {
+    handleApiError(error, res, 'No se pudo borrar la cadena');
+  }
+});
+
 export default router;

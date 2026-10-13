@@ -375,3 +375,37 @@ export interface VersionVigente {
   archivos: ArchivoVersion[];
   versiones: VersionPublicada[];
 }
+
+/** Una cadena (bandera de un mayorista) con los precios SEPA cargados. */
+export interface CadenaMayorista {
+  id: string;
+  cuit: string;
+  razon_social: string;
+  bandera_nombre: string;
+  bandera_url: string | null;
+  /** Última actualización que declara el dump del mayorista. */
+  actualizado_sepa_en: string | null;
+  /** Cuándo lo importamos nosotros. */
+  importado_en: string;
+  productos: number;
+  sucursales: number;
+}
+
+export interface CadenasMayoristasResponse {
+  cadenas: CadenaMayorista[];
+}
+
+/** Resultado de importar un ZIP de SEPA. */
+export interface ReporteImportacionMayorista {
+  ok: boolean;
+  cadenas: Array<{
+    cuit: string;
+    id_bandera: number;
+    razon_social: string;
+    bandera_nombre: string;
+    productos: { total: number; creados: number; actualizados: number };
+  }>;
+  sucursales: number;
+  descartadas: number;
+  ms: number;
+}

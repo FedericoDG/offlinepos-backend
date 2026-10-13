@@ -1,6 +1,7 @@
 import { api } from './api';
 import type {
   AdministradorListado,
+  CadenasMayoristasResponse,
   ChatConsumoResponse,
   Comercio,
   ComercioDetalle,
@@ -58,4 +59,7 @@ export const consultas = {
 
   /** Versión del POS vigente publicada (lo que descargan los updater). */
   actualizacionVigente: () => api.get<VersionVigente>('/api/updates/admin/actual'),
+
+  /** Cadenas de mayoristas con precios SEPA cargados (para consultar por Binny). */
+  cadenasMayoristas: () => api.get<CadenasMayoristasResponse>('/api/precios-mayoristas'),
 };

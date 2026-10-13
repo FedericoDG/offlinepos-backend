@@ -17,6 +17,8 @@
     "db:studio": "prisma studio",
     "licencia:generar-claves": "node scripts/generar-claves-licencia.mjs",
     "licencia:backfill-busqueda": "tsx scripts/backfill-clave-busqueda.mts",
+    "generar:manual-faq": "tsx scripts/generar-manual-faq.mts",
+    "verificar:manual-faq": "tsx scripts/verificar-manual-faq.mts",
     "test:binny": "tsx scripts/prueba-binny-e2e.mts --repes=2",
     "test:binny:rapido": "tsx scripts/prueba-binny-e2e.mts --repes=1"
   },

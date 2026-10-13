@@ -110,7 +110,18 @@ router.post('/importar', subida.single('archivo'), async (req, res) => {
       ([, contenido, esperado]) => !validarEncabezado(contenido, esperado),
     );
 
+    /**
+     * La versión del estándar SEPA que declara el dump (`comercio_version_sepa`,
+     * el 8vo campo de la fila de comercio). Sirve para que el mensaje de error
+     * diga con qué versión nos encontramos y no solo "el formato cambió".
+     */
+    const versionDeclarada = (contenido: string): string | null => {
+      const fila = contenido.replace(/^\uFEFF/, '').split(/\r?\n/)[1] ?? '';
+      return fila.split('|')[7]?.trim() || null;
+    };
+
     if (conFormatoDistinto.length > 0) {
+      const version = versionDeclarada(comercioCsv);
       const detalle = conFormatoDistinto
         .map(([nombre, contenido, esperado]) =>
           `${nombre} (trae ${columnasDe(contenido)} columnas y se esperaban ${columnasDe(esperado)})`,
@@ -126,10 +137,14 @@ router.post('/importar', subida.single('archivo'), async (req, res) => {
           ? ` Además, ${vacios.map(([n]) => n).join(' y ')} viene vacío (solo el encabezado).`
           : '';
 
+      const aclaracionVersion = version
+        ? ` El archivo declara la versión ${version} del estándar y el sistema lee la 0.`
+        : '';
+
       throw httpError(
         `El formato de ${detalle} no es el que entiende el sistema. Pasa cuando el ` +
-          'mayorista publica otra versión del estándar SEPA: las columnas cambian de ' +
-          `nombre y de orden. No se importó nada.${aclaracionVacio}`,
+          `mayorista publica otra versión del estándar SEPA: las columnas cambian de ` +
+          `nombre y de orden.${aclaracionVersion} No se importó nada.${aclaracionVacio}`,
         400,
       );
     }

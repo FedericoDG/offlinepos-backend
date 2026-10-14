@@ -14,6 +14,7 @@ import estadisticaRoutes from './features/estadistica/estadistica.routes';
 import chatRoutes from './features/chat/chat.routes';
 import actualizacionesRoutes from './features/actualizaciones/actualizaciones.routes';
 import preciosMayoristasRoutes from './features/precios-mayoristas/precios.routes';
+import preciosBusquedaRoutes from './features/precios-mayoristas/busqueda.routes';
 import { dirUpdates, repararLatest } from './features/actualizaciones/actualizaciones.service';
 import { esBasePublica, resolverBasePublica } from './utils/base-publica';
 
@@ -106,6 +107,10 @@ app.use('/api/pagos', pagoRoutes);
 app.use('/api/estadisticas', estadisticaRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/updates/admin', actualizacionesRoutes);
+// Precios mayoristas: el buscador va PRIMERO y sin sesión de admin, porque lo
+// usa el POS (se identifica con licencia). Solo define `/buscar`, así que el
+// resto de las rutas sigue cayendo en el router del panel, que sí pide admin.
+app.use('/api/precios-mayoristas', preciosBusquedaRoutes);
 app.use('/api/precios-mayoristas', preciosMayoristasRoutes);
 
 // Auto-reparación de latest.json: un archivo publicado antes de configurar

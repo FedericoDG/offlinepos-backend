@@ -132,14 +132,20 @@ export interface ResultadoBusqueda {
   consulta: string;
   tokens: string[];
   encontrados: PrecioEncontrado[];
-  /** Cuántos productos coinciden en total (puede ser mucho más que `encontrados`). */
+  /** Cuántas coincidencias hay en total (no cuántas se trajeron). */
   total: number;
+  /** Página pedida (arranca en 1). */
+  pagina: number;
+  /** Cuántas filas entran por página. */
+  limite: number;
   /**
-   * `true` cuando el mejor resultado no cubre la mayoría de los términos: puede
-   * que el producto no esté cargado o que el nombre esté escrito distinto. El
-   * que responde tiene que ser honesto en vez de inventar.
+   * `true` cuando no se encontró con TODOS los términos, hubo que aflojar a
+   * "alguno" y **hay resultados para mostrar**: puede que el producto no esté
+   * cargado o que el nombre esté escrito distinto, así que el que muestra tiene
+   * que ser honesto en vez de inventar. Con cero resultados queda en `false`:
+   * no hay nada aproximado que advertir.
    */
-  dudoso: boolean;
+  aproximado: boolean;
 }
 
 /**
@@ -147,24 +153,32 @@ export interface ResultadoBusqueda {
  *
  * Rankea por cantidad de términos que coinciden y, a igualdad, por similitud
  * (`word_similarity` de pg_trgm, que tolera errores de tipeo).
+ *
+ * Devuelve **una página**, no todo: el llamador pide `pagina`/`limite` y usa el
+ * `total` para armar el paginador.
  */
 export async function buscarPrecios(
   db: ClientePrisma,
   consulta: string,
-  opciones: { limite?: number } = {},
+  opciones: { pagina?: number; limite?: number } = {},
 ): Promise<ResultadoBusqueda> {
   const tokens = tokensDeConsulta(consulta);
-  const limite = opciones.limite ?? 10;
+  const limite = Math.min(100, Math.max(5, opciones.limite ?? 25));
+  const pagina = Math.max(1, opciones.pagina ?? 1);
 
   if (tokens.length === 0) {
-    return { consulta, tokens, encontrados: [], total: 0, dudoso: true };
+    return { consulta, tokens, encontrados: [], total: 0, pagina, limite, aproximado: false };
   }
 
   /**
    * Corre la búsqueda una vez. `todosLosTerminos` decide si el WHERE pide TODOS
    * (estricto) o ALGUNO (amplio).
    */
-  async function consultar(todosLosTerminos: boolean) {
+  async function consultar(
+    todosLosTerminos: boolean,
+    paginaPedida = pagina,
+    limitePedido = limite,
+  ) {
     const params: unknown[] = [];
     const condiciones: string[] = [];
     const cuenta: string[] = [];
@@ -187,27 +201,43 @@ export async function buscarPrecios(
 
     params.push(normalizar(consulta));
     const posConsulta = `$${params.length}`;
-    params.push(limite);
+    params.push(limitePedido);
     const posLimite = `$${params.length}`;
+    params.push((paginaPedida - 1) * limitePedido);
+    const posOffset = `$${params.length}`;
 
     const unir = todosLosTerminos ? ' AND ' : ' OR ';
 
+    // La CTE calcula coincidencias y puntaje de cada fila candidata; afuera se
+    // dejan solo las que puntúan como la mejor y ahí sí se pagina. Hacerlo así
+    // —y no recortar primero— es lo que permite que el `total` sea el del
+    // conjunto real y que las páginas no se pisen entre sí.
     const filas = await db.$queryRawUnsafe<Array<Record<string, unknown>>>(
-      `SELECT p."ean", p."descripcion", p."marca", p."es_ean",
-              p."precio_con_iva", p."precio_min", p."precio_max", p."sucursales",
-              p."sucursales_atipicas", p."importado_en",
-              c."bandera_nombre" AS cadena, c."cuit" AS cadena_cuit,
-              (${cuenta.join(' + ')}) AS coincidencias,
-              (${peso.join(' + ')}) AS puntaje,
-              COUNT(*) OVER () AS total_coincidencias
-         FROM "PrecioMayorista" p
-         JOIN "Cadena" c ON c."id" = p."cadena_id"
-        WHERE (${condiciones.join(unir)})
+      `WITH candidatas AS (
+         SELECT p."ean", p."descripcion", p."marca", p."es_ean",
+                p."precio_con_iva", p."precio_min", p."precio_max", p."sucursales",
+                p."sucursales_atipicas", p."importado_en", p."texto_busqueda",
+                c."bandera_nombre" AS cadena, c."cuit" AS cadena_cuit,
+                (${cuenta.join(' + ')}) AS coincidencias,
+                (${peso.join(' + ')}) AS puntaje
+           FROM "PrecioMayorista" p
+           JOIN "Cadena" c ON c."id" = p."cadena_id"
+          WHERE (${condiciones.join(unir)})
+       )
+       SELECT *, COUNT(*) OVER () AS total_coincidencias
+         FROM candidatas
+        WHERE puntaje = (SELECT MAX(puntaje) FROM candidatas)
         ORDER BY puntaje DESC,
                  coincidencias DESC,
-                 word_similarity(${posConsulta}, p."texto_busqueda") DESC,
-                 length(p."descripcion") ASC
-        LIMIT ${posLimite}`,
+                 word_similarity(${posConsulta}, "texto_busqueda") DESC,
+                 length("descripcion") ASC,
+                 -- Desempate final por algo único de la fila (una cadena tiene
+                 -- un solo precio por EAN): sin esto, dos páginas pueden traer
+                 -- la misma fila, porque con empates Postgres ordena como
+                 -- quiere y LIMIT/OFFSET se pisan.
+                 "ean" ASC,
+                 "cadena" ASC
+        LIMIT ${posLimite} OFFSET ${posOffset}`,
       ...params,
     );
 
@@ -238,28 +268,44 @@ export async function buscarPrecios(
    * que escribió el comerciante ("mayonesa" vs "MAYO").
    */
   let filas = await consultar(true);
-  const estricto = filas.length > 0;
+  let totalEstricto = filas[0]?.total ?? 0;
+
+  // Sin filas no viene el total, y "sin filas" puede ser dos cosas muy
+  // distintas: que no haya resultados o que hayan pedido una página de más.
+  // Se sondea la página 1 para distinguirlas, en vez de degradar a la búsqueda
+  // amplia solo porque el paginador se pasó de largo.
+  if (totalEstricto === 0 && pagina > 1) {
+    const sonda = await consultar(true, 1, 1);
+    totalEstricto = sonda[0]?.total ?? 0;
+
+    if (totalEstricto > 0) {
+      return {
+        consulta,
+        tokens,
+        encontrados: [],
+        total: totalEstricto,
+        pagina,
+        limite,
+        aproximado: false,
+      };
+    }
+  }
+
+  const estricto = totalEstricto > 0;
 
   if (!estricto) {
     filas = await consultar(false);
   }
 
-  // Se devuelven SOLO los que puntúan como el mejor: si no, un término suelto
-  // ("natura") arrastra todo lo que lo contenga al pasar.
-  const mejorPuntaje = filas[0]?.puntaje ?? 0;
-  const encontrados = filas.filter((e) => e.puntaje === mejorPuntaje);
-
-  // El total es cuántos productos coinciden, no cuántos se muestran.
-  const totalAmplio = filas[0]?.total ?? 0;
-  const total = estricto
-    ? totalAmplio
-    : // En el camino amplio el COUNT es "alguno de los términos", que exagera:
-      // se usa lo que realmente se encontró.
-      encontrados.length;
-
-  // Dudoso solo cuando hubo que aflojar y el mejor no cubre la mayoría.
-  const mejorCuenta = encontrados[0]?.coincidencias ?? 0;
-  const dudoso = !estricto && (mejorCuenta === 0 || mejorCuenta < Math.ceil(tokens.length / 2));
-
-  return { consulta, tokens, encontrados, total, dudoso };
+  // `total` cuenta las filas del paginador: las que puntúan como el mejor
+  // resultado (la CTE ya dejó solo esas).
+  return {
+    consulta,
+    tokens,
+    encontrados: filas,
+    total: filas[0]?.total ?? 0,
+    pagina,
+    limite,
+    aproximado: !estricto && filas.length > 0,
+  };
 }

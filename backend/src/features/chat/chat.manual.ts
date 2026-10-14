@@ -850,6 +850,49 @@ export const MANUAL_ENTRADAS: EntradaManual[] = [
       'Ampliar las imágenes para ver el detalle',
     ],
   },
+  {
+    id: 'precios-mayoristas',
+    nombre: 'Precios mayoristas (SEPA)',
+    categoria: 'uso_diario',
+    como_se_llega: 'Menú → Precios mayoristas',
+    prerrequisitos:
+      'Módulo "Buscador de Precios Mayoristas" activado en Configuración → Módulos y Catálogo. Necesita conexión a internet: los precios están en el servidor, no en este equipo.',
+    pasos: [
+      'Andá a Configuración → Módulos y Catálogo y prendé "Buscador de Precios Mayoristas".',
+      'En el menú lateral tocá Precios mayoristas.',
+      'Escribí al menos 3 letras del nombre o de la marca (por ejemplo "coca cola 600"). Los resultados aparecen solos: cada fila es el mismo producto en un mayorista distinto, con su precio de lista y con IVA.',
+      'Hacé clic en una fila para ver a cuánto está en cada sucursal, con su dirección. La más barata queda marcada.',
+    ],
+    campos_obligatorios: ['La búsqueda: al menos 3 letras.'],
+    errores_comunes: [
+      'No aparece en el menú: el módulo está apagado. Se prende en Configuración → Módulos y Catálogo.',
+      'Dice que no pudo traer los precios: el buscador consulta el servidor, así que necesita internet. El resto del sistema sigue funcionando sin conexión.',
+      'No encuentra el producto: probá con menos palabras. El nombre lo carga cada mayorista y puede estar escrito distinto.',
+      'Un precio parece absurdo: son datos que publicó el comercio con un error. El sistema lo avisa ("N sucursales publican un precio muy distinto") en vez de esconderlo, y se puede reclamar a SEPA en soportesepa@comercio.gob.ar.',
+    ],
+    palabras_clave: [
+      'precios mayoristas',
+      'mayorista',
+      'mayoristas',
+      'sepa',
+      'precios claros',
+      'comparar precios',
+      'precio de lista',
+      'makro',
+      'maxiconsumo',
+      'nini',
+      'sucursales',
+      'precio por sucursal',
+    ],
+    para_que_sirve:
+      'Te muestra a cuánto tienen los productos los mayoristas, para que sepas si el costo que pagás es bueno. Los precios los publican los propios comercios mayoristas a través de SEPA (Sistema Electrónico de Publicidad de Precios Argentinos), el sistema oficial de Precios Claros, de la Subsecretaría de Defensa del Consumidor y Lealtad Comercial: son precios de lista, con IVA, de los comercios que tienen salón de ventas. El sistema solo los muestra: no los fija ni los corrige. Como el mismo producto suele estar en varias sucursales y no siempre al mismo precio, cada fila trae el precio más repetido y la franja entre sucursales; al abrir el producto ves el precio de cada sucursal con su dirección, de la más barata a la más cara.',
+    que_podes_hacer: [
+      'Comparar el mismo producto entre mayoristas, lado a lado',
+      'Ver a cuánto está en cada sucursal, con la dirección, para elegir dónde comprar',
+      'Encontrar un producto con pocas palabras, sin saber el nombre exacto',
+      'Ver de qué fecha son los precios que estás mirando',
+    ],
+  },
 ];
 
 /** Índice compacto: una línea por pantalla con su camino. Presupuesto ≤ 2.000 chars. */

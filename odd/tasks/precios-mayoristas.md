@@ -1,26 +1,23 @@
-# Precios mayoristas (SEPA) consultables por Binny
+# Precios mayoristas (SEPA) — buscador para el POS
 
 **Estado:** EN CURSO · **Inicio:** 2026-10-13
 **Rama:** `feature/precios-mayoristas` · **Repo:** `backend_panel_administracion`
+**Repo del otro lado:** `sistema_desktop` (rama `feature/precios-mayoristas`)
 
 ---
 
 ## Objetivo
 
-Que el comerciante escriba en el chat:
+Que el comerciante busque un producto en un **módulo del POS** y vea a cuánto lo
+tienen los mayoristas, comparando entre cadenas.
 
-```
-/consultar-precio sal fina
-/consultar-precio decime el precio de coca cola 500 cm3
-```
+> **Cambio de rumbo (2026-10-14):** la primera versión lo hacía por el chat, con
+> el comando `/consultar-precio`. El dueño lo probó, no le cerró, y pidió un
+> **módulo con buscador propio** que se pueda prender y apagar. Ese camino por
+> Binny se **deshizo** (ver el log). Lo que sigue documenta el estado actual.
 
-y Binny le responda **a cuánto la tienen los mayoristas**, comparando entre cadenas:
-
-> **SAL FINA 500 G**
-> · MAKRO — $1.250 · entre $1.250 y $1.280 en 22 sucursales
-> · COTO — $1.310
->
-> *El más barato: MAKRO, $60 menos.*
+El buscador vive en el POS (pantalla `PreciosMayoristasScreen`) y consume
+`POST /api/precios-mayoristas/buscar`.
 
 ## Problema / punto de partida
 
@@ -188,3 +185,30 @@ Solo crece si aparece un **producto nuevo** o una **cadena nueva**.
   reales: 5 cadenas cargadas (MAKRO, NINI, BASUALDO, MAXICONSUMO, YAGUAR),
   41.129 precios. Un ZIP (`sepa-68`) falla **correctamente**: viene en un
   formato v1 con columnas distintas y **vacío** (0 productos).
+- 2026-10-14 — **Precios atípicos de una sucursal (598336c).** El dueño preguntó
+  qué pasa si el precio varía entre sucursales. Se midió: **25,6%** de los
+  productos varían, con diferencia mediana de **2,2%**. Pero hay sucursales que
+  publican un precio absurdo (un chocolate de 48 gr a 62 veces su valor) y una
+  sola rompía la franja de todo el producto. Verificado **contra el archivo
+  original del mayorista**: el error viene de la fuente, no de la ingesta.
+  Ahora la franja se calcula solo con los precios sanos (a menos de 50% del
+  representativo) y se guarda `sucursales_atipicas` para poder avisarlo.
+  203 productos de los dumps actuales quedan con sucursales atípicas.
+  Decisión del dueño: **no** se guarda el precio por sucursal (serían 16× las
+  filas); con la franja alcanza para comparar entre mayoristas.
+- 2026-10-14 — **Se deshace el camino por Binny (3322e0c).** El dueño pidió
+  reemplazar `/consultar-precio` por un módulo del POS con buscador propio.
+  Se borra `consulta.ts` (comando, formato de salida y armado de la respuesta) y
+  se sacan los enganches de `chat.service.ts`. `busqueda.ts` se reusa entero.
+- 2026-10-14 — **Endpoint para el POS (3322e0c).** `POST
+  /api/precios-mayoristas/buscar`, en su propio router y montado **antes** que el
+  del panel: el POS no tiene sesión de admin, se identifica con licencia +
+  instalación, igual que el chat. Verificado que el resto de las rutas del panel
+  sigue pidiendo admin (401). No consume cuota del asistente.
+  `buscarPrecios` pasa a paginar de verdad (CTE + `OFFSET` + total del conjunto
+  real). La prueba encontró **dos bugs**: el `ORDER BY` no era determinista (dos
+  páginas podían traer la misma fila) y pedir una página de más devolvía total 0
+  y degradaba la búsqueda. Verificado recorriendo todas las páginas de varias
+  búsquedas (408 resultados en 9 páginas): 0 repetidas, 0 faltantes.
+  La verificación de punta a punta se hizo con la licencia real del POS contra el
+  backend local: la URL que arma el desktop responde bien.

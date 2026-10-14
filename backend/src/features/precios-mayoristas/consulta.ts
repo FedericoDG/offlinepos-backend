@@ -107,7 +107,9 @@ export function formatearRespuesta(
     ].join('\n');
   }
 
-  const grupos = agruparPorProducto(resultado.encontrados).slice(0, 6);
+  const grupos = agruparPorProducto(resultado.encontrados).slice(0, 12);
+  const filasMostradas = grupos.reduce((suma, g) => suma + g.cadenas.length, 0);
+  const hayMas = resultado.total > filasMostradas;
   const fecha = fechaCorta(resultado.encontrados[0].fecha_precio);
 
   const lineas: string[] = [];
@@ -119,6 +121,13 @@ export function formatearRespuesta(
 
   if (resultado.dudoso) {
     lineas.push(`No estoy seguro de que sea lo que buscás. Esto es lo más parecido:`);
+    lineas.push('');
+  } else if (hayMas) {
+    // Nunca mostrar un recorte en silencio: si hay más, se dice.
+    lineas.push(
+      `Hay **${resultado.total.toLocaleString('es-AR')} productos** que coinciden. ` +
+        `Acá van los **${filasMostradas}** más relevantes:`,
+    );
     lineas.push('');
   }
 
@@ -141,11 +150,18 @@ export function formatearRespuesta(
   }
 
   lineas.push('');
-  lineas.push(
-    grupos.length > 1
-      ? '_El primero de cada producto es el más barato. Si buscabas otro, agregá la marca o la medida._'
-      : '_Si querés verlo como lista, pedímelo._',
-  );
+  if (hayMas) {
+    lineas.push(
+      '_Para afinar, agregá la **medida** (500 ml, 1,5 L, 2,25 L), la **variante** ' +
+        '(light, zero, sin azúcar) o el **código de barras**._',
+    );
+  } else {
+    lineas.push(
+      grupos.length > 1
+        ? '_El primero de cada producto es el más barato. Si querés verlo como lista, pedímelo._'
+        : '_Si querés verlo como lista, pedímelo._',
+    );
+  }
 
   return lineas.join('\n').trim();
 }
@@ -156,6 +172,8 @@ export async function responderConsultaDePrecio(
   mensaje: string,
 ): Promise<string> {
   const consulta = textoDeConsulta(mensaje);
-  const resultado = await buscarPrecios(db, consulta, { limite: 12 });
+  // Se piden más filas que las que se muestran: un mismo producto puede estar
+  // en varias cadenas y así el recorte no deja afuera a un mayorista.
+  const resultado = await buscarPrecios(db, consulta, { limite: 30 });
   return formatearRespuesta({ ...resultado, consulta }, formatoPedido(consulta));
 }

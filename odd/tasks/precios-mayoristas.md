@@ -212,3 +212,20 @@ Solo crece si aparece un **producto nuevo** o una **cadena nueva**.
   búsquedas (408 resultados en 9 páginas): 0 repetidas, 0 faltantes.
   La verificación de punta a punta se hizo con la licencia real del POS contra el
   backend local: la URL que arma el desktop responde bien.
+- 2026-10-15 — **Detalle por sucursal (760ca98).** El dueño pidió ver a cuánto
+  está un producto en cada sucursal con los datos de cada una. Hasta ahora el
+  import agregaba por producto y **tiraba** la fila por sucursal, así que el
+  detalle no existía en ningún lado: hubo que guardarlo.
+  - Tabla `PrecioSucursal`: precio de cada (cadena, producto, sucursal).
+    **399.299 filas** contra 41.129 agregadas (10×), acotado (reemplazo por
+    cadena en cada importación, no crece con el tiempo).
+  - Endpoint `POST /api/precios-mayoristas/sucursales`: las sucursales de un
+    producto, con dirección, localidad, provincia (traducida del código ISO),
+    CP y coordenadas, ordenadas de la más barata a la más cara. La búsqueda
+    ahora devuelve `cadena_id` para poder pedirlo.
+  - La importación completa pasó de 1,6 s a **44,3 s**. Entra para una subida
+    manual diaria, pero si el lote del día se acerca al timeout del proxy
+    conviene subir los ZIP de a uno (2-18 s cada uno).
+  - La fuente trae **filas repetidas** del mismo producto en la misma sucursal
+    (5 casos sobre 399.425, con precios distintos): se resuelven con la misma
+    regla que el agregado y se dejó un `ON CONFLICT` de red.

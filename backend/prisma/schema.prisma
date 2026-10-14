@@ -351,11 +351,48 @@ model Cadena {
 
   sucursales SucursalCadena[]
   precios    PrecioMayorista[]
+  preciosSucursal PrecioSucursal[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@unique([cuit, id_bandera_sepa])
+}
+
+/// El precio de un producto EN UNA SUCURSAL concreta.
+///
+/// Es la tabla grande: el dump real trae ~400.000 filas de estas contra 41.129
+/// productos agregados. Se guardan porque el comerciante compra en UNA sucursal
+/// —la que le queda cerca— y necesita ver a cuánto está ahí, con la dirección,
+/// no solo la franja. Igual que el agregado, **no crece con el tiempo**: cada
+/// importación reemplaza lo de esa cadena.
+model PrecioSucursal {
+  id        String @id @default(uuid())
+  cadena_id String
+  cadena    Cadena @relation(fields: [cadena_id], references: [id], onDelete: Cascade)
+
+  /// El mismo `ean` de `PrecioMayorista`: entre los dos identifican el producto.
+  ean String
+
+  /// `id_sucursal` del dump. Se cruza con `SucursalCadena` por este id, que es
+  /// único dentro de la cadena.
+  id_sucursal String
+
+  precio_con_iva Decimal @db.Decimal(14, 2)
+  precio_sin_iva Decimal @db.Decimal(14, 2)
+
+  /// Última actualización que declara el dump.
+  actualizado_en DateTime
+
+  /// Cuándo lo importamos nosotros.
+  importado_en DateTime @default(now())
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// El índice sirve para las dos consultas que importan: el detalle de un
+  /// producto (`cadena + ean`) y reemplazar todo lo de una cadena.
+  @@unique([cadena_id, ean, id_sucursal])
 }
 
 model SucursalCadena {

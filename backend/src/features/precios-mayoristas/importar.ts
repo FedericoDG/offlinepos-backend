@@ -54,6 +54,8 @@ export interface ReporteCadena {
   razon_social: string;
   bandera_nombre: string;
   productos: { total: number; creados: number; actualizados: number };
+  /** Filas de precio por sucursal que quedaron cargadas para esta cadena. */
+  precios_sucursal: number;
 }
 
 export interface ReporteImportacion {
@@ -65,6 +67,13 @@ export interface ReporteImportacion {
 
 /** Cuántas filas van por sentencia. 500 anda bien con Postgres. */
 const TAMANO_LOTE = 500;
+
+/**
+ * El detalle por sucursal es otra escala: una cadena grande trae ~160.000 filas,
+ * así que se mandan lotes más grandes (2000 × 7 parámetros queda cómodo abajo
+ * del límite de Postgres y baja de 320 sentencias a 80).
+ */
+const TAMANO_LOTE_SUCURSAL = 2000;
 
 /**
  * A partir de qué desvío un precio se considera "de otra sucursal con error".
@@ -126,6 +135,11 @@ export function agregarPorProducto(productos: ProductoSepa[]): ProductoAgregado[
       if (f.precio_con_iva > maxSano) maxSano = f.precio_con_iva;
     }
 
+    // Las que quedaron fuera del rango. Se cuentan SUCURSALES, no filas: si el
+    // dump repite un producto en la misma sucursal, esa sucursal es una.
+    const fueraDeRango =
+      sanas.length > 0 ? filas.filter((f) => esAtipico(f.precio_con_iva)) : [];
+
     agregados.push({
       ean,
       es_ean: representativo.es_ean,
@@ -140,7 +154,7 @@ export function agregarPorProducto(productos: ProductoSepa[]): ProductoAgregado[
       precio_min: minSano,
       precio_max: maxSano,
       sucursales: new Set(filas.map((f) => f.id_sucursal)).size,
-      sucursales_atipicas: filas.length - base.length,
+      sucursales_atipicas: new Set(fueraDeRango.map((f) => f.id_sucursal)).size,
     });
   }
 
@@ -320,6 +334,117 @@ async function upsertPrecios(
 }
 
 /**
+ * Deja UNA fila por (producto, sucursal).
+ *
+ * El dump trae de vez en cuando dos filas del mismo producto en la misma
+ * sucursal con precios distintos: son 5 casos sobre 399.425 filas en el dump
+ * completo, así que no se puede ignorar —la clave única chilla— pero tampoco
+ * merece una regla complicada. Se resuelve con la MISMA que usa el agregado:
+ * gana el precio más repetido y, si hay empate, el que aparece primero.
+ */
+function unaPorSucursal(productos: ProductoSepa[]): ProductoSepa[] {
+  const porSucursal = new Map<string, ProductoSepa[]>();
+
+  for (const p of productos) {
+    const clave = `${p.ean}|${p.id_sucursal}`;
+    const filas = porSucursal.get(clave);
+    if (filas) filas.push(p);
+    else porSucursal.set(clave, [p]);
+  }
+
+  const unicas: ProductoSepa[] = [];
+
+  for (const filas of porSucursal.values()) {
+    if (filas.length === 1) {
+      unicas.push(filas[0]);
+      continue;
+    }
+
+    const frecuencia = new Map<number, number>();
+    for (const f of filas) {
+      frecuencia.set(f.precio_con_iva, (frecuencia.get(f.precio_con_iva) ?? 0) + 1);
+    }
+
+    let elegida = filas[0];
+    let mejorFrecuencia = 0;
+    for (const f of filas) {
+      const n = frecuencia.get(f.precio_con_iva) ?? 0;
+      if (n > mejorFrecuencia) {
+        mejorFrecuencia = n;
+        elegida = f;
+      }
+    }
+
+    unicas.push(elegida);
+  }
+
+  return unicas;
+}
+
+/**
+ * Reemplaza el detalle por sucursal de una cadena.
+ *
+ * A diferencia del agregado —que se actualiza fila por fila— acá se borra y se
+ * inserta: el dump es la foto completa, y si una sucursal dejara de publicar un
+ * producto, un upsert dejaría colgado el precio viejo. Todo dentro de la misma
+ * transacción, así nadie ve la tabla a medias ni vacía.
+ */
+async function reemplazarPreciosSucursal(
+  tx: ClientePrisma,
+  cadenaId: string,
+  productos: ProductoSepa[],
+  actualizadoEn: Date | null,
+): Promise<number> {
+  await tx.$executeRawUnsafe(
+    `DELETE FROM "PrecioSucursal" WHERE "cadena_id" = $1`,
+    cadenaId,
+  );
+
+  const unicas = unaPorSucursal(productos);
+  let insertadas = 0;
+
+  for (let i = 0; i < unicas.length; i += TAMANO_LOTE_SUCURSAL) {
+    const lote = unicas.slice(i, i + TAMANO_LOTE_SUCURSAL);
+    const valores: string[] = [];
+    const params: unknown[] = [];
+
+    lote.forEach((p, j) => {
+      const b = j * 6;
+      valores.push(
+        `(gen_random_uuid(), $${b + 1}, $${b + 2}, $${b + 3}, $${b + 4}, $${b + 5}, ` +
+          `$${b + 6}, now(), now(), now())`,
+      );
+      params.push(
+        cadenaId,
+        p.ean,
+        p.id_sucursal,
+        p.precio_con_iva,
+        p.precio_sin_iva,
+        actualizadoEn,
+      );
+    });
+
+    await tx.$executeRawUnsafe(
+      `INSERT INTO "PrecioSucursal"
+         ("id", "cadena_id", "ean", "id_sucursal", "precio_con_iva", "precio_sin_iva",
+          "actualizado_en", "importado_en", "createdAt", "updatedAt")
+       VALUES ${valores.join(',')}
+       ON CONFLICT ("cadena_id", "ean", "id_sucursal") DO UPDATE SET
+         "precio_con_iva" = EXCLUDED."precio_con_iva",
+         "precio_sin_iva" = EXCLUDED."precio_sin_iva",
+         "actualizado_en" = EXCLUDED."actualizado_en",
+         "importado_en"   = now(),
+         "updatedAt"      = now()`,
+      ...params,
+    );
+
+    insertadas += lote.length;
+  }
+
+  return insertadas;
+}
+
+/**
  * Importa un dump completo: las cadenas (una por bandera), sus sucursales y sus
  * precios, todo en una transacción. Si algo falla, no queda nada a medias.
  */
@@ -354,6 +479,14 @@ export async function importarDump(
           agregados,
           comercio.actualizado_en,
         );
+        // El detalle por sucursal sale de las filas crudas, no del agregado:
+        // es justamente lo que el agregado tira. Se reemplaza entero.
+        const preciosSucursal = await reemplazarPreciosSucursal(
+          tx,
+          cadenaId,
+          productos,
+          comercio.actualizado_en,
+        );
 
         reportes.push({
           cuit: comercio.cuit,
@@ -365,6 +498,7 @@ export async function importarDump(
             creados: precios.creados,
             actualizados: precios.actualizados,
           },
+          precios_sucursal: preciosSucursal,
         });
       }
 

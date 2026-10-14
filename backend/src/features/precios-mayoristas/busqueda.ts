@@ -119,6 +119,8 @@ export interface PrecioEncontrado {
   sucursales_atipicas: number;
   /** Bandera del mayorista (lo que el comerciante reconoce como "la cadena"). */
   cadena: string;
+  /** Id de la cadena en la base. Identifica el producto: (cadena, ean). */
+  cadena_id: string;
   cadena_cuit: string;
   /** Fecha a la que corresponden los precios (cuándo se importó el dump). */
   fecha_precio: string;
@@ -217,7 +219,7 @@ export async function buscarPrecios(
          SELECT p."ean", p."descripcion", p."marca", p."es_ean",
                 p."precio_con_iva", p."precio_min", p."precio_max", p."sucursales",
                 p."sucursales_atipicas", p."importado_en", p."texto_busqueda",
-                c."bandera_nombre" AS cadena, c."cuit" AS cadena_cuit,
+                c."bandera_nombre" AS cadena, c."id" AS cadena_id, c."cuit" AS cadena_cuit,
                 (${cuenta.join(' + ')}) AS coincidencias,
                 (${peso.join(' + ')}) AS puntaje
            FROM "PrecioMayorista" p
@@ -252,6 +254,7 @@ export async function buscarPrecios(
       sucursales: Number(f.sucursales),
       sucursales_atipicas: Number(f.sucursales_atipicas),
       cadena: String(f.cadena),
+      cadena_id: String(f.cadena_id),
       cadena_cuit: String(f.cadena_cuit),
       fecha_precio: new Date(f.importado_en as string).toISOString(),
       coincidencias: Number(f.coincidencias),

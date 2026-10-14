@@ -35,6 +35,8 @@ export interface ProductoAgregado {
   precio_min: number;
   precio_max: number;
   sucursales: number;
+  /** Sucursales con un precio muy distinto, que quedaron fuera del rango. */
+  sucursales_atipicas: number;
 }
 
 export interface EntradaImportacion {
@@ -63,6 +65,16 @@ export interface ReporteImportacion {
 
 /** Cuántas filas van por sentencia. 500 anda bien con Postgres. */
 const TAMANO_LOTE = 500;
+
+/**
+ * A partir de qué desvío un precio se considera "de otra sucursal con error".
+ *
+ * La diferencia real entre sucursales es chica (mediana 2,2%), pero hay dumps
+ * con precios absurdos —un chocolate a 62 veces su valor— y una sola de esas
+ * filas rompía la franja de todo el producto. 50% deja pasar la variación
+ * legítima y corta la basura.
+ */
+const UMBRAL_ATIPICO = 0.5;
 
 /**
  * Agrupa las filas (una por producto y sucursal) en una por producto.
@@ -97,11 +109,21 @@ export function agregarPorProducto(productos: ProductoSepa[]): ProductoAgregado[
       }
     }
 
-    let min = filas[0].precio_con_iva;
-    let max = filas[0].precio_con_iva;
-    for (const f of filas) {
-      if (f.precio_con_iva < min) min = f.precio_con_iva;
-      if (f.precio_con_iva > max) max = f.precio_con_iva;
+    // El rango se calcula solo con los precios "sanos": una sucursal con un
+    // precio absurdo no puede estirar la franja de todo el producto.
+    const precioTipico = representativo.precio_con_iva;
+    const esAtipico = (valor: number) =>
+      precioTipico > 0 &&
+      Math.abs(valor - precioTipico) / precioTipico > UMBRAL_ATIPICO;
+
+    const sanas = filas.filter((f) => !esAtipico(f.precio_con_iva));
+    const base = sanas.length > 0 ? sanas : filas;
+
+    let minSano = base[0].precio_con_iva;
+    let maxSano = base[0].precio_con_iva;
+    for (const f of base) {
+      if (f.precio_con_iva < minSano) minSano = f.precio_con_iva;
+      if (f.precio_con_iva > maxSano) maxSano = f.precio_con_iva;
     }
 
     agregados.push({
@@ -115,9 +137,10 @@ export function agregarPorProducto(productos: ProductoSepa[]): ProductoAgregado[
       precio_sin_iva: representativo.precio_sin_iva,
       precio_bulto_con_iva: representativo.precio_bulto_con_iva,
       precio_bulto_sin_iva: representativo.precio_bulto_sin_iva,
-      precio_min: min,
-      precio_max: max,
+      precio_min: minSano,
+      precio_max: maxSano,
       sucursales: new Set(filas.map((f) => f.id_sucursal)).size,
+      sucursales_atipicas: filas.length - base.length,
     });
   }
 
@@ -233,11 +256,11 @@ async function upsertPrecios(
     const params: unknown[] = [];
 
     lote.forEach((p, j) => {
-      const b = j * 15;
+      const b = j * 16;
       valores.push(
         `(gen_random_uuid(), $${b + 1}, $${b + 2}, $${b + 3}, $${b + 4}, $${b + 5}, ` +
           `$${b + 6}, $${b + 7}, $${b + 8}, $${b + 9}, $${b + 10}, $${b + 11}, $${b + 12}, ` +
-          `$${b + 13}, $${b + 14}, $${b + 15}, now(), now(), now())`,
+          `$${b + 13}, $${b + 14}, $${b + 15}, $${b + 16}, now(), now(), now())`,
       );
       params.push(
         cadenaId,
@@ -254,6 +277,7 @@ async function upsertPrecios(
         p.precio_min,
         p.precio_max,
         p.sucursales,
+        p.sucursales_atipicas,
         actualizadoEn,
       );
     });
@@ -263,7 +287,7 @@ async function upsertPrecios(
          ("id", "cadena_id", "ean", "es_ean", "descripcion", "marca", "unidad_venta",
           "texto_busqueda", "precio_con_iva", "precio_sin_iva", "precio_bulto_con_iva",
           "precio_bulto_sin_iva", "precio_min", "precio_max", "sucursales",
-          "actualizado_en", "importado_en", "createdAt", "updatedAt")
+          "sucursales_atipicas", "actualizado_en", "importado_en", "createdAt", "updatedAt")
        VALUES ${valores.join(',')}
        ON CONFLICT ("cadena_id", "ean") DO UPDATE SET
          "es_ean"               = EXCLUDED."es_ean",
@@ -278,6 +302,7 @@ async function upsertPrecios(
          "precio_min"           = EXCLUDED."precio_min",
          "precio_max"           = EXCLUDED."precio_max",
          "sucursales"           = EXCLUDED."sucursales",
+         "sucursales_atipicas"  = EXCLUDED."sucursales_atipicas",
          "actualizado_en"       = EXCLUDED."actualizado_en",
          "importado_en"         = now(),
          "updatedAt"            = now()

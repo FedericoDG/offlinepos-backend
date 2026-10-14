@@ -413,12 +413,18 @@ model PrecioMayorista {
   precio_bulto_con_iva Decimal? @db.Decimal(14, 2)
   precio_bulto_sin_iva Decimal? @db.Decimal(14, 2)
 
-  /// El precio varía entre sucursales (57,6% de los productos): se guarda el
+  /// El precio varía entre sucursales (25,6% de los productos): se guarda el
   /// rango en vez de mentir con un solo valor.
+  ///
+  /// El rango se calcula solo con los precios "sanos" (cerca del representativo):
+  /// hay sucursales que publican un precio absurdo —un chocolate a 62 veces su
+  /// valor— y una sola de esas arruinaba la franja entera.
   precio_min Decimal @db.Decimal(14, 2)
   precio_max Decimal @db.Decimal(14, 2)
   /// En cuántas sucursales de la cadena aparece el producto.
   sucursales Int
+  /// Cuántas publican un precio muy distinto al resto (quedan fuera del rango).
+  sucursales_atipicas Int @default(0)
 
   /// Última actualización que declara el dump.
   actualizado_en DateTime

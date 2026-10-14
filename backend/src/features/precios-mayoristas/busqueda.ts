@@ -115,6 +115,8 @@ export interface PrecioEncontrado {
   precio_min: number;
   precio_max: number;
   sucursales: number;
+  /** Sucursales con un precio muy distinto, fuera del rango. */
+  sucursales_atipicas: number;
   /** Bandera del mayorista (lo que el comerciante reconoce como "la cadena"). */
   cadena: string;
   cadena_cuit: string;
@@ -193,7 +195,7 @@ export async function buscarPrecios(
     const filas = await db.$queryRawUnsafe<Array<Record<string, unknown>>>(
       `SELECT p."ean", p."descripcion", p."marca", p."es_ean",
               p."precio_con_iva", p."precio_min", p."precio_max", p."sucursales",
-              p."importado_en",
+              p."sucursales_atipicas", p."importado_en",
               c."bandera_nombre" AS cadena, c."cuit" AS cadena_cuit,
               (${cuenta.join(' + ')}) AS coincidencias,
               (${peso.join(' + ')}) AS puntaje,
@@ -218,6 +220,7 @@ export async function buscarPrecios(
       precio_min: Number(f.precio_min),
       precio_max: Number(f.precio_max),
       sucursales: Number(f.sucursales),
+      sucursales_atipicas: Number(f.sucursales_atipicas),
       cadena: String(f.cadena),
       cadena_cuit: String(f.cadena_cuit),
       fecha_precio: new Date(f.importado_en as string).toISOString(),

@@ -81,9 +81,23 @@ function agruparPorProducto(encontrados: PrecioEncontrado[]) {
 /** La línea de precio de una cadena, igual en tabla y en lista. */
 function rangoDe(c: PrecioEncontrado): string {
   const sucursales = c.sucursales === 1 ? '1 sucursal' : `${c.sucursales} sucursales`;
-  return c.precio_max > c.precio_min
-    ? `${pesos(c.precio_con_iva)} (entre ${pesos(c.precio_min)} y ${pesos(c.precio_max)} en ${sucursales})`
-    : `${pesos(c.precio_con_iva)} (${sucursales})`;
+
+  // Si el precio varía, se muestra la franja (calculada sin las sucursales que
+  // publican un precio absurdo). Y si hubo de esas, se dice: es honesto y
+  // explica por qué la franja no las incluye.
+  const franja =
+    c.precio_max > c.precio_min
+      ? `entre ${pesos(c.precio_min)} y ${pesos(c.precio_max)} en ${sucursales}`
+      : sucursales;
+
+  const atipicas =
+    c.sucursales_atipicas > 0
+      ? ` · ${c.sucursales_atipicas} ${
+          c.sucursales_atipicas === 1 ? 'sucursal publica' : 'sucursales publican'
+        } un precio muy distinto`
+      : '';
+
+  return `${pesos(c.precio_con_iva)} (${franja}${atipicas})`;
 }
 
 /**

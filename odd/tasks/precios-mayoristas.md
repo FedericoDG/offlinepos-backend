@@ -229,3 +229,12 @@ Solo crece si aparece un **producto nuevo** o una **cadena nueva**.
   - La fuente trae **filas repetidas** del mismo producto en la misma sucursal
     (5 casos sobre 399.425, con precios distintos): se resuelven con la misma
     regla que el agregado y se dejó un `ON CONFLICT` de red.
+- 2026-10-15 — **Entrada en la Ayuda (1c0a207).** El dueño pidió que el módulo
+  quede explicado en la Ayuda, no solo en el toggle. La fuente de verdad del
+  manual es `backend/src/features/chat/chat.manual.ts` (el JSON del POS se
+  genera desde acá): se agregó la entrada `precios-mayoristas` con qué es SEPA,
+  que son precios de lista con IVA, que el sistema **solo los muestra**, cómo se
+  prende, cómo se busca y que los datos no fidedignos se reclaman a SEPA.
+  Los 4 pasos quedaron alineados uno a uno con las fotos de la captura.
+  Nota: la rama se puso al día con `origin/main` (estaba 2 commits atrás y no
+  tenía el generador del manual).

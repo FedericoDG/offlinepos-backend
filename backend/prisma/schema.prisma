@@ -311,3 +311,169 @@ model Pago {
   @@index([suscripcion_id])
   @@index([comercio_id])
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Precios mayoristas (SEPA)
+//
+// Los mayoristas publican sus precios en el sistema SEPA (dumps de ~176k filas,
+// un precio por producto Y por sucursal). El panel los ingesta desde un ZIP y
+// Binny los consulta cuando el comerciante pregunta a cuánto lo tiene un
+// mayorista.
+//
+// Se guarda UNA fila por (cadena, producto) con upsert: la tabla no crece con
+// el tiempo, solo cuando aparece un producto o una cadena nueva.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Cadena {
+  id String @id @default(uuid())
+
+  /// CUIT del mayorista. Con `id_bandera_sepa` forma la identidad real: un
+  /// comercio puede publicar VARIAS banderas (ej. Carrefour Market y Express)
+  /// con precios distintos, y para el comerciante cada bandera es una cadena.
+  cuit String
+
+  /// Identificador de SEPA de la bandera. `comercio.csv` trae una fila por
+  /// bandera, y `productos.csv` / `sucursales.csv` la referencian.
+  id_bandera_sepa Int
+
+  /// Identificador del comercio en SEPA, para trazabilidad.
+  id_comercio_sepa Int?
+
+  razon_social   String
+  bandera_nombre String
+  bandera_url    String?
+  version_sepa   String?
+
+  /// Última actualización que declara el propio dump.
+  actualizado_sepa_en DateTime?
+  /// Cuándo lo importamos nosotros.
+  importado_en DateTime @default(now())
+
+  sucursales SucursalCadena[]
+  precios    PrecioMayorista[]
+  preciosSucursal PrecioSucursal[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([cuit, id_bandera_sepa])
+}
+
+/// El precio de un producto EN UNA SUCURSAL concreta.
+///
+/// Es la tabla grande: el dump real trae ~400.000 filas de estas contra 41.129
+/// productos agregados. Se guardan porque el comerciante compra en UNA sucursal
+/// —la que le queda cerca— y necesita ver a cuánto está ahí, con la dirección,
+/// no solo la franja. Igual que el agregado, **no crece con el tiempo**: cada
+/// importación reemplaza lo de esa cadena.
+model PrecioSucursal {
+  id        String @id @default(uuid())
+  cadena_id String
+  cadena    Cadena @relation(fields: [cadena_id], references: [id], onDelete: Cascade)
+
+  /// El mismo `ean` de `PrecioMayorista`: entre los dos identifican el producto.
+  ean String
+
+  /// `id_sucursal` del dump. Se cruza con `SucursalCadena` por este id, que es
+  /// único dentro de la cadena.
+  id_sucursal String
+
+  precio_con_iva Decimal @db.Decimal(14, 2)
+  precio_sin_iva Decimal @db.Decimal(14, 2)
+
+  /// Última actualización que declara el dump.
+  actualizado_en DateTime
+
+  /// Cuándo lo importamos nosotros.
+  importado_en DateTime @default(now())
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// El índice sirve para las dos consultas que importan: el detalle de un
+  /// producto (`cadena + ean`) y reemplazar todo lo de una cadena.
+  @@unique([cadena_id, ean, id_sucursal])
+}
+
+model SucursalCadena {
+  id        String @id @default(uuid())
+  cadena_id String
+  cadena    Cadena @relation(fields: [cadena_id], references: [id], onDelete: Cascade)
+
+  /// `id_sucursal` del dump (único dentro de su cadena).
+  id_sucursal String
+
+  nombre        String
+  tipo          String?
+  calle         String?
+  numero        String?
+  barrio        String?
+  codigo_postal String?
+  localidad     String?
+  provincia     String?
+  latitud       Float?
+  longitud      Float?
+  observaciones String?
+  /// Horarios de atención, uno por día de la semana.
+  horarios Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([cadena_id, id_sucursal])
+}
+
+model PrecioMayorista {
+  id        String @id @default(uuid())
+  cadena_id String
+  cadena    Cadena @relation(fields: [cadena_id], references: [id], onDelete: Cascade)
+
+  /// Código de barras. Es la llave para cruzar contra el catálogo del comerciante.
+  ean String
+  /// `productos_ean` del dump: `true` = `ean` es un código real del estándar
+  /// (GTIN/UPC), `false` = es un código interno del comercio. Solo los `true`
+  /// se pueden cruzar por código de barras.
+  es_ean Boolean @default(true)
+
+  descripcion  String
+  marca        String?
+  unidad_venta String?
+
+  /// Texto normalizado para buscar: minúsculas, sin acentos y con las unidades
+  /// separadas (`BSX25KG` → `bsx 25 kg`). Se calcula al importar, así la
+  /// búsqueda no tiene que normalizar 10.000 descripciones en cada consulta.
+  texto_busqueda String?
+
+  /// Precio representativo del producto (el más repetido entre sucursales).
+  precio_con_iva       Decimal  @db.Decimal(14, 2)
+  precio_sin_iva       Decimal  @db.Decimal(14, 2)
+  precio_bulto_con_iva Decimal? @db.Decimal(14, 2)
+  precio_bulto_sin_iva Decimal? @db.Decimal(14, 2)
+
+  /// El precio varía entre sucursales (25,6% de los productos): se guarda el
+  /// rango en vez de mentir con un solo valor.
+  ///
+  /// El rango se calcula solo con los precios "sanos" (cerca del representativo):
+  /// hay sucursales que publican un precio absurdo —un chocolate a 62 veces su
+  /// valor— y una sola de esas arruinaba la franja entera.
+  precio_min Decimal @db.Decimal(14, 2)
+  precio_max Decimal @db.Decimal(14, 2)
+  /// En cuántas sucursales de la cadena aparece el producto.
+  sucursales Int
+  /// Cuántas publican un precio muy distinto al resto (quedan fuera del rango).
+  sucursales_atipicas Int @default(0)
+
+  /// Última actualización que declara el dump.
+  actualizado_en DateTime
+
+  /// Cuándo lo importamos nosotros. SEPA publica a diario, así que esta es la
+  /// fecha a la que corresponden los precios que ve el comerciante.
+  importado_en DateTime @default(now())
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([cadena_id, ean])
+  @@index([ean])
+  @@index([descripcion])
+}

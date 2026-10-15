@@ -375,3 +375,73 @@ export interface VersionVigente {
   archivos: ArchivoVersion[];
   versiones: VersionPublicada[];
 }
+
+/** Una cadena (bandera de un mayorista) con los precios SEPA cargados. */
+export interface CadenaMayorista {
+  id: string;
+  cuit: string;
+  razon_social: string;
+  bandera_nombre: string;
+  bandera_url: string | null;
+  /** Última actualización que declara el dump del mayorista. */
+  actualizado_sepa_en: string | null;
+  /** Cuándo lo importamos nosotros. */
+  importado_en: string;
+  productos: number;
+  sucursales: number;
+}
+
+export interface CadenasMayoristasResponse {
+  cadenas: CadenaMayorista[];
+}
+
+/** Un producto de una cadena, ya agregado (una fila por EAN). */
+export interface ProductoMayorista {
+  ean: string;
+  descripcion: string;
+  marca: string | null;
+  /** `false` = el código es interno del comercio, no un código de barras real. */
+  es_ean: boolean;
+  precio_con_iva: number;
+  precio_min: number;
+  precio_max: number;
+  sucursales: number;
+  importado_en: string;
+}
+
+/** Detalle de una cadena con sus productos paginados. */
+export interface CadenaConProductos {
+  cadena: {
+    id: string;
+    cuit: string;
+    razon_social: string;
+    bandera_nombre: string;
+    bandera_url: string | null;
+    actualizado_sepa_en: string | null;
+    importado_en: string;
+  };
+  datos: ProductoMayorista[];
+  total: number;
+  pagina: number;
+  limite: number;
+  paginas: number;
+}
+
+/** Resultado de importar un ZIP de SEPA (o un lote con varios). */
+export interface ReporteImportacionMayorista {
+  ok: boolean;
+  cadenas: Array<{
+    cuit: string;
+    id_bandera: number;
+    razon_social: string;
+    bandera_nombre: string;
+    productos: { total: number; creados: number; actualizados: number };
+  }>;
+  sucursales: number;
+  descartadas: number;
+  ms: number;
+  /** Solo cuando se subió un lote: cuántos ZIP traía. */
+  archivos?: number;
+  /** Solo cuando se subió un lote: los que no se pudieron importar. */
+  omitidos?: Array<{ archivo: string; motivo: string }>;
+}

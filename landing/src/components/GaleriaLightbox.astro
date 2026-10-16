@@ -1,0 +1,196 @@
+---
+/**
+ * Visor de la galería: la imagen en grande sobre todo lo demás.
+ *
+ * Arranca `hidden` y sin foco. El comportamiento (abrir, cerrar, siguiente,
+ * anterior, teclado, gestos) vive en el script de `Galeria.astro`, que es su
+ * único consumidor.
+ *
+ * La `<img>` no lleva `src` inicial a propósito: así el navegador no pide nada
+ * hasta que alguien abre una imagen.
+ */
+---
+
+<div
+  class="visor"
+  data-visor
+  hidden
+  role="dialog"
+  aria-modal="true"
+  aria-label="Galería de pantallas"
+>
+  <button class="visor-boton visor-cerrar" data-visor-cerrar type="button" aria-label="Cerrar la galería">
+    <span aria-hidden="true">✕</span>
+  </button>
+
+  <button
+    class="visor-boton visor-nav visor-anterior"
+    data-visor-anterior
+    type="button"
+    aria-label="Pantalla anterior"
+  >
+    <span aria-hidden="true">←</span>
+  </button>
+
+  <figure class="visor-caja" data-visor-caja>
+    <img class="visor-imagen" data-visor-imagen alt="" width="1600" height="1000" decoding="async" />
+    <figcaption class="visor-pie">
+      <span class="visor-etiqueta" data-visor-etiqueta></span>
+      <span class="visor-contador" data-visor-contador></span>
+    </figcaption>
+  </figure>
+
+  <button
+    class="visor-boton visor-nav visor-siguiente"
+    data-visor-siguiente
+    type="button"
+    aria-label="Pantalla siguiente"
+  >
+    <span aria-hidden="true">→</span>
+  </button>
+</div>
+
+<style>
+  .visor {
+    position: fixed;
+    inset: 0;
+    z-index: 90;
+    /* Todo se escurece: el fondo tapa por completo la página de abajo. */
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: clamp(6px, 1.6vw, 26px);
+    padding: clamp(58px, 8vh, 88px) clamp(12px, 4vw, 56px) clamp(20px, 5vh, 48px);
+    background: rgba(3, 4, 7, 0.94);
+    backdrop-filter: blur(10px);
+    animation: visor-entrada 0.22s ease-out;
+  }
+
+  .visor[hidden] {
+    display: none;
+  }
+
+  @keyframes visor-entrada {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  .visor-caja {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+    margin: 0;
+    min-width: 0;
+  }
+
+  .visor-imagen {
+    display: block;
+    width: auto;
+    height: auto;
+    max-width: 100%;
+    max-height: calc(100vh - 210px);
+    border: 1px solid var(--borde-fuerte);
+    border-radius: 12px;
+    box-shadow: 0 40px 90px -40px rgba(0, 0, 0, 0.95);
+  }
+
+  .visor-pie {
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    font-size: 0.92rem;
+  }
+
+  .visor-etiqueta {
+    font-weight: 600;
+  }
+
+  .visor-contador {
+    color: var(--texto-suave);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .visor-boton {
+    display: grid;
+    place-items: center;
+    width: 48px;
+    height: 48px;
+    padding: 0;
+    border: 1px solid var(--borde-fuerte);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--texto);
+    font-size: 1.15rem;
+    line-height: 1;
+    cursor: pointer;
+    backdrop-filter: blur(6px);
+    transition:
+      background 0.2s ease,
+      border-color 0.2s ease,
+      transform 0.2s ease;
+  }
+
+  .visor-boton:hover,
+  .visor-boton:focus-visible {
+    background: var(--acento);
+    border-color: var(--acento);
+    transform: scale(1.06);
+  }
+
+  .visor-boton:focus-visible {
+    outline: 2px solid var(--acento-claro);
+    outline-offset: 3px;
+  }
+
+  .visor-cerrar {
+    position: fixed;
+    top: clamp(14px, 3vh, 26px);
+    right: clamp(14px, 3vw, 30px);
+    z-index: 1;
+  }
+
+  @media (max-width: 700px) {
+    .visor {
+      grid-template-columns: minmax(0, 1fr);
+      padding: 66px 12px 92px;
+      align-content: center;
+    }
+
+    .visor-nav {
+      position: fixed;
+      bottom: 20px;
+    }
+
+    .visor-anterior {
+      left: 20px;
+    }
+
+    .visor-siguiente {
+      right: 20px;
+    }
+
+    .visor-imagen {
+      max-height: calc(100vh - 250px);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .visor {
+      animation: none;
+    }
+
+    .visor-boton {
+      transition: none;
+    }
+
+    .visor-boton:hover,
+    .visor-boton:focus-visible {
+      transform: none;
+    }
+  }
+</style>

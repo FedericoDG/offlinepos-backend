@@ -1,0 +1,363 @@
+---
+/**
+ * Sección de galería: todas las pantallas del sistema, en miniatura, con visor
+ * para verlas en grande.
+ *
+ * La lista de imágenes sale de `public/galeria/` (ver `src/lib/galeria.ts`), así
+ * que agregar o sacar una captura no pide tocar este archivo.
+ *
+ * El visor funciona sin dependencias: es un `<script>` de este componente y sin
+ * JavaScript las miniaturas siguen siendo enlaces a la imagen completa.
+ */
+import { listarGaleria } from "../lib/galeria";
+import GaleriaItem from "./GaleriaItem.astro";
+import GaleriaLightbox from "./GaleriaLightbox.astro";
+
+const imagenes = listarGaleria();
+
+// Sin capturas no hay galería: mejor un aviso en el build que una sección vacía.
+if (imagenes.length === 0) {
+  console.warn("[galeria] la sección quedó sin capturas: revisá public/galeria/");
+}
+---
+
+{
+  imagenes.length > 0 && (
+    <section class="seccion" id="galeria" data-galeria>
+      <div class="contenedor">
+        <header class="seccion-encabezado centrado entrar">
+          <p class="kicker">Galería</p>
+          <h2>Mirá el sistema por dentro</h2>
+          <p class="bajada">
+            Un recorrido por las pantallas principales, con capturas del sistema en uso. Tocá
+            cualquiera para verla en grande y pasar a la siguiente.
+          </p>
+        </header>
+
+        <div class="galeria-tira entrar">
+          <button
+            class="galeria-flecha galeria-anterior"
+            data-galeria-anterior
+            type="button"
+            aria-label="Capturas anteriores"
+          >
+            <span aria-hidden="true">←</span>
+          </button>
+
+          <div
+            class="galeria-carril"
+            data-galeria-carril
+            role="region"
+            aria-label="Capturas del sistema, desplazables"
+            tabindex="0"
+          >
+            {imagenes.map((imagen, i) => (
+              <GaleriaItem imagen={imagen} indice={i} retraso={(i % 4) * 60} />
+            ))}
+          </div>
+
+          <button
+            class="galeria-flecha galeria-siguiente"
+            data-galeria-siguiente
+            type="button"
+            aria-label="Ver más capturas"
+          >
+            <span aria-hidden="true">→</span>
+          </button>
+        </div>
+      </div>
+
+      <GaleriaLightbox />
+    </section>
+  )
+}
+
+<style>
+  .galeria-tira {
+    position: relative;
+  }
+
+  .galeria-carril {
+    display: flex;
+    gap: 18px;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    /* Una sola línea, con imán suave: el gesto táctil lo maneja el navegador. */
+    scroll-snap-type: x proximity;
+    scroll-behavior: smooth;
+    -webkit-overflow-scrolling: touch;
+    padding: 4px 0 14px;
+    /* Deja que la última tarjeta llegue al borde izquierdo: sin esto, el scroll
+       máximo queda antes del último imán y la flecha derecha nunca se apaga. */
+    padding-right: calc(100% - clamp(240px, 30vw, 330px));
+    scrollbar-width: thin;
+    scrollbar-color: var(--borde-fuerte) transparent;
+  }
+
+  .galeria-carril:focus-visible {
+    outline: 2px solid var(--acento-claro);
+    outline-offset: 4px;
+    border-radius: 14px;
+  }
+
+  .galeria-carril::-webkit-scrollbar {
+    height: 6px;
+  }
+
+  .galeria-carril::-webkit-scrollbar-track {
+    background: var(--borde);
+    border-radius: 999px;
+  }
+
+  .galeria-carril::-webkit-scrollbar-thumb {
+    background: var(--borde-fuerte);
+    border-radius: 999px;
+  }
+
+  .galeria-carril::-webkit-scrollbar-thumb:hover {
+    background: var(--acento);
+  }
+
+  /* Sin nada que desplazar, las flechas estorban: se ocultan. */
+  .galeria-tira[data-desplazable="no"] .galeria-flecha {
+    display: none;
+  }
+
+  .galeria-flecha {
+    position: absolute;
+    top: 50%;
+    z-index: 2;
+    display: grid;
+    place-items: center;
+    width: 46px;
+    height: 46px;
+    padding: 0;
+    transform: translateY(-50%);
+    border: 1px solid var(--borde-fuerte);
+    border-radius: 999px;
+    background: rgba(11, 14, 20, 0.85);
+    color: var(--texto);
+    font-size: 1.05rem;
+    line-height: 1;
+    cursor: pointer;
+    backdrop-filter: blur(6px);
+    transition:
+      background 0.2s ease,
+      border-color 0.2s ease,
+      opacity 0.2s ease;
+  }
+
+  .galeria-anterior {
+    left: -14px;
+  }
+
+  .galeria-siguiente {
+    right: -14px;
+  }
+
+  .galeria-flecha:hover:not(:disabled),
+  .galeria-flecha:focus-visible {
+    background: var(--acento);
+    border-color: var(--acento);
+  }
+
+  .galeria-flecha:focus-visible {
+    outline: 2px solid var(--acento-claro);
+    outline-offset: 3px;
+  }
+
+  .galeria-flecha:disabled {
+    opacity: 0.3;
+    cursor: default;
+  }
+
+  /* Mientras el visor está abierto, la página de atrás no scrollea. */
+  :global(html.visor-abierto),
+  :global(html.visor-abierto body) {
+    overflow: hidden;
+  }
+
+  @media (max-width: 640px) {
+    .galeria-carril {
+      gap: 14px;
+    }
+
+    .galeria-flecha {
+      width: 38px;
+      height: 38px;
+      font-size: 0.95rem;
+    }
+
+    .galeria-anterior {
+      left: -6px;
+    }
+
+    .galeria-siguiente {
+      right: -6px;
+    }
+  }
+</style>
+
+<script>
+  const raiz = document.querySelector("[data-galeria]");
+  const visor = raiz?.querySelector("[data-visor]");
+
+  if (raiz && visor) {
+    const anclas = Array.from(raiz.querySelectorAll("[data-galeria-item]"));
+    const imagen = visor.querySelector("[data-visor-imagen]");
+    const etiqueta = visor.querySelector("[data-visor-etiqueta]");
+    const contador = visor.querySelector("[data-visor-contador]");
+    const cerrarBoton = visor.querySelector("[data-visor-cerrar]");
+    const botones = Array.from(visor.querySelectorAll("button"));
+
+    const capturas = anclas.map((a) => ({
+      src: a.getAttribute("href") ?? "",
+      etiqueta: a.dataset.etiqueta ?? "",
+      alt: a.querySelector("img")?.alt ?? "",
+    }));
+
+    // ── Carril horizontal: avance por páginas y estado de los extremos ──
+    const tira = raiz.querySelector(".galeria-tira");
+    const carril = raiz.querySelector("[data-galeria-carril]");
+    const flechaAnterior = raiz.querySelector("[data-galeria-anterior]");
+    const flechaSiguiente = raiz.querySelector("[data-galeria-siguiente]");
+
+    if (carril && flechaAnterior && flechaSiguiente) {
+      /** Cuánto avanzar: una página de tarjetas completas, para caer en el imán. */
+      function paso() {
+        const primera = carril.querySelector("[data-galeria-item]");
+        if (!primera) return 320;
+        const hueco = parseFloat(getComputedStyle(carril).columnGap) || 18;
+        const avance = primera.getBoundingClientRect().width + hueco;
+        const porPantalla = Math.max(1, Math.floor(carril.clientWidth / avance));
+        return avance * porPantalla;
+      }
+
+      function actualizarFlechas() {
+        const sobra = carril.scrollWidth - carril.clientWidth;
+        // Con pocas capturas el carril puede entrar entero: ahí no va ninguna flecha.
+        tira.dataset.desplazable = sobra > 2 ? "si" : "no";
+        flechaAnterior.disabled = carril.scrollLeft <= 2;
+        flechaSiguiente.disabled = carril.scrollLeft >= sobra - 2;
+      }
+
+      flechaAnterior.addEventListener("click", () =>
+        carril.scrollBy({ left: -paso(), behavior: "smooth" }),
+      );
+      flechaSiguiente.addEventListener("click", () =>
+        carril.scrollBy({ left: paso(), behavior: "smooth" }),
+      );
+
+      carril.addEventListener("scroll", actualizarFlechas, { passive: true });
+      window.addEventListener("resize", actualizarFlechas);
+      actualizarFlechas();
+    }
+
+    let indice = 0;
+    let focoPrevio = null;
+
+    /** Adelanta la descarga de las vecinas para que el salto se sienta instantáneo. */
+    function precargar(i) {
+      const captura = capturas[(i + capturas.length) % capturas.length];
+      if (!captura) return;
+      const img = new Image();
+      img.src = captura.src;
+    }
+
+    /** Muestra la captura `i`, dando la vuelta en los extremos. */
+    function pintar(i) {
+      indice = (i + capturas.length) % capturas.length;
+      const captura = capturas[indice];
+      imagen.src = captura.src;
+      imagen.alt = captura.alt;
+      etiqueta.textContent = captura.etiqueta;
+      contador.textContent = `${indice + 1} / ${capturas.length}`;
+      precargar(indice + 1);
+      precargar(indice - 1);
+    }
+
+    function abrir(i, disparador) {
+      focoPrevio = disparador;
+      pintar(i);
+      visor.hidden = false;
+      document.documentElement.classList.add("visor-abierto");
+      cerrarBoton.focus();
+    }
+
+    function cerrar() {
+      visor.hidden = true;
+      document.documentElement.classList.remove("visor-abierto");
+      imagen.removeAttribute("src");
+      if (focoPrevio instanceof HTMLElement) focoPrevio.focus();
+    }
+
+    anclas.forEach((ancla, i) => {
+      ancla.addEventListener("click", (e) => {
+        // Sin JavaScript el enlace abre la imagen original: el visor es una mejora.
+        e.preventDefault();
+        abrir(i, ancla);
+      });
+    });
+
+    visor.querySelector("[data-visor-anterior]")?.addEventListener("click", () => pintar(indice - 1));
+    visor.querySelector("[data-visor-siguiente]")?.addEventListener("click", () => pintar(indice + 1));
+    cerrarBoton?.addEventListener("click", cerrar);
+
+    // Un clic en el fondo oscurecido cierra; sobre la imagen o un botón, no.
+    visor.addEventListener("click", (e) => {
+      const objetivo = e.target;
+      if (!(objetivo instanceof Element)) return;
+      if (objetivo.closest("[data-visor-caja]") || objetivo.closest("button")) return;
+      cerrar();
+    });
+
+    document.addEventListener("keydown", (e) => {
+      if (visor.hidden) return;
+
+      if (e.key === "Escape") {
+        cerrar();
+      } else if (e.key === "ArrowLeft") {
+        pintar(indice - 1);
+      } else if (e.key === "ArrowRight") {
+        pintar(indice + 1);
+      } else if (e.key === "Tab") {
+        // El foco queda encerrado en el visor mientras está abierto.
+        const primero = botones[0];
+        const ultimo = botones[botones.length - 1];
+        if (!primero || !ultimo) return;
+        if (e.shiftKey && document.activeElement === primero) {
+          e.preventDefault();
+          ultimo.focus();
+        } else if (!e.shiftKey && document.activeElement === ultimo) {
+          e.preventDefault();
+          primero.focus();
+        }
+      }
+    });
+
+    // Deslizar el dedo para pasar de pantalla en pantallas táctiles.
+    let toqueX = 0;
+    let toqueY = 0;
+
+    visor.addEventListener(
+      "touchstart",
+      (e) => {
+        toqueX = e.changedTouches[0].clientX;
+        toqueY = e.changedTouches[0].clientY;
+      },
+      { passive: true },
+    );
+
+    visor.addEventListener(
+      "touchend",
+      (e) => {
+        const dx = e.changedTouches[0].clientX - toqueX;
+        const dy = e.changedTouches[0].clientY - toqueY;
+        if (Math.abs(dx) > 45 && Math.abs(dx) > Math.abs(dy)) {
+          pintar(indice + (dx < 0 ? 1 : -1));
+        }
+      },
+      { passive: true },
+    );
+  }
+</script>

@@ -1,0 +1,118 @@
+---
+/**
+ * Miniatura de la galería.
+ *
+ * Es un enlace real a la imagen completa: sin JavaScript, tocarla abre el PNG
+ * en el navegador. Con JavaScript, el visor lo intercepta y la muestra en
+ * grande. Nunca queda un elemento que no haga nada.
+ */
+import type { ImagenGaleria } from "../lib/galeria";
+
+interface Props {
+  imagen: ImagenGaleria;
+  indice: number;
+  /** Retraso de la animación de aparición, en milisegundos. */
+  retraso?: number;
+}
+
+const { imagen, indice, retraso = 0 } = Astro.props;
+---
+
+<a
+  class="galeria-item entrar"
+  href={imagen.src}
+  data-galeria-item
+  data-indice={indice}
+  data-etiqueta={imagen.etiqueta}
+  style={`--retraso:${retraso}ms`}
+>
+  <img
+    class="galeria-miniatura"
+    src={imagen.src}
+    alt={imagen.alt}
+    width="1600"
+    height="1000"
+    loading="lazy"
+    decoding="async"
+  />
+  <span class="galeria-pie">
+    <span class="galeria-etiqueta">{imagen.etiqueta}</span>
+    <span class="galeria-grupo">{imagen.grupo}</span>
+  </span>
+</a>
+
+<style>
+  .galeria-item {
+    display: flex;
+    flex-direction: column;
+    /* Una sola línea: ancho fijo, sin encogerse, con imán al inicio. */
+    flex: 0 0 auto;
+    width: clamp(240px, 30vw, 330px);
+    scroll-snap-align: start;
+    border: 1px solid var(--borde);
+    border-radius: 14px;
+    overflow: hidden;
+    background: var(--panel-solido);
+    text-decoration: none;
+    color: inherit;
+    transition:
+      transform 0.35s cubic-bezier(0.22, 0.61, 0.36, 1),
+      border-color 0.35s ease,
+      box-shadow 0.35s ease;
+  }
+
+  .galeria-item:hover,
+  .galeria-item:focus-visible {
+    transform: translateY(-4px);
+    border-color: var(--borde-fuerte);
+    box-shadow: 0 22px 50px -28px rgba(59, 130, 246, 0.8);
+  }
+
+  .galeria-item:focus-visible {
+    outline: 2px solid var(--acento-claro);
+    outline-offset: 3px;
+  }
+
+  .galeria-miniatura {
+    display: block;
+    width: 100%;
+    aspect-ratio: 16 / 10;
+    object-fit: cover;
+    background: var(--tinta);
+  }
+
+  .galeria-pie {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 11px 14px;
+    border-top: 1px solid var(--borde);
+  }
+
+  .galeria-etiqueta {
+    font-size: 0.9rem;
+    font-weight: 600;
+    line-height: 1.3;
+  }
+
+  .galeria-grupo {
+    font-size: 0.66rem;
+    font-weight: 700;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--texto-suave);
+    white-space: nowrap;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .galeria-item {
+      transition: none;
+    }
+
+    .galeria-item:hover,
+    .galeria-item:focus-visible {
+      transform: none;
+    }
+  }
+</style>

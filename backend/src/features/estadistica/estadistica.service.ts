@@ -261,6 +261,9 @@ export class EstadisticaService {
           include: {
             comercio: {
               include: {
+                // El plan asignado DIRECTO al comercio (Comercio.plan_id) es el
+                // modelo del alta nueva; la suscripcion queda para los viejos.
+                plan: true,
                 suscripciones: {
                   where: { estado: EstadoSuscripcion.ACTIVA },
                   orderBy: { inicia_en: 'desc' },
@@ -275,10 +278,13 @@ export class EstadisticaService {
     });
 
     const detalle = consumos.map((c) => {
-      const comercio = c.licencia?.comercio as unknown as { nombre?: string; chat_mensajes_override?: number | null; suscripciones?: Array<{ plan?: { nombre?: string; chat_mensajes_mes?: number } | null }> } | null;
+      const comercio = c.licencia?.comercio as unknown as { nombre?: string; chat_mensajes_override?: number | null; plan?: { nombre?: string; chat_mensajes_mes?: number } | null; suscripciones?: Array<{ plan?: { nombre?: string; chat_mensajes_mes?: number } | null }> } | null;
       // Límite real: override por comercio tiene prioridad sobre plan/env (0 = ilimitado)
       const override = comercio?.chat_mensajes_override;
-      const plan = comercio?.suscripciones?.[0]?.plan;
+      // Primero el plan asignado DIRECTAMENTE al comercio (asi se da de alta hoy);
+      // si no tiene, cae a la suscripcion, que es el modelo viejo. Mismo orden que
+      // resolverCupoChat de chat.service.ts: si cambia aca, cambia alla.
+      const plan = comercio?.plan ?? comercio?.suscripciones?.[0]?.plan;
       const limite = override != null ? override : plan ? (plan.chat_mensajes_mes as number) : env.CHAT_MENSAJES_MES;
       const pt = Number(c.prompt_tokens);
       const ct = Number(c.completion_tokens);

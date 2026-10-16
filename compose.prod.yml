@@ -25,7 +25,7 @@ services:
       # No es confidencial y va fijo acá: así el contenedor no depende de los
       # headers del request (el panel interno le pega como panel-backend:4000,
       # que NO sirve como URL pública). Debe ser SOLO el origen, sin path.
-      PUBLIC_BASE_URL: https://vps1-binario.duckdns.org
+      PUBLIC_BASE_URL: https://aipos.com.ar
     volumes:
       - pos-updates:/app/updates
     networks:

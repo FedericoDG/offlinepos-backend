@@ -2,6 +2,7 @@ import prisma from '../../config/prisma';
 import type { ClienteRaiz } from '../../config/prisma.tipos';
 import { decrypt, hmacBusqueda } from '../../utils/encryption';
 import { env } from '../../config/env';
+import { cupoMensajesChat, type ComercioConPlan } from '../comercio/plan-vigente';
 import { httpError } from '../../utils/api-error';
 import { PreguntarDTO, ResultadoConsultaDTO, UsoConsultaDTO, FacturaOcrRequestDTO, PreguntarAgenteDTO, ContinuarAgenteDTO, AGENTE_MAX_PASOS, HISTORIAL_MAX_AGENTE, BriefDTO, InformeDTO, ValoracionDTO, type MensajeAgenteDTO, type ContextoNegocioDTO, type RespuestaLLM, type UsoDTO, type FacturaOcrResponseDTO, type FacturaOcrItemDTO, type FacturaOcrResultadoDTO } from './chat.dtos';
 import { construirManual } from './chat.manual';
@@ -99,16 +100,9 @@ async function resolverCupoChat(licenciaId: string): Promise<CupoChat> {
   const comercio = licencia?.comercio ?? null;
   const comercioId = comercio?.id ?? null;
 
-  // Override por comercio: si está definido (0 = ilimitado), tiene prioridad sobre el plan/env
-  const override = (comercio as unknown as { chat_mensajes_override?: number | null } | null)?.chat_mensajes_override;
-  if (override != null) return { comercioId, limite: override };
-
-  // Primero el plan asignado directo al comercio; si no tiene, cae a la suscripcion.
-  const plan = comercio?.plan ?? comercio?.suscripciones?.[0]?.plan;
-  if (!plan) return { comercioId, limite: env.CHAT_MENSAJES_MES };
-
-  // 0 = ilimitado
-  return { comercioId, limite: plan.chat_mensajes_mes };
+  // La regla vive en features/comercio/plan-vigente.ts: override del comercio
+  // (0 = ilimitado) > plan directo > suscripción > env.
+  return { comercioId, limite: cupoMensajesChat(comercio as unknown as ComercioConPlan) };
 }
 
 async function obtenerLimiteChat(licenciaId: string): Promise<number> {

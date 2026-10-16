@@ -4,6 +4,7 @@ import { env } from '../../config/env';
 import { encrypt, decrypt } from '../../utils/encryption';
 import { httpError } from '../../utils/api-error';
 import { validarCupoAsignacion } from '../licencia/licencia.provision';
+import { cupoMensajesChat, planVigente } from './plan-vigente';
 import { CreateComercioConLicenciaDTO, RegistrarPagoDirectoDTO, UpdateComercioDTO } from './comercio.dtos';
 import {
   calcularDeuda,
@@ -305,7 +306,7 @@ export class ComercioService {
       throw httpError('El fin del período debe ser posterior a su inicio', 400);
     }
 
-    const moneda = comercio.plan?.moneda ?? comercio.suscripciones[0]?.plan.moneda ?? 'ARS';
+    const moneda = planVigente(comercio)?.moneda ?? 'ARS';
 
     const pago = await prisma.pago.create({
       data: {
@@ -423,7 +424,7 @@ export class ComercioService {
         periodo_actual: periodo,
         total_mensajes: totalMensajes,
         total_tokens: porClave.reduce((acc, clave) => acc + clave.tokens, 0),
-        cupo: this.resolverCupoChat(comercio),
+        cupo: cupoMensajesChat(comercio),
         por_clave: porClave,
       },
       pagos: pagos.map((pago) => this.serializarPago(pago)),
@@ -431,23 +432,6 @@ export class ComercioService {
     };
   }
 
-  /**
-   * Cupo de chat del comercio, con el mismo orden que `chat.service`: override
-   * del comercio (0 = ilimitado) > plan directo > plan de la suscripcion > env.
-   */
-  private resolverCupoChat(comercio: {
-    chat_mensajes_override: number | null;
-    plan: { chat_mensajes_mes: number } | null;
-    suscripciones: { estado: string; plan: { chat_mensajes_mes: number } | null }[];
-  }): number {
-    if (comercio.chat_mensajes_override != null) return comercio.chat_mensajes_override;
-
-    const planSuscripcion =
-      comercio.suscripciones.find((suscripcion) => suscripcion.estado !== 'CANCELADA')?.plan ?? null;
-    const plan = comercio.plan ?? planSuscripcion;
-
-    return plan?.chat_mensajes_mes ?? env.CHAT_MENSAJES_MES;
-  }
 
   private serializarPago(pago: {
     id: string;

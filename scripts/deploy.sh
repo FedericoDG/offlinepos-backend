@@ -24,4 +24,7 @@ $COMPOSE exec -T panel-backend node -e "require('http').get('http://127.0.0.1:'+
 echo "==> health panel (GET /)"
 $COMPOSE exec -T panel-web node -e "require('http').get('http://127.0.0.1:3000/',r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))"
 
+echo "==> health landing (GET /)"
+$COMPOSE exec -T landing wget -qO- http://127.0.0.1/ >/dev/null
+
 echo "DEPLOY_OK $(git rev-parse --short HEAD)"

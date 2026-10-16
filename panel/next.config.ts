@@ -7,7 +7,7 @@ const nextConfig: NextConfig = {
   // https://vps1-binario.duckdns.org/panel-pos-offline (routing por path en
   // el nginx central, no subdominio propio). Next necesita conocerse esa
   // base para emitir los assets con el prefix correcto.
-  basePath: '/panel-pos-offline',
+  basePath: '/panel',
   reactStrictMode: true,
   // Solo desarrollo: permite abrir el panel por IP de red (ej. desde otra PC
   // de la LAN) sin que Next bloquee los recursos dev cross-origin (HMR y

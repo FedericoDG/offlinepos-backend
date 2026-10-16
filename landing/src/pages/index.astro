@@ -1643,4 +1643,12 @@ const publico = [
       transform: none;
     }
   }
+
+  /* En los bloques destacados el texto se alinea ARRIBA, no centrado.
+     La imagen de cada bloque es mucho mas alta (1080x1920 mostrada al ancho de
+     su columna: ~1000px) y centrar el texto lo dejaba a media pantalla, justo
+     donde no lo ves cuando el menu te trae a la seccion con un anclaje. */
+  .destacada-texto {
+    align-self: start;
+  }
 </style>

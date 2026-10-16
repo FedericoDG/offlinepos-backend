@@ -22,7 +22,7 @@ echo "==> health backend (GET /health, ruta verificada en backend/src/index.ts)"
 $COMPOSE exec -T panel-backend node -e "require('http').get('http://127.0.0.1:'+(process.env.PORT||'4000')+'/health',r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))"
 
 echo "==> health panel (GET /)"
-$COMPOSE exec -T panel-web node -e "require('http').get('http://127.0.0.1:3000/',r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))"
+$COMPOSE exec -T panel-web node -e "require('http').get('http://127.0.0.1:3000/admin',r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))"
 
 echo "==> health landing (GET /)"
 $COMPOSE exec -T landing wget -qO- http://127.0.0.1/ >/dev/null

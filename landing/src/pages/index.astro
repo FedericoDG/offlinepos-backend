@@ -11,7 +11,30 @@
  * están definidos en el <head>. Si querés una tarjeta propia de 1200x630 para
  * cuando compartan el link, es el `og:image`.
  */
+import fs from "node:fs";
+import path from "node:path";
 import Galeria from "../components/Galeria.astro";
+
+/**
+ * Ancho y alto reales de un PNG de `public/`, leídos del encabezado IHDR.
+ *
+ * Las imágenes DEBEN declarar su tamaño: sin eso el navegador no reserva el
+ * espacio, la página se estira al cargarlas y los anclajes del menú quedan
+ * cortos (la sección se corre hacia abajo después de que ya te llevó).
+ * Se lee del archivo y no se escribe a mano, así sigue siendo correcto si
+ * cambiás una imagen por otra de otro tamaño.
+ */
+function tamanoPng(rutaPublica: string): { width: number; height: number } | null {
+  if (!rutaPublica.endsWith(".png")) return null;
+  const ruta = path.join(process.cwd(), "public", rutaPublica.replace(/^\//, ""));
+  try {
+    const buf = fs.readFileSync(ruta);
+    return { width: buf.readUInt32BE(16), height: buf.readUInt32BE(20) };
+  } catch {
+    console.warn(`[landing] no se pudo leer el tamaño de ${rutaPublica}`);
+    return null;
+  }
+}
 
 const SITIO = "AIPOS";
 const TAGLINE = "Gestión Comercial Inteligente";
@@ -296,7 +319,12 @@ const publico = [
             <!-- [REEMPLAZAR] captura del mostrador.
                  Va limpia a propósito: las imágenes vienen editadas, con su
                  propio marco, así que acá no se les agrega ninguno. -->
-            <img class="captura flotante" src="/01.png" alt="Pantalla del punto de venta" />
+            {
+                (() => {
+                  const t = tamanoPng("/01.png");
+                  return <img class="captura flotante" src="/01.png" alt="Pantalla del punto de venta" width={t?.width} height={t?.height} />;
+                })()
+              }
           </div>
         </div>
 
@@ -376,6 +404,8 @@ const publico = [
                   class="captura"
                   src={d.imagen}
                   alt={`${d.kicker}: ${d.titulo}`}
+                  width={tamanoPng(d.imagen)?.width}
+                  height={tamanoPng(d.imagen)?.height}
                 />
               </div>
             </div>

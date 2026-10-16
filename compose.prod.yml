@@ -47,6 +47,17 @@ services:
     networks:
       - vps-net
 
+  # Landing pública (estático). Sin puertos publicados, igual que el resto:
+  # el borde la alcanza por nombre de servicio dentro de vps-net.
+  landing:
+    build:
+      context: .
+      dockerfile: ./landing/Dockerfile
+    container_name: offlinepos-landing
+    restart: unless-stopped
+    networks:
+      - vps-net
+
 networks:
   vps-net:
     external: true

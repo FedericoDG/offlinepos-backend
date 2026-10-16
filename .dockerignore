@@ -17,3 +17,8 @@ panel/.next
 # Gestion del proyecto: no hace falta en runtime.
 odd/
 *.md
+
+# Landing (se construye adentro de la imagen)
+landing/node_modules/
+landing/dist/
+landing/.astro/

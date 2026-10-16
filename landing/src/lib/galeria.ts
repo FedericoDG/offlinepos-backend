@@ -63,6 +63,7 @@ const EXTENSIONES = /\.(png|jpe?g|webp|avif)$/i;
 const ETIQUETAS: Record<string, string> = {
   "app/dashboard": "Dashboard",
   "app/punto-de-venta": "Punto de venta",
+  "app/ia-integrada": "IA integrada",
   "app/caja": "Caja y arqueo",
   "app/inventario": "Inventario",
   "app/productos": "Productos",

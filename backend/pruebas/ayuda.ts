@@ -57,7 +57,16 @@ export async function falla(etiqueta: string, patron: RegExp, operacion: () => P
 export function informe(): void {
   const verde = total - fallas;
   console.log(`\n${'-'.repeat(60)}`);
-  console.log(fallas === 0 ? `Todo en orden: ${verde}/${total}` : `${fallas} FALLAS de ${total} comprobaciones`);
+  // Una corrida sin comprobaciones NO es una corrida en verde: si la suite se
+  // queda sin pruebas (un archivo que dejo de importarse, un return temprano),
+  // el proceso tiene que fallar igual. Si no, el CI queda verde sin haber
+  // probado nada, que es peor que no correrlo.
+  if (total === 0) {
+    console.log('No se ejecuto ninguna comprobacion');
+    process.exitCode = 1;
+  } else {
+    console.log(fallas === 0 ? `Todo en orden: ${verde}/${total}` : `${fallas} FALLAS de ${total} comprobaciones`);
+  }
   console.log(`${'-'.repeat(60)}\n`);
 }
 

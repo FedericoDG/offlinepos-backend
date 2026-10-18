@@ -12,7 +12,10 @@ cd backend
 npx tsx pruebas/correr.ts
 ```
 
-Son 225 comprobaciones. Ahi viven los casos de borde de vencimiento: el dia
+Son 249 comprobaciones, mas las 3 de `factura-ocr-error.prueba.ts` (esa corre con
+el script `prueba:factura-ocr`, porque necesita el runner de pruebas de node).
+Las dos las corre el workflow `build` en cada rama y en cada PR: ver
+`.github/workflows/build.yml`. Ahi viven los casos de borde de vencimiento: el dia
 exacto en que vence, los tres dias de gracia, el dia 34, la renovacion desde
 una suscripcion viva y desde una ya vencida, el cupo de cada plan.
 

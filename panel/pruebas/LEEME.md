@@ -39,7 +39,11 @@ simulado, y despues la suite.
 
 ```bash
 # terminal 1 — el backend simulado
-node pruebas/servidor-simulado.mjs        # escucha en :4000
+SIM_PORT=4001 node pruebas/servidor-simulado.mjs   # escucha en :4001
+# (el 4000 lo ocupa el backend de desarrollo; sin SIM_PORT usa 4000)
+# y despues la suite con las dos URLs:
+#   PANEL_URL=http://localhost:3000/admin API_URL=http://localhost:4001 \
+#     node pruebas/panel.prueba.mjs
 
 # terminal 2 — el panel compilado contra el simulado
 npm run build

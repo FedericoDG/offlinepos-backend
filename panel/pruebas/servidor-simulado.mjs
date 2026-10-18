@@ -169,7 +169,20 @@ function suscripcionCompleta(s) {
 }
 
 function comercioCompleto(c) {
-  return { ...c, licencias: licencias.filter((l) => l.comercio_id === c.id).map((l) => ({ ...l, activaciones: activaciones.filter((a) => a.licencia_id === l.id) })) };
+  // El plan del comercio: el directo y, si no tiene, el de su suscripción no
+  // cancelada — igual que el backend. Antes no se devolvía el campo `plan`, así
+  // que el panel mostraba "sin plan asignado" en todos y la suite acusaba un bug
+  // que era del propio simulado.
+  const directo = c.plan_id ? planDe(c.plan_id) : null;
+  const suscripcion = suscripciones.find((s) => s.comercio_id === c.id && s.estado !== 'CANCELADA');
+  const plan = directo ?? (suscripcion ? planDe(suscripcion.plan_id) : null);
+  return {
+    ...c,
+    plan: plan
+      ? { id: plan.id, nombre: plan.nombre, precio_mensual: plan.precio_mensual, chat_mensajes_mes: plan.chat_mensajes_mes }
+      : null,
+    licencias: licencias.filter((l) => l.comercio_id === c.id).map((l) => ({ ...l, activaciones: activaciones.filter((a) => a.licencia_id === l.id) })),
+  };
 }
 
 function licenciaCompleta(l) {
@@ -474,4 +487,7 @@ const servidor = http.createServer(async (req, res) => {
   responder(404, { message: `Sin ruta simulada para ${req.method} ${ruta}` });
 });
 
-servidor.listen(4000, () => console.log('backend simulado en 4000'));
+// Puerto configurable: el 4000 suele estar tomado por el backend de desarrollo
+// (el POS local apunta ahi), y el simulado no puede levantarse encima.
+const PUERTO = Number(process.env.SIM_PORT ?? 4000);
+servidor.listen(PUERTO, () => console.log(`backend simulado en ${PUERTO}`));

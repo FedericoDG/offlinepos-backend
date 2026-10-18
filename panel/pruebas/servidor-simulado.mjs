@@ -173,9 +173,9 @@ function comercioCompleto(c) {
   // cancelada — igual que el backend. Antes no se devolvía el campo `plan`, así
   // que el panel mostraba "sin plan asignado" en todos y la suite acusaba un bug
   // que era del propio simulado.
-  const directo = c.plan_id ? planDe(c.plan_id) : null;
-  const suscripcion = suscripciones.find((s) => s.comercio_id === c.id && s.estado !== 'CANCELADA');
-  const plan = directo ?? (suscripcion ? planDe(suscripcion.plan_id) : null);
+  // El plan es el asignado DIRECTO (c.plan_id), como en el backend: una
+  // suscripción no asigna plan. Sin plan directo, el panel dice "sin plan".
+  const plan = c.plan_id ? planDe(c.plan_id) : null;
   return {
     ...c,
     plan: plan

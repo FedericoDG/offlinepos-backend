@@ -82,23 +82,19 @@ await ir('/dashboard');
 const kpis = await p.locator('[data-slot=card]').allInnerTexts();
 const kpiTexto = kpis.join(' | ').replace(/\s+/g, ' ');
 
-prueba('muestra el cobrado del mes', /Cobrado este mes/.test(kpiTexto));
-prueba('el ingreso recurrente', /Ingreso recurrente \(MRR\)/.test(kpiTexto));
-prueba('lo que vence en 30 días', /Vencen en 30 días/.test(kpiTexto));
-prueba('y las vencidas', /Vencidas/.test(kpiTexto));
-prueba('la plata sale formateada en pesos', /\$\s?[\d.]+/.test(kpiTexto), kpiTexto.slice(0, 120));
-prueba('menciona el período de gracia vigente', /período de gracia \(3 días\)/.test(kpiTexto));
+// El dashboard lista comercios, licencias, planes y consumo de chat. Los
+// números de plata viven en Cobranza y los vencimientos en Suscripciones: acá se
+// comprueba lo que esta pantalla muestra.
+prueba('resume cuántos comercios hay', /Comercios\s+\d+/.test(kpiTexto), kpiTexto.slice(0, 120));
+prueba('las licencias servidor activas', /Licencias servidor activas/.test(kpiTexto));
+prueba('los planes activos', /Planes activos/.test(kpiTexto));
+prueba('el consumo de chat del mes', /Consumo chat del mes/.test(kpiTexto));
+prueba('y la tabla de comercios con su plan', /Comercios y estado de su plan/.test(kpiTexto));
+prueba('explica de dónde sale el plan', /no una suscripción/.test(kpiTexto));
 
-const barras = await p.locator('.recharts-bar-rectangle').count();
-prueba('el gráfico dibuja una barra por cada mes con cobros', barras > 0 && barras <= 12, barras);
-prueba('con los doce meses en el eje', (await p.locator('.recharts-xAxis .recharts-cartesian-axis-tick').count()) === 12);
-prueba('el reparto por plan lista los dos planes', (await p.locator('text=Reparto por plan').count()) === 1);
-
-const primeraFilaVenc = await textoDe('table tbody tr');
-prueba('los vencimientos arrancan por el más urgente, que es el que ya venció',
-  primeraFilaVenc.includes('Ferretería El Tornillo'), primeraFilaVenc);
-prueba('y dice hace cuánto venció', /venció hace 40 días/.test(primeraFilaVenc), primeraFilaVenc);
-prueba('avisa arriba cuántas ya vencieron', (await p.locator('text=/suscripci[oó]n(es)? ya venci/').count()) >= 1);
+const filasComercios = await p.locator('table tbody tr').allInnerTexts();
+prueba('la tabla lista comercios', filasComercios.length > 0, filasComercios.length);
+prueba('cada comercio ofrece ver sus claves', /Ver claves/.test(filasComercios[0] ?? ''), (filasComercios[0] ?? '').slice(0, 110));
 await p.screenshot({ path: `${CAPTURAS}/01-dashboard.png`, fullPage: true });
 
 // ============================================================== vencimientos

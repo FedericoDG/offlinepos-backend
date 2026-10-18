@@ -19,6 +19,7 @@
  * Uso:
  *   npx tsx scripts/regresion-bloques.mts
  */
+import '../pruebas/entorno';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';

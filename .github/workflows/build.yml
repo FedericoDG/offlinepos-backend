@@ -50,26 +50,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Rapida y sin docker: el script de deploy se prueba con un `docker` falso
-      # en el PATH. Cubre que el pre-flight no pueda pasar con la imagen rota y
-      # que, si falla, no se corra ni migracion ni `up`.
-      - name: Pruebas del script de deploy
-        run: sh scripts/prueba-deploy-preflight.sh
-
-      # La etapa `build` del Dockerfile del backend ya trae node_modules, el
-      # codigo fuente y las pruebas, y usa el node de la imagen. No hay que
-      # instalar dependencias ni levantar una base: las pruebas corren contra
-      # una base en memoria (ver backend/pruebas/ayuda.ts).
-      - name: Preparar la imagen de pruebas
-        run: docker build --target build --file backend/Dockerfile --tag ci-backend-pruebas .
-
-      - name: Suite de logica del backend
-        run: docker run --rm ci-backend-pruebas npx tsx pruebas/correr.ts
-
-      # Va en su propio paso y con su propio runner de node porque necesita el
-      # flag --experimental-test-module-mocks (reemplaza el modulo de Prisma).
-      - name: Regresion del error del OCR de facturas
-        run: >-
-          docker run --rm ci-backend-pruebas
-          node --experimental-test-module-mocks --import tsx
-          --test pruebas/factura-ocr-error.prueba.ts
+      # Las comprobaciones viven en scripts/verificar.sh y las comparte con la
+      # puerta de deploy.yml: un solo lugar, para que no se separen.
+      - name: Comprobaciones
+        run: sh scripts/verificar.sh

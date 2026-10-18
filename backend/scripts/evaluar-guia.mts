@@ -23,6 +23,7 @@
  * Si el `.env` no tiene credenciales del LLM, el modo `--llm` lo informa y el
  * código de salida queda gobernado por el determinístico.
  */
+import '../pruebas/entorno';
 import fs from 'node:fs';
 import path from 'node:path';
 

@@ -8,6 +8,7 @@
  *
  * Uso: npx tsx scripts/medir-prompt.mts
  */
+import '../pruebas/entorno';
 import { construirPromptSistema } from '../src/features/chat/chat.service';
 
 const MODULOS_TODOS = {

@@ -8,6 +8,7 @@
  * Uso: npx tsx scripts/prueba-memoria-prechequeo.mts
  * Exit 1 si algún caso no coincide con lo esperado.
  */
+import '../pruebas/entorno';
 import { mensajePareceMemorable } from '../src/features/chat/chat.service';
 
 interface Caso {

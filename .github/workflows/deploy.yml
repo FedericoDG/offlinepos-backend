@@ -12,6 +12,15 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+
+      # Puerta: si algo de esto falla, no se despliega. Son las mismas
+      # comprobaciones que corre build.yml en cada rama; aca son lo ultimo que
+      # se mira antes de publicar, porque un push directo a main nunca pasa por
+      # una rama.
+      - name: Puerta de comprobaciones
+        run: sh scripts/verificar.sh
+
       - name: Setup SSH key
         run: |
           mkdir -p ~/.ssh
@@ -33,4 +42,7 @@ jobs:
 
       - name: Report failure
         if: failure()
-        run: echo "Deploy failed — check previous step logs. VPS unchanged or partially updated."
+        run: |
+          echo "El deploy no se completo: mirar los pasos de arriba."
+          echo "Si el que fallo es el paso de deploy, el pre-flight de scripts/deploy.sh corta antes del swap: el stack en pie deberia seguir igual. Confirmar con: docker compose -f compose.prod.yml ps"
+          echo "Para volver atras la base: ver /root/respaldos-offlinepos/LEEME.txt"

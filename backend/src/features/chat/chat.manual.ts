@@ -840,7 +840,7 @@ export const MANUAL_ENTRADAS: EntradaManual[] = [
     errores_comunes: [
       'Si una búsqueda no devuelve nada, probá con el nombre de la pantalla o con la tarea ("caja", "compras", "cliente").',
     ],
-    palabras_clave: ['ayuda', 'faq', 'guia', 'manual', 'tutorial', 'como hago', 'no se como', 'explicacion'],
+    palabras_clave: ['ayuda', 'faq', 'guia', 'manual', 'tutorial', 'explicacion'],
     para_que_sirve:
       'Es tu manual a mano: explica cada pantalla del sistema en lenguaje simple, con fotos reales de cómo se ve. Sirve cuando no sabés cómo hacer algo, o cuando querés descubrir todo lo que el sistema puede hacer por vos. Funciona sin internet.',
     que_podes_hacer: [

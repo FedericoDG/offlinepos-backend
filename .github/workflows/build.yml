@@ -50,6 +50,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Rapida y sin docker: el script de deploy se prueba con un `docker` falso
+      # en el PATH. Cubre que el pre-flight no pueda pasar con la imagen rota y
+      # que, si falla, no se corra ni migracion ni `up`.
+      - name: Pruebas del script de deploy
+        run: sh scripts/prueba-deploy-preflight.sh
+
       # La etapa `build` del Dockerfile del backend ya trae node_modules, el
       # codigo fuente y las pruebas, y usa el node de la imagen. No hay que
       # instalar dependencias ni levantar una base: las pruebas corren contra

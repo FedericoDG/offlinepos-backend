@@ -40,6 +40,8 @@ p.on('console', (m) => { if (m.type() === 'error') erroresDeConsola.push({ etapa
 const ir = (ruta) => p.goto(`${BASE}${ruta}`, { waitUntil: 'networkidle' });
 const textoDe = async (sel) => (await p.locator(sel).first().innerText()).replace(/\s+/g, ' ').trim();
 const filaDe = (nombre) => p.locator('tbody tr').filter({ hasText: nombre }).first();
+const filasVisibles = () => p.locator('tbody tr').count();
+const estadoDe = async (nombre) => (await filaDe(nombre).innerText()).replace(/\s+/g, ' ').trim();
 
 // El simulado guarda estado: se lo deja como nuevo para que la suite se pueda
 // correr las veces que haga falta sin reiniciar el proceso.
@@ -107,12 +109,13 @@ await p.screenshot({ path: `${CAPTURAS}/01-dashboard.png`, fullPage: true });
 
 seccion('Licencias: buscador y paginación desde el backend');
 
+// La pantalla se llama Claves y el paginador cuenta claves, no licencias.
 await ir('/licencias');
-const pie = await textoDe('text=/de \\d+ licencias/');
-prueba('el pie dice cuántas hay en total', /de \d+ licencias/.test(pie), pie);
+const pie = await textoDe('text=/de \\d+ claves/');
+prueba('el pie dice cuántas hay en total', /de \d+ claves/.test(pie), pie);
 igual('la primera página trae 20 filas', await filasVisibles(), 20);
 
-const totalLic = Number((pie.match(/de ([\d.]+) licencias/) ?? [])[1]?.replace('.', ''));
+const totalLic = Number((pie.match(/de ([\d.]+) claves/) ?? [])[1]?.replace(/\./g, ''));
 prueba('hay más de una página', totalLic > 20, totalLic);
 
 await ir('/licencias?pagina=2');
@@ -130,38 +133,32 @@ await ir('/licencias?q=zzzz');
 igual('una búsqueda sin resultados no rompe', await filasVisibles(), 1);
 prueba('y explica que no hay coincidencias', (await textoDe('tbody tr')).includes('zzzz'));
 
-await ir('/licencias');
-prueba('se ve una licencia suspendida por bajar de plan',
-  (await p.locator('tbody tr', { hasText: 'suspendida' }).count()) >= 0);
+await ir('/licencias?q=kiosco');
+prueba('se ve una clave suspendida por bajar de plan',
+  (await p.locator('tbody tr', { hasText: 'suspendida' }).count()) >= 1);
 await p.screenshot({ path: `${CAPTURAS}/03-licencias.png`, fullPage: true });
 
-seccion('Licencias: cupo del plan y cambio de PC');
+seccion('Licencias: generar sueltas y cambio de PC');
 
+// Las claves se generan sueltas ("libres") y el cupo del plan se controla al
+// asignarlas en el alta, no acá: no hay emisión directa contra un comercio.
 await ir('/licencias');
-await p.getByRole('button', { name: /emitir licencia/i }).click();
+const totalAntes = Number(((await textoDe('text=/de \\d+ claves/')).match(/de ([\d.]+) claves/) ?? [])[1]);
+await p.getByRole('button', { name: /generar claves/i }).click();
 await p.waitForTimeout(500);
-await p.locator('button[role=combobox]').first().click();
-await p.waitForTimeout(400);
-await p.getByRole('option', { name: 'Almacén San Martín' }).click();
-await p.waitForTimeout(400);
-await p.locator('button[role=combobox]').nth(1).click();
-await p.waitForTimeout(400);
-await p.getByRole('option', { name: /Cliente/ }).click();
-await p.waitForTimeout(600);
-prueba('Pro con sus 2 clientes ya ocupados bloquea el tercero',
-  await p.getByRole('button', { name: /^Emitir$/ }).isDisabled());
-prueba('y explica que hay que mejorar el plan',
-  /mejor[aá] el plan/i.test(await p.locator('[role=alert]').first().innerText()));
-await p.screenshot({ path: `${CAPTURAS}/04-cupo-bloqueado.png` });
-
-await p.locator('button[role=combobox]').first().click();
-await p.waitForTimeout(400);
-await p.getByRole('option', { name: 'Bazar El Sol' }).click();
-await p.waitForTimeout(600);
-prueba('un comercio sin plan tampoco puede recibir licencias sueltas',
-  /no tiene un plan contratado/i.test(await p.locator('[role=alert]').first().innerText()));
-await p.keyboard.press('Escape');
-await p.waitForTimeout(400);
+const dialogoGenerar = await textoDe('[role=dialog]');
+prueba('generar claves explica que el cupo se controla al asignar',
+  /cupo del plan se controla/i.test(dialogoGenerar), dialogoGenerar.slice(0, 160));
+prueba('pide la cantidad con 1 por defecto',
+  (await p.locator('[role=dialog] input[name=cantidad]').inputValue()) === '1');
+await p.fill('[role=dialog] input[name=cantidad]', '2');
+await p.locator('[role=dialog]').getByRole('button', { name: 'Generar', exact: true }).click();
+await p.waitForTimeout(2000);
+prueba('y avisa que ya se pueden copiar desde la tabla',
+  (await p.locator('[data-sonner-toast]', { hasText: /desde la tabla/i }).count()) === 1);
+const totalDespues = Number(((await textoDe('text=/de \\d+ claves/')).match(/de ([\d.]+) claves/) ?? [])[1]);
+igual('la tabla trae las 2 nuevas', totalDespues, totalAntes + 2);
+await p.screenshot({ path: `${CAPTURAS}/04-generar-claves.png` });
 
 await ir('/licencias?q=almac');
 const conInstalacion = p.locator('tbody tr').filter({ has: p.getByRole('button', { name: /instalaciones/i }) }).first();
@@ -181,47 +178,84 @@ prueba('liberar pide confirmación antes de hacerlo',
 await p.getByRole('button', { name: /^Confirmar$/ }).click();
 await p.waitForTimeout(2000);
 prueba('y avisa cuando la liberó',
-  (await p.locator('[data-sonner-toast]').first().innerText()).toLowerCase().includes('liberada'));
+  (await p.locator('[data-sonner-toast]', { hasText: /liberada/i }).count()) === 1);
 await p.keyboard.press('Escape');
 
 // ================================================================== comercios
 seccion('Comercios');
 
+// La tabla muestra plan directo, cupo de servidores y deuda estimada: ya no
+// hay vencimiento ni suscripción a la vista.
 await ir('/comercios');
 const sinPlan = await estadoDe('Bazar El Sol');
-prueba('el comercio recién dado de alta se marca sin plan', /sin plan contratado/.test(sinPlan), sinPlan);
-prueba('y aparece con cero licencias', /0 servidor/.test(sinPlan), sinPlan);
+prueba('el comercio recién dado de alta se marca sin plan', /Sin plan/.test(sinPlan), sinPlan);
+prueba('y aparece con cero claves', /0\/— servidor/.test(sinPlan), sinPlan);
+prueba('sin plan no hay deuda que estimar', /Al día/.test(sinPlan), sinPlan);
 
 const conPlan = await estadoDe('Almacén San Martín');
 prueba('el que tiene Pro muestra su plan', /Pro/.test(conPlan), conPlan);
-prueba('con su vencimiento', /vence en 20 días/.test(conPlan), conPlan);
+prueba('con el cupo de una caja que declara ese plan', /\/1 servidor/.test(conPlan), conPlan);
+prueba('y al día', /Al día/.test(conPlan), conPlan);
 
-await p.getByRole('button', { name: /nuevo comercio/i }).click();
-await p.waitForTimeout(500);
-const formNuevo = await textoDe('[role=dialog]');
-prueba('el alta pide solo el nombre', (await p.locator('[role=dialog] input').count()) === 1,
-  await p.locator('[role=dialog] input').count());
-prueba('y explica que las licencias las emite la suscripción', /suscripci[oó]n/i.test(formNuevo));
-await p.fill('[role=dialog] input[name=nombre]', 'Rotisería Doña Rosa');
+const vencido = await estadoDe('Ferretería El Tornillo');
+prueba('el vencido muestra su deuda estimada', /Debe \d+ período/.test(vencido), vencido);
+
+// El alta es una pantalla propia: nombre, plan y claves libres a asignar, con
+// el cupo del plan validado al asignar.
+await p.getByRole('link', { name: /nuevo comercio/i }).click();
+await p.waitForURL('**/comercios/alta', { timeout: 20000 });
+prueba('el alta es una pantalla propia', p.url().includes('/comercios/alta'), p.url());
+const altaTexto = await textoDe('main');
+prueba('y explica que el cupo se valida al asignar', /cupo del plan se valida/i.test(altaTexto));
+prueba('ofrece los planes en venta con su cupo', /Básico — 1 servidor/.test(altaTexto) && /Pro — 1 servidor/.test(altaTexto));
+
+await p.fill('input[name=nombre]', 'Cotillón Fantasía');
+await p.getByRole('combobox').click();
+await p.waitForTimeout(400);
+await p.getByRole('option', { name: /Básico/ }).click();
+await p.waitForTimeout(400);
+await p.getByRole('checkbox').nth(0).check();
+await p.getByRole('checkbox').nth(1).check();
+await p.getByRole('button', { name: /crear comercio/i }).click();
+await p.waitForTimeout(2000);
+prueba('asignar más claves que el cupo se rechaza',
+  /mejora el plan/i.test(await p.locator('[role=alert]').first().innerText()));
+prueba('y el comercio no se crea',
+  (await ir('/comercios'), await p.locator('tbody tr', { hasText: 'Cotillón Fantasía' }).count()) === 0);
+
+await ir('/comercios/alta');
+await p.fill('input[name=nombre]', 'Rotisería Doña Rosa');
+await p.getByRole('combobox').click();
+await p.waitForTimeout(400);
+await p.getByRole('option', { name: /Pro/ }).click();
+await p.waitForTimeout(400);
+await p.getByRole('checkbox').nth(0).check();
+prueba('elegir claves muestra cuántas van', /1 clave seleccionada/.test(await textoDe('main')));
 await p.getByRole('button', { name: /crear comercio/i }).click();
 await p.waitForTimeout(2500);
-prueba('crear un comercio avisa qué sigue',
-  /contratale un plan/i.test(await p.locator('[data-sonner-toast]').first().innerText()));
+const confirmacion = await textoDe('[role=alert]');
+prueba('crear un comercio avisa qué quedó asociado', /quedó creado.*1 clave asignada/.test(confirmacion), confirmacion.slice(0, 160));
 await ir('/comercios');
-prueba('y el comercio nuevo aparece en la lista',
-  (await p.locator('tbody tr', { hasText: 'Rotisería Doña Rosa' }).count()) === 1);
+prueba('y el comercio nuevo aparece en la lista con su plan',
+  /Rotisería Doña Rosa.*Pro/.test(await estadoDe('Rotisería Doña Rosa')));
 await p.screenshot({ path: `${CAPTURAS}/06-comercios.png`, fullPage: true });
 
 // ===================================================================== planes
 seccion('Planes');
 
 await ir('/planes');
-const planesTexto = (await p.locator('[data-slot=card]').allInnerTexts()).join(' | ').replace(/\s+/g, ' ');
-prueba('muestra Básico con 1 servidor y 0 clientes', /Básico.*1 servidor.*0 clientes/s.test(planesTexto));
-prueba('y Pro con 1 servidor y 2 clientes', /Pro.*1 servidor.*2 clientes/s.test(planesTexto));
-prueba('marca el plan discontinuado', /Discontinuado/.test(planesTexto));
-prueba('muestra los precios en pesos', /\$\s?25\.000/.test(planesTexto), planesTexto.slice(0, 200));
-prueba('y cuántos comercios tiene cada uno', /comercios/.test(planesTexto));
+const tarjeta = (nombre) => p.locator('[data-slot=card]', { hasText: nombre }).first();
+const basico = (await tarjeta('Básico').innerText()).replace(/\s+/g, ' ');
+prueba('Básico muestra su cupo de 1 servidor', /1 servidor/.test(basico), basico.slice(0, 120));
+prueba('con su cupo de chat', /400.*mensajes de Binny/.test(basico));
+prueba('sus precios', /\$\s?25\.000.*\/ mes/.test(basico) && /\$\s?250\.000 al año/.test(basico));
+prueba('y cuántos comercios lo usan', /3 comercios con este plan/.test(basico));
+const pro = (await tarjeta('Pro').innerText()).replace(/\s+/g, ' ');
+prueba('Pro trae más chat y la Rotisería recién creada', /1500.*mensajes de Binny/.test(pro) && /4 comercios con este plan/.test(pro));
+const viejo = await tarjeta('Plan viejo').innerText();
+prueba('marca el plan discontinuado', /Discontinuado/.test(viejo));
+prueba('sin comercios encima', /0 comercios con este plan/.test(viejo));
+prueba('y los activos en venta', (await p.getByText('En venta', { exact: true }).count()) === 2);
 await p.screenshot({ path: `${CAPTURAS}/07-planes.png`, fullPage: true });
 
 await p.getByRole('button', { name: /editar/i }).first().click();
@@ -243,7 +277,7 @@ await p.screenshot({ path: `${CAPTURAS}/09-backend-caido.png` });
 
 await fetch(`${API}/__caido?v=0`).catch(() => {});
 await ir('/dashboard');
-prueba('cuando el backend vuelve, el panel también', (await p.locator('text=Cómo viene el mes').count()) === 1);
+prueba('cuando el backend vuelve, el panel también', (await p.locator('text=Cómo están los comercios').count()) === 1);
 
 // ==================================================================== cierre
 seccion('Errores de JavaScript durante toda la corrida');

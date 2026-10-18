@@ -30,9 +30,9 @@ const token = `${b64({ alg: 'HS256', typ: 'JWT' })}.${b64({
 // ------------------------------------------------------------------- estado
 
 const planes = [
-  { id: 'p-basico', codigo: 'BASICO', nombre: 'Básico', descripcion: 'Un solo servidor. La caja del comercio y nada más.', precio_mensual: 25000, precio_anual: 250000, moneda: 'ARS', max_servidores: 1, max_clientes: 0, activo: true, suscripciones_activas: 3, createdAt: enDias(-300), updatedAt: enDias(-300) },
-  { id: 'p-pro', codigo: 'PRO', nombre: 'Pro', descripcion: 'Un servidor y hasta dos clientes conectados a él.', precio_mensual: 45000, precio_anual: 450000, moneda: 'ARS', max_servidores: 1, max_clientes: 2, activo: true, suscripciones_activas: 2, createdAt: enDias(-300), updatedAt: enDias(-300) },
-  { id: 'p-viejo', codigo: 'LEGACY', nombre: 'Plan viejo', descripcion: 'Discontinuado.', precio_mensual: 12000, precio_anual: null, moneda: 'ARS', max_servidores: 1, max_clientes: 1, activo: false, suscripciones_activas: 0, createdAt: enDias(-500), updatedAt: enDias(-500) },
+  { id: 'p-basico', codigo: 'BASICO', nombre: 'Básico', descripcion: 'Un solo servidor. La caja del comercio y nada más.', precio_mensual: 25000, precio_anual: 250000, moneda: 'ARS', max_servidores: 1, max_clientes: 0, chat_mensajes_mes: 400, activo: true, suscripciones_activas: 3, createdAt: enDias(-300), updatedAt: enDias(-300) },
+  { id: 'p-pro', codigo: 'PRO', nombre: 'Pro', descripcion: 'Un servidor y hasta dos clientes conectados a él.', precio_mensual: 45000, precio_anual: 450000, moneda: 'ARS', max_servidores: 1, max_clientes: 2, chat_mensajes_mes: 1500, activo: true, suscripciones_activas: 2, createdAt: enDias(-300), updatedAt: enDias(-300) },
+  { id: 'p-viejo', codigo: 'LEGACY', nombre: 'Plan viejo', descripcion: 'Discontinuado.', precio_mensual: 12000, precio_anual: null, moneda: 'ARS', max_servidores: 1, max_clientes: 1, chat_mensajes_mes: 200, activo: false, suscripciones_activas: 0, createdAt: enDias(-500), updatedAt: enDias(-500) },
 ];
 
 /** Un comercio por cada situacion que el panel tiene que saber mostrar. */
@@ -71,7 +71,10 @@ function sembrar() {
 
 for (const caso of CASOS) {
   const plan = planes.find((p) => p.id === caso.plan);
-  comercios.push({ id: caso.id, nombre: caso.nombre, createdAt: enDias(-200), updatedAt: enDias(-200) });
+  // El plan es el asignado DIRECTO al comercio (asi se da de alta hoy): el
+  // listado lo muestra y de ahi sale el cupo de claves. La suscripcion queda
+  // como camino viejo, que el backend tambien mira para la deuda.
+  comercios.push({ id: caso.id, nombre: caso.nombre, plan_id: plan.id, createdAt: enDias(-200), updatedAt: enDias(-200) });
 
   const venceEn = enDias(caso.vence);
   suscripciones.push({
@@ -139,8 +142,19 @@ for (let i = 0; i < 40; i++) {
   });
   pagos.push({
     id: `pg-relleno-${i}`, suscripcion_id: `s-${c.id}`, monto: 25000, moneda: 'ARS',
-    metodo: 'TRANSFERENCIA', pagado_en: enDias(-i - 2), periodo_desde: enDias(-i - 32), periodo_hasta: enDias(-i - 2),
+    metodo: 'TRANSFERENCIA', pagado_en: enDias(-i - 2), periodo_desde: enDias(-i - 62), periodo_hasta: enDias(-i - 32),
     referencia: `TRF-R${i}`, nota: null, createdAt: enDias(-i - 2), updatedAt: enDias(-i - 2),
+  });
+}
+
+// Claves sueltas ("libres"): sin comercio, para asignar en el alta. El alta las
+// pide con `?libres=1` y el cupo del plan se valida al asignarlas, no al
+// generarlas — igual que el backend.
+for (let i = 0; i < 5; i++) {
+  licencias.push({
+    id: `l-libre-${i}`, comercio_id: null, rol: 'SERVIDOR', estado: 'activa',
+    clave_hash: 'cifrada', clave_original: `LIC-2026-L${String(i).padStart(3, '0')}-LIBR`,
+    max_activaciones: 1, activado_en: null, createdAt: iso(hoy - (5 - i) * 60000), updatedAt: iso(hoy),
   });
 }
 }
@@ -169,19 +183,29 @@ function suscripcionCompleta(s) {
 }
 
 function comercioCompleto(c) {
-  // El plan del comercio: el directo y, si no tiene, el de su suscripción no
-  // cancelada — igual que el backend. Antes no se devolvía el campo `plan`, así
-  // que el panel mostraba "sin plan asignado" en todos y la suite acusaba un bug
-  // que era del propio simulado.
-  // El plan es el asignado DIRECTO (c.plan_id), como en el backend: una
-  // suscripción no asigna plan. Sin plan directo, el panel dice "sin plan".
+  // El plan del comercio es el asignado DIRECTO (c.plan_id), como en el
+  // backend: una suscripción no asigna plan. Sin plan directo, el panel dice
+  // "Sin plan" y la deuda no se estima (igual que `calcularDeuda`: sin plan no
+  // hay ciclo contra el que contar).
   const plan = c.plan_id ? planDe(c.plan_id) : null;
+  // La deuda estima los meses desde el último período cubierto por un pago
+  // (camino viejo: pagos de suscripciones del comercio) o desde el alta si
+  // nunca pagó. Meses de calendario, como `mesesEntre` del backend.
+  const cubiertos = suscripciones
+    .filter((s) => s.comercio_id === c.id)
+    .flatMap((s) => pagos.filter((p) => p.suscripcion_id === s.id).map((p) => p.periodo_hasta));
+  const ultimo = cubiertos.length ? new Date(Math.max(...cubiertos.map((f) => new Date(f).getTime()))) : null;
+  const desde = ultimo ?? new Date(c.createdAt);
+  const ahora = new Date();
+  const meses = Math.max(0, (ahora.getFullYear() - desde.getFullYear()) * 12 + (ahora.getMonth() - desde.getMonth()));
   return {
     ...c,
     plan: plan
       ? { id: plan.id, nombre: plan.nombre, precio_mensual: plan.precio_mensual, chat_mensajes_mes: plan.chat_mensajes_mes }
       : null,
     licencias: licencias.filter((l) => l.comercio_id === c.id).map((l) => ({ ...l, activaciones: activaciones.filter((a) => a.licencia_id === l.id) })),
+    claves_activas: licencias.filter((l) => l.comercio_id === c.id && l.estado === 'activa').length,
+    deuda_periodos: plan ? meses : 0,
   };
 }
 
@@ -321,12 +345,20 @@ const servidor = http.createServer(async (req, res) => {
       }
       return responder(200, [...porPlan.values()].sort((a, b) => b.total - a.total));
     }
-    if (ruta === '/api/planes') return responder(200, url.searchParams.get('activos') === 'true' ? planes.filter((p) => p.activo) : planes);
+    if (ruta === '/api/planes') {
+      const lista = planes.map((p) => ({ ...p, comercios_con_plan: comercios.filter((c) => c.plan_id === p.id).length }));
+      return responder(200, url.searchParams.get('activos') === 'true' ? lista.filter((p) => p.activo) : lista);
+    }
     if (ruta === '/api/comercios') return responder(200, comercios.map(comercioCompleto));
     if (ruta === '/api/suscripciones') return responder(200, suscripciones.map(suscripcionCompleta));
     if (ruta === '/api/licencias') {
       const ordenadas = [...licencias].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).map(licenciaCompleta);
-      const { _filtradas, ...pagina } = paginar(ordenadas, url, (l) => l.comercio?.nombre ?? '');
+      // `?libres=1` trae solo las claves sin comercio, para asignarlas en el
+      // alta — igual que el backend.
+      const base = ['1', 'true'].includes(url.searchParams.get('libres') ?? '')
+        ? ordenadas.filter((l) => !l.comercio)
+        : ordenadas;
+      const { _filtradas, ...pagina } = paginar(base, url, (l) => l.comercio?.nombre ?? '');
       return responder(200, pagina);
     }
     if (ruta === '/api/pagos') {
@@ -340,15 +372,42 @@ const servidor = http.createServer(async (req, res) => {
   const datos = ['POST', 'PUT', 'PATCH'].includes(req.method) ? await cuerpo(req) : {};
 
   if (req.method === 'POST' && ruta === '/api/comercios') {
-    const c = { id: `c-${++secuencia}`, nombre: datos.nombre, createdAt: iso(hoy), updatedAt: iso(hoy) };
+    // Alta en un paso, como el backend: crea el comercio, le asigna el plan y
+    // le asigna las claves libres elegidas, validando el cupo del plan sobre
+    // lo que se asigna. Sin plan_id nace vacío (camino viejo, sigue válido).
+    const plan = datos.plan_id ? planDe(datos.plan_id) : null;
+    if (datos.plan_id && !plan) return responder(404, { message: 'Plan no encontrado' });
+    if (plan && !plan.activo) return responder(409, { message: 'El plan está inactivo. Elegí un plan activo para el alta.' });
+    const elegidas = Array.from(new Set(datos.licencia_ids ?? []));
+    if (elegidas.length > 0) {
+      const claves = licencias.filter((l) => elegidas.includes(l.id));
+      if (claves.length !== elegidas.length) return responder(404, { message: 'Alguna de las claves elegidas no existe' });
+      if (claves.some((l) => l.comercio_id !== null)) return responder(409, { message: 'Alguna de las claves elegidas ya está asignada a un comercio' });
+      // El cupo se controla al asignar, no al generar — mensajes iguales a
+      // `validarCupoAsignacion` del backend.
+      if (plan) {
+        const cupo = plan.max_servidores;
+        if (cupo === 0) return responder(409, { message: `El plan ${plan.nombre} no incluye licencias de servidor. Mejora el plan del comercio para habilitarlas.` });
+        if (claves.length > cupo) return responder(409, { message: `El plan ${plan.nombre} cubre ${cupo} ${cupo === 1 ? 'servidor' : 'servidores'} y el comercio ya tiene 0 asignadas. Estas queriendo sumar ${claves.length} mas. Mejora el plan para sumarlas.` });
+      }
+    }
+    const c = {
+      id: `c-${++secuencia}`, nombre: datos.nombre, plan_id: plan ? plan.id : null,
+      telefono: datos.telefono ?? null, email: datos.email ?? null,
+      createdAt: iso(hoy), updatedAt: iso(hoy),
+    };
     comercios.push(c);
-    return responder(201, comercioCompleto(c));
+    for (const l of licencias.filter((l) => elegidas.includes(l.id))) l.comercio_id = c.id;
+    return responder(201, { ...comercioCompleto(c), licencias_asignadas: elegidas.map((id) => ({ id })) });
   }
 
   if (req.method === 'PUT' && /^\/api\/comercios\/[^/]+$/.test(ruta)) {
     const c = comercioDe(ruta.split('/').pop());
     if (!c) return responder(404, { message: 'Comercio no encontrado' });
-    c.nombre = datos.nombre;
+    if (datos.nombre !== undefined) c.nombre = datos.nombre;
+    if ('telefono' in datos) c.telefono = datos.telefono;
+    if ('email' in datos) c.email = datos.email;
+    if ('chat_mensajes_override' in datos) c.chat_mensajes_override = datos.chat_mensajes_override;
     return responder(200, comercioCompleto(c));
   }
 
@@ -360,16 +419,40 @@ const servidor = http.createServer(async (req, res) => {
   }
 
   if (req.method === 'POST' && ruta === '/api/licencias') {
-    const viva = suscripciones.find((s) => s.comercio_id === datos.comercio_id && s.estado !== 'CANCELADA');
-    if (!viva) return responder(409, { message: 'El comercio no tiene un plan contratado. Contratale un plan desde Suscripciones y las licencias se emiten solas.' });
-    const plan = planDe(viva.plan_id);
-    const cupo = datos.rol === 'SERVIDOR' ? plan.max_servidores : plan.max_clientes;
-    const activas = licencias.filter((l) => l.comercio_id === datos.comercio_id && l.rol === datos.rol && l.estado === 'activa').length;
-    if (cupo === 0) return responder(409, { message: `El plan ${plan.nombre} no incluye licencias de ${datos.rol === 'SERVIDOR' ? 'servidor' : 'cliente'}. Mejora el plan del comercio para habilitarlas.` });
-    if (activas >= cupo) return responder(409, { message: `El plan ${plan.nombre} cubre ${cupo} y el comercio ya tiene ${activas} activas. Mejora el plan para sumar otra.` });
-    const l = { id: `l-${++secuencia}`, comercio_id: datos.comercio_id, rol: datos.rol, estado: 'activa', clave_hash: 'x', clave_original: `LIC-2026-NEW${secuencia}-0000`, max_activaciones: datos.max_activaciones ?? 1, activado_en: null, createdAt: iso(hoy), updatedAt: iso(hoy) };
-    licencias.push(l);
-    return responder(201, { message: 'Licencia emitida correctamente', licencia: l });
+    // Genera claves sueltas ("libres"): sin comercio, para asignarlas en el
+    // alta. No valida cupo — eso pasa al asignar, porque una clave libre
+    // todavía no pertenece a nadie. Igual que el backend.
+    const cantidad = Math.min(50, Math.max(1, Number(datos.cantidad) || 1));
+    const nuevas = [];
+    for (let i = 0; i < cantidad; i++) {
+      const l = { id: `l-${++secuencia}`, comercio_id: null, rol: 'SERVIDOR', estado: 'activa', clave_hash: 'x', clave_original: `LIC-2026-NEW${secuencia}-0000`, max_activaciones: 1, activado_en: null, createdAt: iso(hoy), updatedAt: iso(hoy) };
+      licencias.push(l);
+      nuevas.push({ id: l.id, clave: l.clave_original, rol: l.rol, estado: l.estado, max_activaciones: l.max_activaciones });
+    }
+    return responder(201, { message: cantidad === 1 ? 'Clave generada correctamente' : `${cantidad} claves generadas correctamente`, licencias: nuevas });
+  }
+
+  if (req.method === 'PATCH' && /^\/api\/licencias\/[^/]+\/estado$/.test(ruta)) {
+    const l = licencias.find((x) => x.id === ruta.split('/')[3]);
+    if (!l) return responder(404, { message: 'Licencia no encontrada' });
+    if (!['activa', 'suspendida'].includes(datos.estado)) {
+      return responder(400, { message: 'El estado debe ser "activa" o "suspendida"' });
+    }
+    l.estado = datos.estado;
+    l.updatedAt = iso(hoy);
+    return responder(200, { message: l.estado === 'activa' ? 'Clave activada' : 'Clave desactivada', licencia: licenciaCompleta(l) });
+  }
+
+  if (req.method === 'DELETE' && /^\/api\/licencias\/[^/]+$/.test(ruta)) {
+    // Borra una clave sin referencias. Con activaciones se rechaza con el
+    // motivo, igual que el backend (los consumos de chat no existen acá).
+    const i = licencias.findIndex((x) => x.id === ruta.split('/').pop());
+    if (i < 0) return responder(404, { message: 'Licencia no encontrada' });
+    if (activaciones.some((a) => a.licencia_id === licencias[i].id)) {
+      return responder(409, { message: 'La clave tiene activaciones registradas. Liberá las activaciones o desactivala en lugar de borrarla.' });
+    }
+    licencias.splice(i, 1);
+    return responder(200, { message: 'Clave eliminada correctamente' });
   }
 
   if (req.method === 'DELETE' && /^\/api\/licencias\/[^/]+\/activaciones\/[^/]+$/.test(ruta)) {

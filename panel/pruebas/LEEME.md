@@ -12,7 +12,7 @@ cd backend
 npx tsx pruebas/correr.ts
 ```
 
-Son 141 comprobaciones. Ahi viven los casos de borde de vencimiento: el dia
+Son 225 comprobaciones. Ahi viven los casos de borde de vencimiento: el dia
 exacto en que vence, los tres dias de gracia, el dia 34, la renovacion desde
 una suscripcion viva y desde una ya vencida, el cupo de cada plan.
 
@@ -41,16 +41,14 @@ simulado, y despues la suite.
 # terminal 1 — el backend simulado
 SIM_PORT=4001 node pruebas/servidor-simulado.mjs   # escucha en :4001
 # (el 4000 lo ocupa el backend de desarrollo; sin SIM_PORT usa 4000)
-# y despues la suite con las dos URLs:
-#   PANEL_URL=http://localhost:3000/admin API_URL=http://localhost:4001 \
-#     node pruebas/panel.prueba.mjs
 
 # terminal 2 — el panel compilado contra el simulado
 npm run build
-BACKEND_URL=http://localhost:4000 npm start   # escucha en :3000
+BACKEND_URL=http://localhost:4001 PORT=3000 npm start   # escucha en :3000
 
-# terminal 3 — las pruebas
-node pruebas/panel.prueba.mjs
+# terminal 3 — las pruebas (el panel vive bajo /admin)
+PANEL_URL=http://localhost:3000/admin API_URL=http://localhost:4001 \
+  node pruebas/panel.prueba.mjs
 ```
 
 En Windows (PowerShell), la segunda es:
@@ -59,7 +57,7 @@ En Windows (PowerShell), la segunda es:
 $env:BACKEND_URL="http://localhost:4000"; npm start
 ```
 
-Son 82 comprobaciones. Deja capturas de pantalla en `pruebas/capturas/`.
+Son 63 comprobaciones. Deja capturas de pantalla en `pruebas/capturas/`.
 
 La suite se puede correr las veces que haga falta sin reiniciar el simulado:
 lo primero que hace es pedirle `/__reiniciar`, que lo deja como al arranque.
@@ -78,23 +76,23 @@ lo primero que hace es pedirle `/__reiniciar`, que lo deja como al arranque.
 - **Sesion**: sin login no se entra a ninguna ruta privada y se recuerda a
   donde queria ir; contrasena mala muestra "credenciales invalidas" y no
   "sesion vencida"; ya logueado, `/login` redirige al panel; 404 propio.
-- **Dashboard**: los cuatro numeros de arriba, la plata en pesos, el grafico
-  de doce meses, el reparto por plan, y los proximos vencimientos ordenados
-  del mas urgente al menos.
-- **Vencimientos**, un comercio por caso: al dia (+20 dias), vence pronto
-  (+3), vence hoy, en gracia (-2), pasada la gracia (-40), cancelada, y uno
-  sin plan. Se comprueba el estado, el texto de dias y que acciones se
-  ofrecen (a la cancelada no se le ofrece Renovar sino Reactivar).
-- **Filtros por estado** en suscripciones.
-- **Licencias**: buscador y paginacion contra el backend, licencia suspendida
-  por bajar de plan, cupo del plan agotado (con el aviso de mejorar el plan),
-  comercio sin plan, y el cambio de PC (liberar la instalacion vieja).
-- **Comercios**: alta sin plan, y que se explique que las licencias las emite
-  la suscripcion.
-- **Planes**: cupos, precios, plan discontinuado, y el aviso de que editar un
-  plan no afecta a los ya contratados.
-- **Cobranza**: total del filtro (no de la pagina visible), buscador,
-  paginacion.
+- **Dashboard**: comercios, licencias servidor activas, planes activos, consumo
+  de chat, y la tabla de comercios con su plan directo.
+- **Claves** (`/licencias`): buscador y paginacion contra el backend, clave
+  suspendida por bajar de plan, generacion de claves sueltas (el cupo se
+  controla al asignar, no al generar), y el cambio de PC (liberar la
+  instalacion vieja con confirmacion).
+- **Comercios**: plan directo, cupo de servidores y deuda estimada; alta en un
+  paso (`/comercios/alta`) con plan y claves libres, incluido el rechazo
+  cuando se asignan mas claves que el cupo ("mejora el plan") y la
+  confirmacion de que quedo asociado.
+- **Planes**: cupo de servidores, cupo de chat, precios, comercios con este
+  plan, plan discontinuado, y el aviso de que editar un plan no afecta a los
+  ya contratados.
+- Las pantallas de suscripciones y cobranza se quitaron del panel en el
+  rediseno (commit d8bf4e1, 2026-10-07: ya no existen `/suscripciones` ni
+  `/pagos`). Esas reglas —vencimiento, dias de gracia, cobros y deuda— siguen
+  cubiertas en `backend/pruebas` (casos de borde de vencimiento y cobranza).
 - **Backend caido**: se corta el simulado a proposito y se comprueba que el
   panel muestre un error entendible en vez de romperse, y que se recupere
   solo cuando el backend vuelve.

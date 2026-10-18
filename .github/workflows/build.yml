@@ -1,17 +1,24 @@
 name: build
 
-# Valida que las tres imagenes construyan ANTES de llegar a main.
+# Valida que las tres imagenes construyan y que las pruebas del backend pasen
+# ANTES de llegar a main.
 #
 # deploy.yml corre solo en push a main y construye en el VPS: sin este
-# workflow, un lockfile desincronizado o un Dockerfile roto se descubre recien
-# en produccion (paso el 2026-10-18 con panel/package-lock.json, que se habia
-# editado a mano).
+# workflow, un lockfile desincronizado, un Dockerfile roto o una prueba en rojo
+# se descubren recien en produccion (paso el 2026-10-18 con
+# panel/package-lock.json, que se habia editado a mano).
 #
 # Se construye Dockerfile por Dockerfile y no con `docker compose build` a
 # proposito: la imagen base del Dockerfile ES la fuente de verdad del npm que
 # valida el lockfile, y compose ataria este job a los env_file del VPS.
 # Cada entrada de la matriz corre en su propio runner, asi que el disco no se
 # reparte entre las tres imagenes.
+#
+# La suite del panel (panel/pruebas/panel.prueba.mjs) NO esta aca a proposito:
+# es de punta a punta con Playwright contra el panel compilado y el backend
+# simulado, asi que necesita instalar un navegador y levantar dos procesos. Es
+# un trabajo aparte; un job que falla de a ratos por flakiness es peor que no
+# tener el job.
 
 on:
   pull_request:
@@ -37,3 +44,26 @@ jobs:
 
       - name: Construir ${{ matrix.image }}
         run: docker build --file ${{ matrix.dockerfile }} --tag ci-${{ matrix.image }} .
+
+  pruebas:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # La etapa `build` del Dockerfile del backend ya trae node_modules, el
+      # codigo fuente y las pruebas, y usa el node de la imagen. No hay que
+      # instalar dependencias ni levantar una base: las pruebas corren contra
+      # una base en memoria (ver backend/pruebas/ayuda.ts).
+      - name: Preparar la imagen de pruebas
+        run: docker build --target build --file backend/Dockerfile --tag ci-backend-pruebas .
+
+      - name: Suite de logica del backend
+        run: docker run --rm ci-backend-pruebas npx tsx pruebas/correr.ts
+
+      # Va en su propio paso y con su propio runner de node porque necesita el
+      # flag --experimental-test-module-mocks (reemplaza el modulo de Prisma).
+      - name: Regresion del error del OCR de facturas
+        run: >-
+          docker run --rm ci-backend-pruebas
+          node --experimental-test-module-mocks --import tsx
+          --test pruebas/factura-ocr-error.prueba.ts

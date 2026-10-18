@@ -23,7 +23,9 @@
     "generar:manual-faq": "tsx scripts/generar-manual-faq.mts",
     "verificar:manual-faq": "tsx scripts/verificar-manual-faq.mts",
     "test:binny": "tsx scripts/prueba-binny-e2e.mts --repes=2",
-    "test:binny:rapido": "tsx scripts/prueba-binny-e2e.mts --repes=1"
+    "test:binny:rapido": "tsx scripts/prueba-binny-e2e.mts --repes=1",
+    "prueba": "tsx pruebas/correr.ts",
+    "prueba:factura-ocr": "node --experimental-test-module-mocks --import tsx --test pruebas/factura-ocr-error.prueba.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",

@@ -1,0 +1,39 @@
+name: build
+
+# Valida que las tres imagenes construyan ANTES de llegar a main.
+#
+# deploy.yml corre solo en push a main y construye en el VPS: sin este
+# workflow, un lockfile desincronizado o un Dockerfile roto se descubre recien
+# en produccion (paso el 2026-10-18 con panel/package-lock.json, que se habia
+# editado a mano).
+#
+# Se construye Dockerfile por Dockerfile y no con `docker compose build` a
+# proposito: la imagen base del Dockerfile ES la fuente de verdad del npm que
+# valida el lockfile, y compose ataria este job a los env_file del VPS.
+# Cada entrada de la matriz corre en su propio runner, asi que el disco no se
+# reparte entre las tres imagenes.
+
+on:
+  pull_request:
+  push:
+    branches-ignore:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: panel
+            dockerfile: panel/Dockerfile
+          - image: backend
+            dockerfile: backend/Dockerfile
+          - image: landing
+            dockerfile: landing/Dockerfile
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Construir ${{ matrix.image }}
+        run: docker build --file ${{ matrix.dockerfile }} --tag ci-${{ matrix.image }} .

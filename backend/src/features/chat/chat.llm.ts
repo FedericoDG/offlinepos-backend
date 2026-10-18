@@ -1,4 +1,5 @@
 import { env } from '../../config/env';
+import { httpError } from '../../utils/api-error';
 import { type RespuestaLLM } from './chat.dtos';
 
 export interface ChatMessage {
@@ -37,6 +38,10 @@ const TIMEOUT_STALL_MS = 30_000;     // 30s sin datos → abortar stream
 // explican el problema (fallo del proveedor, timeout, respuesta vacía) sin
 // filtrar detalles internos ni rutas. Cualquier otro error debe reemplazarse
 // por un mensaje genérico antes de salir al cliente (ver controlador).
+//
+// Los throw que llevan uno de estos mensajes usan httpError: asi el mensaje
+// sobrevive tambien a handleApiError en los endpoints que no son stream, y no
+// solo al filtro del controlador de streaming.
 export const MENSAJES_PROVEEDOR_SEGUROS: RegExp[] = [
   /^Error del proveedor LLM \(código \d+\)$/,
   /^Error del proveedor LLM Vision \(código \d+\)$/,
@@ -93,7 +98,7 @@ export async function llamarLLM(
   if (!respuesta.ok) {
     const texto = await respuesta.text();
     console.error('[LLM] Error del proveedor:', respuesta.status, texto);
-    throw new Error(`Error del proveedor LLM (código ${respuesta.status})`);
+    throw httpError(`Error del proveedor LLM (código ${respuesta.status})`, 500);
   }
 
     const data = (await respuesta.json()) as LLMResponse;
@@ -101,7 +106,7 @@ export async function llamarLLM(
     const contenido = sanearTextoLLM(data.choices?.[0]?.message?.content);
 
   if (!contenido) {
-    throw new Error('El proveedor LLM devolvió una respuesta vacía');
+    throw httpError('El proveedor LLM devolvió una respuesta vacía', 500);
   }
 
   let respuestaParsed: RespuestaLLM;
@@ -754,7 +759,7 @@ export async function llamarLLMVision(
     if (!respuesta.ok) {
       const texto = await respuesta.text();
       console.error('[LLM Vision] Error del proveedor:', respuesta.status, texto);
-      throw new Error(`Error del proveedor LLM Vision (código ${respuesta.status})`);
+      throw httpError(`Error del proveedor LLM Vision (código ${respuesta.status})`, 500);
     }
 
     const data = (await respuesta.json()) as LLMResponse;

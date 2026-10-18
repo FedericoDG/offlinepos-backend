@@ -9,6 +9,11 @@
 import bcrypt from 'bcrypt';
 import { ZodError } from 'zod';
 import { AdministradorService } from '../src/features/administrador/administrador.service';
+import {
+  llamarLLM,
+  MENSAJES_PROVEEDOR_SEGUROS,
+  mensajeSeguroDeError,
+} from '../src/features/chat/chat.llm';
 import { handleApiError, httpError } from '../src/utils/api-error';
 import { igual, prueba, seccion } from './ayuda';
 
@@ -152,5 +157,67 @@ export async function correr(): Promise<void> {
     }
 
     prueba('un fallo de base no se disfraza de error intencional', capturado?.statusCode === undefined, capturado?.statusCode);
+  }
+
+  // --------------------------------------- errores del proveedor de IA
+  seccion('Un error de proveedor declarado seguro sobrevive a handleApiError');
+
+  {
+    const fetchOriginal = globalThis.fetch;
+    try {
+      // El proveedor contesta 429: es el caso realista (cuota o rate limit).
+      globalThis.fetch = (async () =>
+        new Response('el proveedor exploto', { status: 429 })) as typeof fetch;
+
+      let capturado: any = null;
+      try {
+        await llamarLLM([{ role: 'user', content: 'hola' }]);
+      } catch (e) {
+        capturado = e;
+      }
+
+      igual('el error trae statusCode', capturado?.statusCode, 500);
+      igual(
+        'el mensaje es el del proveedor',
+        capturado?.message,
+        'Error del proveedor LLM (código 429)',
+      );
+      prueba(
+        'el mensaje matchea la lista declarada segura en chat.llm.ts',
+        MENSAJES_PROVEEDOR_SEGUROS.some((re) => re.test(capturado?.message ?? '')),
+        capturado?.message,
+      );
+      igual(
+        'el filtro del controlador de streaming tambien lo deja pasar',
+        mensajeSeguroDeError(capturado),
+        'Error del proveedor LLM (código 429)',
+      );
+
+      const { res, salida } = resFalsa();
+      handleApiError(capturado, res, 'Error interno del servidor');
+      igual('sale 500', salida.status, 500);
+      igual(
+        'y NO se vuelve generico en los endpoints no-stream',
+        salida.cuerpo?.message,
+        'Error del proveedor LLM (código 429)',
+      );
+    } finally {
+      globalThis.fetch = fetchOriginal;
+    }
+  }
+
+  {
+    const { res, salida } = resFalsa();
+    const interno = new Error(
+      "Invalid `prisma.x()` invocation: Can't reach database server at 127.0.0.1:5432",
+    );
+    handleApiError(interno, res, 'Error interno del servidor');
+    igual('un error interno sigue saliendo 500', salida.status, 500);
+    igual('con mensaje generico', salida.cuerpo?.message, 'Error interno del servidor');
+    igual(
+      'y el filtro del controlador tampoco lo deja pasar',
+      mensajeSeguroDeError(interno),
+      null,
+    );
   }
 }

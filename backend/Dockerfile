@@ -10,13 +10,13 @@
 # necesaria para `prisma migrate deploy` en scripts/deploy.sh).
 
 # ---- deps: instala dependencias (capa cacheable) ----
-FROM node:22-alpine AS deps
+FROM node:24-alpine AS deps
 WORKDIR /app/backend
 COPY backend/package.json backend/package-lock.json ./
 RUN npm ci
 
 # ---- build: genera el cliente Prisma y compila TypeScript ----
-FROM node:22-alpine AS build
+FROM node:24-alpine AS build
 WORKDIR /app/backend
 COPY --from=deps /app/backend/node_modules ./node_modules
 COPY backend/ ./
@@ -27,7 +27,7 @@ ENV DATABASE_URL="postgresql://placeholder:placeholder@localhost:5432/build?sslm
 RUN npx prisma generate && npm run build
 
 # ---- runtime: solo lo necesario para correr + migrar ----
-FROM node:22-alpine AS runtime
+FROM node:24-alpine AS runtime
 WORKDIR /app/backend
 ENV NODE_ENV=production
 COPY --from=build /app/backend/node_modules ./node_modules

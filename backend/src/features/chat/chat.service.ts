@@ -1572,7 +1572,10 @@ Reglas estrictas:
     } catch (err) {
       await decrementarMensajes(lic.id, cantidadMensajes);
       console.error('[Factura OCR Error]:', err);
-      throw httpError(`Error al procesar la imagen de la factura con IA: ${err instanceof Error ? err.message : String(err)}`, 500);
+      // El detalle del error ya quedo en el console.error de arriba, que es
+      // donde se diagnostica. Al cliente no le va: puede traer la respuesta
+      // cruda del proveedor, rutas o el texto de un JSON.parse.
+      throw httpError('Error al procesar la imagen de la factura con IA', 500);
     }
   }
 

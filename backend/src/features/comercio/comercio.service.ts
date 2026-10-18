@@ -155,7 +155,16 @@ export class ComercioService {
         // Solo el fin de periodo de cada pago: alcanza para estimar la deuda sin
         // traer los pagos enteros al listado.
         pagos: { select: { periodo_hasta: true } },
-        suscripciones: { select: { pagos: { select: { periodo_hasta: true } } } },
+        suscripciones: {
+          orderBy: { inicia_en: 'desc' },
+          select: {
+            // La suscripción es el modelo viejo del plan: sin su plan, un comercio
+            // legacy aparece sin plan (y con deuda cero) en el listado.
+            estado: true,
+            plan: { select: { id: true, nombre: true, precio_mensual: true, chat_mensajes_mes: true } },
+            pagos: { select: { periodo_hasta: true } },
+          },
+        },
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -171,12 +180,15 @@ export class ComercioService {
       const ultimoPeriodo = periodosCubiertos.length
         ? new Date(Math.max(...periodosCubiertos.map((fecha) => fecha.getTime())))
         : null;
-      const deuda = calcularDeuda(comercio.plan, comercio.createdAt, ultimoPeriodo);
+      // El plan se resuelve con la regla compartida (el directo y, si no tiene, el
+      // de su suscripción): la misma que usan el chat, el detalle y las estadísticas.
+      const planComercio = planVigente(comercio as never);
+      const deuda = calcularDeuda(planComercio as never, comercio.createdAt, ultimoPeriodo);
 
       return {
         ...resto,
-        plan: comercio.plan
-          ? { ...comercio.plan, precio_mensual: Number(comercio.plan.precio_mensual) }
+        plan: planComercio
+          ? { ...planComercio, precio_mensual: Number(planComercio.precio_mensual ?? 0) }
           : null,
         licencias: comercio.licencias.map((lic) => ({
           ...lic,

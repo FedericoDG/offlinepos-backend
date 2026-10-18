@@ -16,9 +16,16 @@ import { env } from '../../config/env';
 /** Lo mínimo que se lee de un plan. Permisivo a propósito: los llamadores
  *  pasan desde filas de Prisma hasta objetos armados a mano. */
 export interface PlanDeComercio {
+  id?: string;
   nombre?: string;
   moneda?: string;
   chat_mensajes_mes?: number;
+  /**
+   * El resto de los campos tal como los devuelve cada consulta: Prisma entrega
+   * los precios como `Decimal`, y tiparlos acá como `number` hace que ninguna
+   * fila real encaje. Los llama quien los lee.
+   */
+  [campo: string]: unknown;
 }
 
 /** Comercio con lo necesario para resolver su plan y su cupo de chat. */

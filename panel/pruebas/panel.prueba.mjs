@@ -98,58 +98,13 @@ prueba('cada comercio ofrece ver sus claves', /Ver claves/.test(filasComercios[0
 await p.screenshot({ path: `${CAPTURAS}/01-dashboard.png`, fullPage: true });
 
 // ============================================================== vencimientos
-seccion('Cómo se ve cada estado de vencimiento');
+// Las pantallas de suscripciones y cobranza se quitaron del panel en el rediseño
+// (commit d8bf4e1, 2026-10-07): ya no existen /suscripciones ni /pagos, y el panel
+// responde "Esta página no existe". Las reglas que mostraban —vencimiento, días de
+// gracia, cobros y deuda— siguen cubiertas en backend/pruebas (casos de borde de
+// vencimiento y cobranza). Si esas pantallas vuelven, estas secciones se recuperan
+// del historial del archivo.
 
-await ir('/suscripciones');
-const estadoDe = async (comercio) => (await filaDe(comercio).innerText()).replace(/\s+/g, ' ');
-
-const alDia = await estadoDe('Almacén San Martín');
-prueba('el que está al día se ve Activa', /Activa/.test(alDia), alDia);
-prueba('y dice cuántos días le quedan', /vence en 20 días/.test(alDia), alDia);
-
-const pronto = await estadoDe('Kiosco La Esquina');
-prueba('el que vence en 3 días sigue Activa', /Activa/.test(pronto), pronto);
-prueba('con el aviso de que vence pronto', /vence en 3 días/.test(pronto), pronto);
-
-const hoyMismo = await estadoDe('Verdulería Norte');
-prueba('el que vence hoy avisa que vence hoy', /vence hoy/.test(hoyMismo), hoyMismo);
-
-const gracia = await estadoDe('Panadería Dos Hermanos');
-prueba('el que venció hace 2 días queda En gracia', /En gracia/.test(gracia), gracia);
-prueba('y dice hace cuánto venció', /venció hace 2 días/.test(gracia), gracia);
-prueba('se ve la nota de cobranza', /Reclamado por WhatsApp/.test(gracia), gracia);
-
-const vencido = await estadoDe('Ferretería El Tornillo');
-prueba('pasada la gracia queda Vencida', /Vencida/.test(vencido), vencido);
-
-const cancelado = await estadoDe('Bar El Descanso');
-prueba('la cancelada se ve Cancelada', /Cancelada/.test(cancelado), cancelado);
-prueba('y no dice que vence, dice que está dada de baja', /dada de baja/.test(cancelado), cancelado);
-prueba('a la cancelada no se le ofrece Renovar',
-  (await filaDe('Bar El Descanso').getByRole('button', { name: /renovar/i }).count()) === 0);
-prueba('se le ofrece Reactivar',
-  (await filaDe('Bar El Descanso').getByRole('button', { name: /reactivar/i }).count()) === 1);
-prueba('a la vencida sí se le ofrece Renovar',
-  (await filaDe('Ferretería El Tornillo').getByRole('button', { name: /renovar/i }).count()) === 1);
-await p.screenshot({ path: `${CAPTURAS}/02-suscripciones.png`, fullPage: true });
-
-seccion('Filtros por estado');
-const filasVisibles = async () => p.locator('tbody tr').count();
-
-await ir('/suscripciones');
-igual('sin filtro se ven todas', await filasVisibles(), 6);
-await ir('/suscripciones?estado=ACTIVA');
-igual('el filtro Activas deja 3', await filasVisibles(), 3);
-await ir('/suscripciones?estado=EN_GRACIA');
-igual('En gracia deja 1', await filasVisibles(), 1);
-prueba('y es la panadería', (await textoDe('tbody tr')).includes('Panadería'));
-await ir('/suscripciones?estado=VENCIDA');
-igual('Vencidas deja 1', await filasVisibles(), 1);
-prueba('y es la ferretería', (await textoDe('tbody tr')).includes('Ferretería'));
-await ir('/suscripciones?estado=CANCELADA');
-igual('Canceladas deja 1', await filasVisibles(), 1);
-
-// ================================================================== licencias
 seccion('Licencias: buscador y paginación desde el backend');
 
 await ir('/licencias');
@@ -276,23 +231,6 @@ prueba('editar un plan avisa que no afecta a los ya contratados',
 await p.keyboard.press('Escape');
 
 // ====================================================================== pagos
-seccion('Cobranza');
-
-await ir('/pagos');
-const cabecera = await textoDe('[data-slot=card]');
-prueba('muestra el total cobrado', /\$\s?[\d.]+/.test(cabecera), cabecera.slice(0, 120));
-prueba('y aclara que es de todo lo filtrado, no de la página', /no solo de los que se ven/i.test(await p.locator('[data-slot=card]').first().innerText()));
-igual('la primera página trae 20 cobros', await filasVisibles(), 20);
-
-await p.fill('input[aria-label="Buscar por comercio…"]', 'panader');
-await p.waitForTimeout(1500);
-const comerciosPago = await p.locator('tbody tr td:nth-child(2)').allInnerTexts();
-prueba('el buscador filtra la cobranza por comercio', comerciosPago.every((n) => /Panader/i.test(n)), comerciosPago.slice(0, 3));
-prueba('y el total de arriba acompaña al filtro',
-  (await p.locator('[data-slot=card]').first().innerText()).includes('Cobrado de'));
-await p.screenshot({ path: `${CAPTURAS}/08-pagos.png`, fullPage: true });
-
-// ================================================== backend caido y recuperado
 seccion('Cuando el backend no responde');
 
 await fetch(`${API}/__caido?v=1`).catch(() => {});

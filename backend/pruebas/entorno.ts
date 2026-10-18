@@ -13,3 +13,6 @@ process.env.JWT_SECRET ??= 'secreto-de-pruebas-de-al-menos-32-caracteres';
 process.env.JWT_AT_EXPIRY ??= '8h';
 process.env.DATABASE_URL ??= 'postgresql://sin-uso';
 process.env.ENCRYPTION_KEY ??= 'f1a8c9b2e3d4a5b6c7d8e9f0123456789abcdef0123456789abcdef012345678';
+// El schema de config/env.ts la exige (min 1). Sin esto la suite no arranca en
+// un entorno limpio, aunque no se use IA en ninguna prueba.
+process.env.LLM_API_KEY ??= 'clave-de-pruebas';

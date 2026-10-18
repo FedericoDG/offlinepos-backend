@@ -8,7 +8,6 @@ import {
   ResetPasswordDTO,
 } from './administrador.dtos';
 import { handleApiError } from '../../utils/api-error';
-import { ZodError } from 'zod';
 
 const administradorService = new AdministradorService();
 
@@ -19,19 +18,10 @@ export class AdministradorController {
       const result = await administradorService.login(validatedData);
       res.status(200).json(result);
     } catch (error: any) {
-      if (error instanceof ZodError) {
-        res.status(400).json({
-          message: 'Error de validación en los datos enviados',
-          errors: error.issues.map((issue) => ({
-            field: issue.path.join('.'),
-            message: issue.message,
-          })),
-        });
-        return;
-      }
-
-      // 401 por defecto (credenciales), 403 cuando el usuario está desactivado.
-      res.status(error.statusCode ?? 401).json({ message: error.message || 'Error al iniciar sesión' });
+      // Las credenciales inválidas (401) y el usuario desactivado (403) llegan
+      // como httpError y conservan su mensaje; un fallo inesperado sale como 500
+      // genérico, sin filtrar el error crudo de Prisma.
+      handleApiError(error, res, 'Error al iniciar sesión');
     }
   }
 

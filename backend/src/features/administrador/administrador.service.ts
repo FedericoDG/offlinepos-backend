@@ -29,12 +29,12 @@ export class AdministradorService {
     });
 
     if (!admin) {
-      throw new Error('Credenciales inválidas');
+      throw httpError('Credenciales inválidas', 401);
     }
 
     const isPasswordValid = await bcrypt.compare(password, admin.password);
     if (!isPasswordValid) {
-      throw new Error('Credenciales inválidas');
+      throw httpError('Credenciales inválidas', 401);
     }
 
     // Un administrador dado de baja no entra aunque sepa la contrasena.

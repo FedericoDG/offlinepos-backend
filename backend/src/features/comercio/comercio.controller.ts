@@ -5,7 +5,6 @@ import {
   RegistrarPagoDirectoDTO,
   UpdateComercioDTO,
 } from './comercio.dtos';
-import { ZodError } from 'zod';
 import { handleApiError } from '../../utils/api-error';
 
 const comercioService = new ComercioService();
@@ -87,22 +86,13 @@ export class ComercioController {
   }
 
   private handleError(error: any, res: Response): void {
-    if (error instanceof ZodError) {
-      res.status(400).json({
-        message: 'Error de validación en los datos enviados',
-        errors: error.issues.map((issue) => ({
-          field: issue.path.join('.'),
-          message: issue.message,
-        })),
-      });
+    // Caso historico: el service avisa "no encontrado" con un Error simple en
+    // vez de httpError, asi que se mantiene el 404 con ese mensaje.
+    if (error?.message === 'Comercio no encontrado') {
+      res.status(404).json({ message: 'Comercio no encontrado' });
       return;
     }
 
-    if (error.message === 'Comercio no encontrado') {
-      res.status(404).json({ message: error.message });
-      return;
-    }
-
-    res.status(500).json({ message: error.message || 'Error interno del servidor' });
+    handleApiError(error, res, 'Error interno del servidor');
   }
 }

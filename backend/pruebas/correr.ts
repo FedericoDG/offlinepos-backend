@@ -15,6 +15,7 @@ import * as estadisticas from './estadisticas.prueba';
 import * as chatConsumo from './chat-consumo.prueba';
 import * as valoraciones from './valoraciones.prueba';
 import * as guardasEspejo from './chat-guardas-espejo.prueba';
+import * as erroresHttp from './errores-http.prueba';
 
 console.log('\n=== Pruebas de logica del panel ===');
 
@@ -24,5 +25,6 @@ await estadisticas.correr();
 await chatConsumo.correr();
 await valoraciones.correr();
 guardasEspejo.correr();
+await erroresHttp.correr();
 
 informe();

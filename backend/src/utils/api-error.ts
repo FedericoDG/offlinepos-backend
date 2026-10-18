@@ -33,8 +33,18 @@ export function handleApiError(error: any, res: Response, fallback = 'Error inte
     return;
   }
 
-  const statusCode = typeof error?.statusCode === 'number' ? error.statusCode : 500;
-  res.status(statusCode).json({ message: error?.message || fallback });
+  // Un `statusCode` marca un error intencional (los que arma httpError): su
+  // mensaje es para el cliente. Sin `statusCode` es un fallo inesperado
+  // (Prisma caido, red, un bug): se registra del lado del servidor y al cliente
+  // solo le llega el fallback, sin detalles internos de la query ni de la
+  // conexion.
+  if (typeof error?.statusCode === 'number') {
+    res.status(error.statusCode).json({ message: error.message || fallback });
+    return;
+  }
+
+  console.error('[API] error inesperado', error);
+  res.status(500).json({ message: fallback });
 }
 
 /** Error con codigo HTTP explicito, para lanzar desde los services. */

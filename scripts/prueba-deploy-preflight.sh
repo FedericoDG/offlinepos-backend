@@ -28,15 +28,23 @@ cat > "$BIN/docker" <<'STUB'
 #!/bin/sh
 { printf 'docker'; for a in "$@"; do printf ' [%s]' "$a"; done; printf '\n'; } >> "$LOG"
 if [ "$1" = "compose" ]; then
-  shift; while [ "$#" -gt 0 ]; do case "$1" in -f) shift 2 ;; *) break ;; esac; done
+  shift; while [ "$#" -gt 0 ]; do case "$1" in -f|--profile) shift 2 ;; *) break ;; esac; done
   sub=$1; shift; printf 'compose:%s\n' "$sub" >> "$STUB_STATE/order.log"
   case "$sub" in
     build) exit "${BUILD_RC:-0}" ;;
     up)    exit "${UP_RC:-0}" ;;
     exec)  printf '%s\n' "$*" >> "$STUB_STATE/cexec.log"; exit "${CEXEC_RC:-0}" ;;
     run)
-      case " $* " in *" --rm "*) printf 'MIGRATE\n' >> "$STUB_STATE/order.log"
-        printf '%s\n' "$*" >> "$STUB_STATE/migrate.log"; exit "${MIGRATE_RC:-0}" ;; esac
+      case " $* " in
+        # El respaldo: el contenedor real escribe el dump, asi que el stub lo
+        # imita creando el archivo que el script despues verifica.
+        *" respaldos "*) printf 'BACKUP\n' >> "$STUB_STATE/order.log"
+          printf '%s\n' "$*" >> "$STUB_STATE/backup.log"
+          for a in "$@"; do case "$a" in *"/respaldos/"*.dump*) printf 'contenido-de-prueba' > "$DIR_RESPALDOS/${a##*/}" ;; esac; done
+          exit "${BACKUP_RC:-0}" ;;
+        *" --rm "*) printf 'MIGRATE\n' >> "$STUB_STATE/order.log"
+          printf '%s\n' "$*" >> "$STUB_STATE/migrate.log"; exit "${MIGRATE_RC:-0}" ;;
+      esac
       name=""; prev=""; svc=""
       for a in "$@"; do [ "$prev" = "--name" ] && name=$a
         case "$a" in panel-backend|panel-web|landing) svc=$a ;; esac; prev=$a; done
@@ -74,17 +82,21 @@ fallos=0
 ok()   { echo "  ok    $1"; }
 mal()  { echo "  FALLA $1"; fallos=$((fallos+1)); }
 ver()  { [ "$2" = "$3" ] && ok "$1 ($3)" || mal "$1: obtuve '$2', esperaba '$3'"; }
-correr() { tag=$1; shell=$2; shift 2; S="$WS/$tag"; rm -rf "$S"; mkdir -p "$S"
-         STUB_STATE="$S"; export STUB_STATE; : > "$LOG"
+correr() { tag=$1; shell=$2; shift 2; S="$WS/$tag"; rm -rf "$S"; mkdir -p "$S" "$S/respaldos"
+         STUB_STATE="$S"; export STUB_STATE DIR_RESPALDOS="$S/respaldos"; : > "$LOG"
          env "$@" sh -c "$shell \"$DEPLOY\"" >"$S/out" 2>&1; echo $? >"$S/rc"; }
 linea() { grep -n -e "$1" "$LOG" | head -1 | cut -d: -f1; }
 
 echo "== 1) camino feliz: orden pre-flight < migrate < up, 3 probes post-swap, DEPLOY_OK =="
 correr f1 "sh" $OK3
 ver "sale 0" "$(cat "$WS/f1/rc")" "0"
-ver "los 3 pre-flights corrieron" "$(grep -c '\[--no-deps\]' "$LOG")" "3"
-mig=$(linea '\[migrate\] \[deploy\]'); up=$(linea '\] \[up\] \[-d\]'); ult=$(grep -n -e '--no-deps' "$LOG" | tail -1 | cut -d: -f1)
-if [ -n "$mig" ] && [ -n "$up" ] && [ "$ult" -lt "$mig" ] && [ "$mig" -lt "$up" ]; then ok "pre-flight($ult) < migrate($mig) < up($up)"; else mal "orden: ult=$ult mig=$mig up=$up"; fi
+ver "los 3 pre-flights corrieron" "$(ls "$WS/f1"/up_pf-offlinepos-* 2>/dev/null | wc -l | tr -d ' ')" "3"
+pf=$(grep -n '^compose:run$' "$WS/f1/order.log" | cut -d: -f1 | head -3 | tail -1)
+bk=$(grep -n '^BACKUP$' "$WS/f1/order.log" | cut -d: -f1); mig=$(grep -n '^MIGRATE$' "$WS/f1/order.log" | cut -d: -f1); up=$(grep -n '^compose:up$' "$WS/f1/order.log" | cut -d: -f1)
+if [ -n "$bk" ] && [ -n "$mig" ] && [ -n "$up" ] && [ "$pf" -lt "$bk" ] && [ "$bk" -lt "$mig" ] && [ "$mig" -lt "$up" ]; then
+  ok "pre-flight($pf) < respaldo($bk) < migraciones($mig) < up($up)"
+else mal "orden: pf=$pf bk=$bk mig=$mig up=$up"; fi
+grep -q 'pg_dump' "$WS/f1/backup.log" && ok "el respaldo corre pg_dump" || mal "el respaldo no corrio pg_dump"
 grep -q '\[up\] \[-d\] \[--remove-orphans\] \[--wait\] \[--wait-timeout\] \[180\]' "$LOG" && ok "up -d --remove-orphans --wait --wait-timeout 180" || mal "flags de up"
 ver "3 health checks post-swap" "$(grep -c '\[exec\] \[-T\]' "$LOG")" "3"
 grep -q 'DEPLOY_OK' "$WS/f1/out" && ok "imprime DEPLOY_OK" || mal "no imprime DEPLOY_OK"
@@ -97,7 +109,7 @@ for caso in "panel-backend:CRASH_PANEL_BACKEND=1" "panel-web:CRASH_PANEL_WEB=1" 
   correr f2 "sh" $OK3 $envset
   rc=$(cat "$WS/f2/rc")
   [ "$rc" != 0 ] && ok "[$svc] exit != 0 ($rc)" || mal "[$svc] salio 0"
-  grep -q 'compose:MIGRATE' "$WS/f2/order.log" && mal "[$svc] corrio migraciones" || ok "[$svc] sin migraciones"
+  grep -q '^MIGRATE$' "$WS/f2/order.log" && mal "[$svc] corrio migraciones" || ok "[$svc] sin migraciones"
   grep -q 'compose:up' "$WS/f2/order.log" && mal "[$svc] corrio up: produccion tocada" || ok "[$svc] up NO corrio"
   grep -q PRE-FLIGHT_FALLO "$WS/f2/out" && ok "[$svc] avisa PRE-FLIGHT_FALLO" || mal "[$svc] sin aviso"
   [ "$(grep -vc '^pf-' "$WS/f2/rm.log" 2>/dev/null)" = 0 ] && ok "[$svc] el trap solo borro pf-*" || mal "[$svc] el trap borro un nombre ajeno"
@@ -146,6 +158,14 @@ echo "== 7) el trap preserva el codigo de salida bajo sh y bash =="
 correr f7a "sh" $OK3 CRASH_PANEL_WEB=1; ver "sh rc" "$(cat "$WS/f7a/rc")" "1"
 correr f7b "bash" $OK3 CRASH_PANEL_WEB=1; ver "bash rc" "$(cat "$WS/f7b/rc")" "1"
 correr f7c "bash" $OK3; ver "bash camino feliz rc" "$(cat "$WS/f7c/rc")" "0"
+
+echo "== 9) respaldo que falla: aborta antes de migrar y no toca el stack =="
+correr f9 "sh" $OK3 BACKUP_RC=1
+rc=$(cat "$WS/f9/rc")
+[ "$rc" != 0 ] && ok "exit != 0 ($rc)" || mal "salio 0"
+grep -q '^MIGRATE$' "$WS/f9/order.log" && mal "migro sin respaldo" || ok "sin migraciones"
+grep -q 'compose:up' "$WS/f9/order.log" && mal "corrio up" || ok "up NO corrio"
+grep -q RESPALDO_FALLO "$WS/f9/out" && ok "avisa RESPALDO_FALLO" || mal "sin aviso"
 
 echo "== 8) POSIX sh y nombres sin colision con produccion =="
 sh -n "$DEPLOY" && ok "sh -n" || mal "sh -n"

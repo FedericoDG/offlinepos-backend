@@ -58,6 +58,22 @@ services:
     networks:
       - vps-net
 
+  # Herramientas que NO son parte del stack: se invocan a mano o desde
+  # scripts/deploy.sh con `compose run`. El perfil las deja fuera de `up -d`,
+  # asi que no levantan nada por si solas.
+  #
+  # El cliente de Postgres tiene que ser igual o mas nuevo que el servidor
+  # (Neon corre 18.x): un pg_dump mas viejo que el servidor no dumpea.
+  respaldos:
+    image: postgres:18-alpine
+    profiles: ["herramientas"]
+    env_file:
+      - ./deploy/env/backend.env
+    volumes:
+      - /root/respaldos-offlinepos:/respaldos
+    networks:
+      - vps-net
+
 networks:
   vps-net:
     external: true

@@ -76,9 +76,56 @@ preflight() {
   return 1
 }
 
+# Un dump comprimido ANTES de migrar. Instrucciones de restauracion en
+# $DIR_RESPALDOS/LEEME.txt, que es donde alguien las va a buscar.
+respaldar() {
+  mkdir -p "$DIR_RESPALDOS"
+  archivo="offlinepos-$(date +%Y%m%d-%H%M%S).dump"
+
+  if ! $COMPOSE --profile herramientas run --rm --no-deps respaldos \
+    sh -c "pg_dump \"\$DATABASE_URL\" --format=custom --file=/respaldos/$archivo"; then
+    echo "    pg_dump fallo"
+    return 1
+  fi
+
+  # Un dump de 0 bytes parece un respaldo y no lo es.
+  if [ ! -s "$DIR_RESPALDOS/$archivo" ]; then
+    echo "    el respaldo quedo vacio: $DIR_RESPALDOS/$archivo"
+    return 1
+  fi
+
+  echo "    $(du -h "$DIR_RESPALDOS/$archivo" | cut -f1) -> $DIR_RESPALDOS/$archivo"
+
+  if [ ! -f "$DIR_RESPALDOS/LEEME.txt" ]; then
+    cat > "$DIR_RESPALDOS/LEEME.txt" <<'LEEME'
+Respaldo de la base de produccion de AIPOS, hecho por scripts/deploy.sh antes de
+cada `prisma migrate deploy`.
+
+Restaurar PISA la base actual. Revisar antes de correrlo:
+  cd /root/apps/offlinepos
+  docker compose --profile herramientas run --rm --no-deps respaldos \
+    sh -c 'pg_restore --clean --if-exists --dbname="$DATABASE_URL" /respaldos/<archivo>'
+
+Se conservan los de los ultimos 14 dias (DIAS_DE_RESPALDO en scripts/deploy.sh).
+LEEME
+  fi
+
+  # El respaldo recien hecho siempre queda: la rotacion solo borra los viejos.
+  find "$DIR_RESPALDOS" -name 'offlinepos-*.dump' -mtime "+$DIAS_DE_RESPALDO" -delete 2>/dev/null || true
+  return 0
+}
+
 PROBE_BACKEND="node -e \"require('http').get('http://127.0.0.1:'+(process.env.PORT||'4000')+'/health',r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))\""
 PROBE_PANEL="node -e \"require('http').get('http://127.0.0.1:3000/admin',r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))\""
 PROBE_LANDING="wget -qO- http://127.0.0.1/ >/dev/null"
+
+# Overridable para poder probar el script sin escribir en /root (ver
+# scripts/prueba-deploy-preflight.sh).
+DIR_RESPALDOS=${DIR_RESPALDOS:-/root/respaldos-offlinepos}
+# Neon guarda historial para instant restore, pero en el plan Free son 6 HORAS:
+# una migracion mala descubierta al dia siguiente no tiene a donde volver. Por
+# eso el respaldo se retiene por tiempo y no por cantidad.
+DIAS_DE_RESPALDO=${DIAS_DE_RESPALDO:-14}
 
 echo "==> build de imagenes"
 $COMPOSE build
@@ -98,6 +145,12 @@ fi
 echo "==> pre-flight landing"
 if ! preflight "$PF_LANDING" "$COMPOSE run -d --name $PF_LANDING --no-deps landing" "$PROBE_LANDING"; then
   echo "PRE-FLIGHT_FALLO (landing): el stack en pie NO se toco."
+  exit 1
+fi
+
+echo "==> respaldo de la base antes de migrar (plan Free de Neon: historial de 6 horas)"
+if ! respaldar; then
+  echo "RESPALDO_FALLO: no se migro nada. El stack en pie NO se toco."
   exit 1
 fi
 

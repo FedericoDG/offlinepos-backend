@@ -1,0 +1,105 @@
+---
+/**
+ * Ventana de navegador para mostrar una captura real del producto.
+ *
+ * La barra superior es decorativa (aria-hidden); la captura es la imagen real.
+ */
+interface Props {
+  src: string;
+  alt: string;
+  width?: number;
+  height?: number;
+  url?: string;
+  eager?: boolean;
+}
+
+const {
+  src,
+  alt,
+  width = 1600,
+  height = 1000,
+  url = "aipos.com.ar/panel",
+  eager = false,
+} = Astro.props;
+---
+
+<div class="browser">
+  <div class="browser-bar" aria-hidden="true">
+    <span class="browser-dots"><i></i><i></i><i></i></span>
+    <span class="browser-url">{url}</span>
+    <span class="browser-plus" aria-hidden="true">+</span>
+  </div>
+  <img
+    src={src}
+    alt={alt}
+    width={width}
+    height={height}
+    loading={eager ? "eager" : "lazy"}
+    fetchpriority={eager ? "high" : undefined}
+    decoding="async"
+  />
+</div>
+
+<style>
+  .browser {
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: #fff;
+    box-shadow: 0 30px 60px -34px rgba(18, 101, 138, 0.42);
+  }
+
+  .browser-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    height: 38px;
+    padding: 0 12px;
+    background: #f7f8f8;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .browser-dots {
+    display: flex;
+    gap: 5px;
+    flex: none;
+  }
+
+  .browser-dots i {
+    display: block;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #cfd5d7;
+  }
+
+  .browser-url {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    height: 22px;
+    padding: 0 10px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: #fff;
+    color: #6b7478;
+    font-size: var(--t-small);
+    line-height: 1;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  .browser-plus {
+    flex: none;
+    color: #6b7478;
+    font-size: 16px;
+    line-height: 1;
+  }
+
+  .browser img {
+    display: block;
+    width: 100%;
+    height: auto;
+  }
+</style>

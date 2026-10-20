@@ -1,13 +1,10 @@
 ---
 /**
- * Visor de la galería: la imagen en grande sobre todo lo demás.
+ * Visor de la galería: la captura en grande sobre todo lo demás.
  *
  * Arranca `hidden` y sin foco. El comportamiento (abrir, cerrar, siguiente,
  * anterior, teclado, gestos) vive en el script de `Galeria.astro`, que es su
  * único consumidor.
- *
- * La `<img>` no lleva `src` inicial a propósito: así el navegador no pide nada
- * hasta que alguien abre una imagen.
  */
 ---
 
@@ -20,7 +17,9 @@
   aria-label="Galería de pantallas"
 >
   <button class="visor-boton visor-cerrar" data-visor-cerrar type="button" aria-label="Cerrar la galería">
-    <span aria-hidden="true">✕</span>
+    <svg width="17" height="17" viewBox="0 0 18 18" aria-hidden="true">
+      <path d="M3 3l12 12M15 3L3 15" fill="none" stroke="currentColor" stroke-width="2"></path>
+    </svg>
   </button>
 
   <button
@@ -54,29 +53,17 @@
   .visor {
     position: fixed;
     inset: 0;
-    z-index: 90;
-    /* Todo se escurece: el fondo tapa por completo la página de abajo. */
+    z-index: 200;
     display: grid;
     grid-template-columns: auto minmax(0, 1fr) auto;
     align-items: center;
-    gap: clamp(6px, 1.6vw, 26px);
-    padding: clamp(58px, 8vh, 88px) clamp(12px, 4vw, 56px) clamp(20px, 5vh, 48px);
-    background: rgba(3, 4, 7, 0.94);
-    backdrop-filter: blur(10px);
-    animation: visor-entrada 0.22s ease-out;
+    gap: clamp(8px, 2vw, 24px);
+    padding: clamp(64px, 8vh, 88px) clamp(16px, 4vw, 56px) clamp(24px, 5vh, 48px);
+    background: rgba(9, 38, 48, 0.95);
   }
 
   .visor[hidden] {
     display: none;
-  }
-
-  @keyframes visor-entrada {
-    from {
-      opacity: 0;
-    }
-    to {
-      opacity: 1;
-    }
   }
 
   .visor-caja {
@@ -94,56 +81,49 @@
     height: auto;
     max-width: 100%;
     max-height: calc(100vh - 210px);
-    border: 1px solid var(--borde-fuerte);
-    border-radius: 12px;
-    box-shadow: 0 40px 90px -40px rgba(0, 0, 0, 0.95);
+    border-radius: 10px;
   }
 
   .visor-pie {
     display: flex;
     align-items: baseline;
-    gap: 14px;
-    font-size: 0.92rem;
+    gap: 12px;
+    font-size: var(--t-small);
+    color: #fff;
   }
 
   .visor-etiqueta {
-    font-weight: 600;
+    font-weight: 500;
   }
 
   .visor-contador {
-    color: var(--texto-suave);
+    color: rgba(255, 255, 255, 0.62);
     font-variant-numeric: tabular-nums;
   }
 
   .visor-boton {
     display: grid;
     place-items: center;
-    width: 48px;
-    height: 48px;
+    width: 46px;
+    height: 46px;
     padding: 0;
-    border: 1px solid var(--borde-fuerte);
+    border: 0;
     border-radius: 999px;
-    background: rgba(255, 255, 255, 0.06);
-    color: var(--texto);
+    background: rgba(255, 255, 255, 0.14);
+    color: #fff;
     font-size: 1.15rem;
     line-height: 1;
     cursor: pointer;
-    backdrop-filter: blur(6px);
-    transition:
-      background 0.2s ease,
-      border-color 0.2s ease,
-      transform 0.2s ease;
+    transition: background 0.2s ease;
   }
 
   .visor-boton:hover,
   .visor-boton:focus-visible {
-    background: var(--acento);
-    border-color: var(--acento);
-    transform: scale(1.06);
+    background: rgba(255, 255, 255, 0.26);
   }
 
   .visor-boton:focus-visible {
-    outline: 2px solid var(--acento-claro);
+    outline: 2px solid #fff;
     outline-offset: 3px;
   }
 
@@ -180,17 +160,8 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .visor {
-      animation: none;
-    }
-
     .visor-boton {
       transition: none;
-    }
-
-    .visor-boton:hover,
-    .visor-boton:focus-visible {
-      transform: none;
     }
   }
 </style>

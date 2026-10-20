@@ -2,28 +2,18 @@
 /**
  * Landing de AIPOS — el punto de venta que funciona sin internet.
  *
- * Sitio 100% estático: una sola página, sin frameworks ni dependencias de npm.
- * El JavaScript son tres piezas chicas y sin dependencias: el observador de
- * scroll que hace aparecer las secciones, el visor de la galería y el menú
- * hamburguesa de pantallas chicas.
- *
- * Publicación: el dominio (https://aipos.com.ar/) y la imagen de compartir ya
- * están definidos en el <head>. Si querés una tarjeta propia de 1200x630 para
- * cuando compartan el link, es el `og:image`.
+ * El contenido es el del brief original, sin reescribir: se conservan los
+ * beneficios, los pasos, las tres destacadas, el público, las preguntas y el
+ * cierre tal como estaban. La dirección visual es de producto: Inter, blanco y
+ * gris, capturas reales y un azul de acción.
  */
+import "../styles/site.css";
+import Galeria from "../components/Galeria.astro";
+import Browser from "../components/Browser.astro";
 import fs from "node:fs";
 import path from "node:path";
-import Galeria from "../components/Galeria.astro";
 
-/**
- * Ancho y alto reales de un PNG de `public/`, leídos del encabezado IHDR.
- *
- * Las imágenes DEBEN declarar su tamaño: sin eso el navegador no reserva el
- * espacio, la página se estira al cargarlas y los anclajes del menú quedan
- * cortos (la sección se corre hacia abajo después de que ya te llevó).
- * Se lee del archivo y no se escribe a mano, así sigue siendo correcto si
- * cambiás una imagen por otra de otro tamaño.
- */
+/** Ancho y alto reales de un PNG de `public/`, leídos del encabezado IHDR. */
 function tamanoPng(rutaPublica: string): { width: number; height: number } | null {
   if (!rutaPublica.endsWith(".png")) return null;
   const ruta = path.join(process.cwd(), "public", rutaPublica.replace(/^\//, ""));
@@ -89,9 +79,10 @@ const ademas = [
   "Presupuestos para tus clientes",
 ];
 
-const destacadas = [  {
+const destacadas = [
+  {
     id: "mostrador",
-    imagen: "/04.png",
+    imagen: "/galeria/app-03-punto-de-venta.png",
     kicker: "El mostrador",
     titulo: "Una venta en segundos",
     texto:
@@ -102,10 +93,9 @@ const destacadas = [  {
       "Cobro dividido: una parte en efectivo, otra con tarjeta",
     ],
   },
-
   {
     id: "ia",
-    imagen: "/02.png",
+    imagen: "/galeria/app-02-ia-integrada.png",
     kicker: "Inteligencia artificial",
     titulo: "Le preguntás como a una persona",
     texto:
@@ -118,7 +108,7 @@ const destacadas = [  {
   },
   {
     id: "informe",
-    imagen: "/03.png",
+    imagen: "/galeria/app-15-informe-financiero.png",
     kicker: "Informe financiero",
     titulo: "¿Estás ganando?",
     texto:
@@ -206,8 +196,6 @@ const publico = [
       property="og:description"
       content="Vendé, cobrá y controlá tu comercio aunque se corte la conexión. Con asistente de IA integrado."
     />
-    <!-- Imagen de compartir. Conviene una tarjeta propia de 1200x630: esta es la
-         captura principal, así que la recortan las plataformas. -->
     <meta property="og:image" content="https://aipos.com.ar/01.png" />
     <meta property="og:site_name" content={SITIO} />
     <meta name="author" content={EMPRESA} />
@@ -215,1440 +203,282 @@ const publico = [
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500&family=Manrope:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
 
-    <!-- Si el JavaScript no corre, el contenido se ve igual: el efecto de
-         aparición solo se activa cuando esta clase está puesta. -->
     <script is:inline>
-      document.documentElement.classList.add("con-js");
+      document.documentElement.classList.add("js");
     </script>
   </head>
 
   <body>
-    <!-- Fondo: retícula + resplandores. Es lo que le da profundidad. -->
-    <div class="fondo" aria-hidden="true">
-      <div class="fondo-reticula"></div>
-      <div class="fondo-glow glow-1"></div>
-      <div class="fondo-glow glow-2"></div>
-      <div class="fondo-grano"></div>
-    </div>
-
-    <!-- ── Navegación ─────────────────────────────────────────────────────── -->
-    <header class="nav" id="nav" data-nav>
-      <div class="contenedor nav-fila">
-        <a class="marca" href="#inicio">
-          <img class="marca-logo" src="/logo-aipos.png" alt="" width="40" height="40" aria-hidden="true" />
-          <span class="marca-texto">
-            <strong>{SITIO}</strong>
-            <small>{TAGLINE}</small>
-          </span>
+    <header class="nav">
+      <div class="nav-inner">
+        <a class="brand" href="#inicio">
+          <img src="/logo-aipos.png" alt="" width="24" height="24" aria-hidden="true" />
+          <span>{SITIO}</span>
         </a>
 
-        <nav class="nav-links" id="menu-movil" aria-label="Secciones">
+        <nav class="nav-links" aria-label="Secciones">
           <a href="#beneficios">Funciones</a>
           <a href="#mostrador">El mostrador</a>
           <a href="#ia">La IA</a>
           <a href="#informe">Rentabilidad</a>
           <a href="#preguntas">Preguntas</a>
-
-          <a class="boton boton-primario nav-menu-cta" href="#demo">
-            Pedí una demo
-            <span class="boton-flecha" aria-hidden="true">→</span>
-          </a>
         </nav>
 
-        <a class="boton boton-primario boton-chico" href="#demo">
-          Pedí una demo
-          <span class="boton-flecha" aria-hidden="true">→</span>
-        </a>
+        <a class="btn btn-sm nav-cta" href="#demo">Pedí una demo</a>
 
-        <button
-          class="nav-burger"
-          type="button"
-          data-menu-boton
-          aria-label="Abrir el menú"
-          aria-expanded="false"
-          aria-controls="menu-movil"
-        >
-          <span class="nav-burger-linea"></span>
-          <span class="nav-burger-linea"></span>
-          <span class="nav-burger-linea"></span>
-        </button>
+        <details class="nav-menu">
+          <summary>
+            <span class="abrir">Menú</span>
+            <span class="cerrar">Cerrar</span>
+          </summary>
+          <nav class="nav-menu-panel" aria-label="Secciones">
+            <a href="#beneficios">Funciones</a>
+            <a href="#mostrador">El mostrador</a>
+            <a href="#ia">La IA</a>
+            <a href="#informe">Rentabilidad</a>
+            <a href="#preguntas">Preguntas</a>
+            <a class="btn btn-sm" href="#demo">Pedí una demo</a>
+          </nav>
+        </details>
       </div>
     </header>
 
     <main>
-      <!-- ── Portada ──────────────────────────────────────────────────────── -->
-      <section class="portada" id="inicio">
-        <div class="contenedor portada-fila">
-          <div class="portada-texto entrar">
-            <span class="pastilla">
-              <span class="pastilla-punto"></span>
-              Asistente con inteligencia artificial incluido
-            </span>
+      <!-- ── Portada ─────────────────────────────────────────────────────── -->
+      <section class="hero" id="inicio">
+        <div class="hero-inner">
+        <div class="hero-copy">
+          <p class="hero-kicker">Asistente con inteligencia artificial incluido</p>
 
-            <h1>
-              Vendé sin<br />
-              <span class="destacado">internet<i>.</i></span>
-            </h1>
+          <h1>{CLAIM}</h1>
 
-            <p class="copete">
-              El sistema completo para tu comercio: ventas, stock, compras, proveedores e informes
-              en un mismo lugar. <strong>Todo en tu computadora</strong>, aunque se caiga la
-              conexión.
-            </p>
+          <p class="hero-sub">
+            El sistema completo para tu comercio: ventas, stock, compras, proveedores e informes en
+            un mismo lugar. <strong>Todo en tu computadora</strong>, aunque se caiga la conexión.
+          </p>
 
-            <div class="acciones">
-              <a class="boton boton-primario boton-grande" href="#demo">
-                Pedí una demo
-                <span class="boton-flecha" aria-hidden="true">→</span>
-              </a>
-              <a class="boton boton-secundario boton-grande" href="#beneficios">Ver las funciones</a>
-            </div>
-
-            <ul class="sellos">
-              <li>Funciona sin conexión</li>
-              <li>Windows</li>
-              <li>Se instala en minutos</li>
-            </ul>
+          <div class="hero-actions">
+            <a class="btn" href="#demo">Pedí una demo</a>
+            <a class="btn btn-outline" href="#beneficios">Ver las funciones</a>
           </div>
 
-          <div class="portada-imagen entrar">
-            <!-- [REEMPLAZAR] captura del mostrador.
-                 Va limpia a propósito: las imágenes vienen editadas, con su
-                 propio marco, así que acá no se les agrega ninguno. -->
-            {
-                (() => {
-                  const t = tamanoPng("/01.png");
-                  return <img class="captura flotante" src="/01.png" alt="Pantalla del punto de venta" width={t?.width} height={t?.height} />;
-                })()
-              }
-          </div>
+          <ul class="hero-facts">
+            <li>Funciona sin conexión</li>
+            <li>Windows</li>
+            <li>Se instala en minutos</li>
+          </ul>
         </div>
 
+        <div class="hero-media">
+          <Browser src="/galeria/app-01-dashboard.png" alt="Pantalla del punto de venta" eager />
+        </div>
+        </div>
       </section>
 
-      <!-- ── Beneficios ───────────────────────────────────────────────────── -->
-      <section class="seccion" id="beneficios">
-        <div class="contenedor">
-          <header class="seccion-encabezado entrar">
+      <!-- ── Beneficios ──────────────────────────────────────────────────── -->
+      <section class="section" id="beneficios">
+        <div class="shell">
+          <div class="section-head section-head-wide">
             <p class="kicker">Qué hace</p>
-            <h2>Todo lo que un comercio necesita,<br class="solo-ancho" /> en un solo lugar</h2>
-            <p class="bajada">
+            <h2>Todo lo que un comercio necesita, en un solo lugar</h2>
+            <p class="lead">
               Sin módulos que se cobran aparte y sin depender de que la conexión aguante.
             </p>
-          </header>
-
-          <div class="grilla">
-            {
-              beneficios.map((b, i) => (
-                <article class="tarjeta entrar" style={`--retraso:${i * 60}ms`}>
-                  <span class="numero">{String(i + 1).padStart(2, "0")}</span>
-                  <h3>{b.titulo}</h3>
-                  <p>{b.texto}</p>
-                  <span class="tarjeta-brillo" aria-hidden="true" />
-                </article>
-              ))
-            }
           </div>
 
-          <div class="ademas entrar">
-            <h3 class="ademas-titulo">Y además</h3>
-            <ul class="ademas-lista">
+          <div class="features features-two">
+            {beneficios.map((b, i) => (
+              <article class="feature reveal" style={`--d:${i * 50}ms`}>
+                <h3>{b.titulo}</h3>
+                <p>{b.texto}</p>
+              </article>
+            ))}
+          </div>
+
+          <div class="and-more reveal">
+            <h3>Y además</h3>
+            <ul class="and-more-list">
               {ademas.map((a) => <li>{a}</li>)}
             </ul>
           </div>
         </div>
       </section>
 
-      <!-- ── Cómo funciona ────────────────────────────────────────────────── -->
-      <section class="seccion">
-        <div class="contenedor">
-          <header class="seccion-encabezado entrar">
+      <!-- ── Cómo funciona ───────────────────────────────────────────────── -->
+      <section class="section section-gray" id="como-funciona">
+        <div class="shell">
+          <div class="section-head">
             <p class="kicker">Arrancar es simple</p>
             <h2>Tres pasos y estás vendiendo</h2>
-          </header>
+          </div>
 
-          <ol class="pasos">
-            {
-              pasos.map((p, i) => (
-                <li class="paso entrar" style={`--retraso:${i * 90}ms`}>
-                  <span class="paso-numero">{i + 1}</span>
-                  <h3>{p.titulo}</h3>
-                  <p>{p.texto}</p>
-                </li>
-              ))
-            }
+          <ol class="steps">
+            {pasos.map((p, i) => (
+              <li class="step reveal" style={`--d:${i * 60}ms`}>
+                <h3>{p.titulo}</h3>
+                <p>{p.texto}</p>
+              </li>
+            ))}
           </ol>
         </div>
       </section>
 
-      <!-- ── Destacadas ───────────────────────────────────────────────────── -->
-      {
-        destacadas.map((d, i) => (
-          <section class={`seccion destacada ${i % 2 === 1 ? "al-reves" : ""}`} id={d.id}>
-            <div class="contenedor destacada-fila">
-              <div class="destacada-texto entrar">
-                <p class="kicker acento">{d.kicker}</p>
+      <!-- ── Destacadas ──────────────────────────────────────────────────── -->
+      {destacadas.map((d, i) => {
+        const t = tamanoPng(d.imagen);
+        return (
+          <section class={`section ${i === 1 ? "section-gray" : ""}`} id={d.id}>
+            <div class={`shell split ${i === 1 ? "flip" : ""}`}>
+              <div class="split-text">
+                <p class="kicker">{d.kicker}</p>
                 <h2>{d.titulo}</h2>
-                <p class="bajada">{d.texto}</p>
-                <ul class="puntos">
+                <p class="split-copy">{d.texto}</p>
+                <ul class="bullets">
                   {d.bullets.map((b) => <li>{b}</li>)}
                 </ul>
               </div>
-              <div class="destacada-imagen entrar">
-                {/* [REEMPLAZAR] informe y mostrador siguen con el placeholder */}
-                <img
-                  class="captura"
+              <div class="split-media reveal">
+                <Browser
                   src={d.imagen}
                   alt={`${d.kicker}: ${d.titulo}`}
-                  width={tamanoPng(d.imagen)?.width}
-                  height={tamanoPng(d.imagen)?.height}
+                  width={t?.width}
+                  height={t?.height}
                 />
               </div>
             </div>
           </section>
-        ))
-      }
+        );
+      })}
 
-      <!-- ── Para quién ───────────────────────────────────────────────────── -->
-      <section class="seccion seccion-angosta">
-        <div class="contenedor">
-          <header class="seccion-encabezado centrado entrar">
+      <!-- ── Para quién ──────────────────────────────────────────────────── -->
+      <section class="section">
+        <div class="shell">
+          <div class="section-head">
             <p class="kicker">Para quién es</p>
             <h2>Comercios que venden en el mostrador</h2>
-          </header>
-          <ul class="publico entrar">
-            {publico.map((p) => <li>{p}</li>)}
+          </div>
+
+          <ul class="tags">
+            {publico.map((p, i) => (
+              <li class="reveal" style={`--d:${i * 40}ms`}>{p}</li>
+            ))}
           </ul>
         </div>
       </section>
 
-
-      <!-- ── Galería ──────────────────────────────────────────────────────── -->
+      <!-- ── Galería ─────────────────────────────────────────────────────── -->
       <Galeria />
 
-      <!-- ── Preguntas ────────────────────────────────────────────────────── -->
-      <section class="seccion" id="preguntas">
-        <div class="contenedor">
-          <header class="seccion-encabezado entrar">
-            <p class="kicker">Preguntas frecuentes</p>
-            <h2>Lo que suelen preguntar</h2>
-          </header>
+      <!-- ── Preguntas ───────────────────────────────────────────────────── -->
+      <section class="section" id="preguntas">
+        <div class="faq-wrap">
+          <p class="kicker">Preguntas frecuentes</p>
+          <h2>Lo que suelen preguntar</h2>
 
-          <div class="preguntas entrar">
-            {
-              preguntas.map((p, i) => (
-                <details open={i === 0}>
-                  <summary>{p.q}</summary>
-                  <p>{p.a}</p>
-                </details>
-              ))
-            }
-          </div>
+          {preguntas.map((p, i) => (
+            <details open={i === 0}>
+              <summary>{p.q}</summary>
+              <p>{p.a}</p>
+            </details>
+          ))}
         </div>
       </section>
 
-      <!-- ── Cierre ───────────────────────────────────────────────────────── -->
-      <section class="cierre" id="demo">
-        <div class="contenedor">
-          <div class="cierre-caja entrar">
-            <p class="kicker acento">El próximo paso</p>
-            <h2>Hablemos de tu comercio</h2>
-            <p>
-              Te contamos qué hace el sistema, cómo se instala y cómo se carga tu
-              catálogo. Si te queda alguna duda, la resolvemos ahí mismo. Sin compromiso.
-            </p>
-            <div class="acciones centradas">
-              <a class="boton boton-primario boton-grande" href={WHATSAPP} target="_blank" rel="noopener">
-                Escribinos por WhatsApp
-                <span class="boton-flecha" aria-hidden="true">→</span>
-              </a>
-              <a class="boton boton-secundario boton-grande" href={`mailto:${MAIL}`}>Pedir por mail</a>
-            </div>
+      <!-- ── Cierre ──────────────────────────────────────────────────────── -->
+      <section class="cta" id="demo">
+        <div class="shell">
+          <p class="kicker">El próximo paso</p>
+          <h2>Hablemos de tu comercio</h2>
+          <p class="cta-copy">
+            Te contamos qué hace el sistema, cómo se instala y cómo se carga tu catálogo. Si te
+            queda alguna duda, la resolvemos ahí mismo. Sin compromiso.
+          </p>
+          <div class="cta-actions">
+            <a class="btn btn-invert" href={WHATSAPP} target="_blank" rel="noopener"
+              >Escribinos por WhatsApp</a
+            >
+            <a class="btn btn-outline-light" href={`mailto:${MAIL}`}>Pedir por mail</a>
           </div>
         </div>
       </section>
     </main>
 
-    <footer class="pie">
-      <div class="contenedor pie-fila">
-        <span class="marca">
-          <img class="marca-logo" src="/logo-aipos.png" alt="" width="26" height="26" aria-hidden="true" />
-          <strong>{SITIO}</strong>
+    <footer class="footer">
+      <div class="footer-row">
+        <div class="footer-brand">
+          <a class="brand" href="#inicio">
+            <img src="/logo-aipos.png" alt="" width="24" height="24" aria-hidden="true" />
+            <span>{SITIO}</span>
+          </a>
+        </div>
+
+        <div class="footer-col">
+          <h3>Producto</h3>
+          <nav class="footer-links" aria-label="Secciones">
+            <a href="#beneficios">Funciones</a>
+            <a href="#mostrador">El mostrador</a>
+            <a href="#ia">La IA</a>
+            <a href="#informe">Rentabilidad</a>
+            <a href="#preguntas">Preguntas</a>
+          </nav>
+        </div>
+
+        <div class="footer-col">
+          <h3>Contacto</h3>
+          <div class="footer-links">
+            <a href={WHATSAPP} target="_blank" rel="noopener">WhatsApp</a>
+            <a href={`mailto:${MAIL}`}>{MAIL}</a>
+          </div>
+        </div>
+
+        <div class="footer-col">
+          <h3>Empresa</h3>
+          <div class="footer-links">
+            <a href={WEB_EMPRESA} target="_blank" rel="noopener">{EMPRESA}</a>
+          </div>
+        </div>
+      </div>
+
+      <div class="footer-line">
+        <img src="/logo-binario.svg" alt="" width="20" height="20" aria-hidden="true" />
+        <span>
+          {TAGLINE} · Una solución de{" "}
+          <a href={WEB_EMPRESA} target="_blank" rel="noopener">{EMPRESA}</a>
         </span>
-        <a
-          class="pie-empresa"
-          href={WEB_EMPRESA}
-          target="_blank"
-          rel="noopener"
-          title={`Ir a ${EMPRESA}`}
-        >
-          <img src="/logo-binario.svg" alt={EMPRESA} width="30" height="30" />
-          {TAGLINE} · Una solución de {EMPRESA}
-        </a>
       </div>
     </footer>
 
-    <!-- Menú hamburguesa de pantallas chicas: lo único que hace es colapsar y
-         desplegar los enlaces, que siguen estando siempre en el HTML. -->
     <script is:inline>
-      const nav = document.querySelector("[data-nav]");
-      const botonMenu = nav?.querySelector("[data-menu-boton]");
-      const enlacesMenu = nav?.querySelector("#menu-movil");
-
-      if (nav && botonMenu && enlacesMenu) {
-        function mostrarMenu(abrir) {
-          nav.classList.toggle("menu-abierto", abrir);
-          botonMenu.setAttribute("aria-expanded", abrir ? "true" : "false");
-          botonMenu.setAttribute("aria-label", abrir ? "Cerrar el menú" : "Abrir el menú");
-        }
-
-        botonMenu.addEventListener("click", () => {
-          mostrarMenu(!nav.classList.contains("menu-abierto"));
-        });
-
-        // Al elegir una opción el menú se cierra solo.
-        enlacesMenu.addEventListener("click", (e) => {
-          if (e.target instanceof Element && e.target.closest("a")) mostrarMenu(false);
-        });
-
-        document.addEventListener("keydown", (e) => {
-          if (e.key === "Escape") mostrarMenu(false);
-        });
-
-        // Un clic afuera también lo cierra.
-        document.addEventListener("click", (e) => {
-          if (!nav.classList.contains("menu-abierto")) return;
-          const objetivo = e.target;
-          if (!(objetivo instanceof Element)) return;
-          if (objetivo.closest("[data-menu-boton]") || objetivo.closest("#menu-movil")) return;
-          mostrarMenu(false);
-        });
-
-        // Si se vuelve a pantalla grande, el panel no debe quedar abierto.
-        window.addEventListener("resize", () => {
-          if (window.innerWidth > 980) mostrarMenu(false);
+      const menu = document.querySelector(".nav-menu");
+      if (menu) {
+        menu.querySelectorAll("a").forEach((enlace) => {
+          enlace.addEventListener("click", () => {
+            menu.open = false;
+          });
         });
       }
-    </script>
 
-    <!-- Hace aparecer las secciones a medida que bajás. -->
-    <script is:inline>
-      const observador = new IntersectionObserver(
-        (entradas) => {
-          for (const e of entradas) {
-            if (e.isIntersecting) {
-              e.target.classList.add("visible");
-              observador.unobserve(e.target);
+      const piezas = document.querySelectorAll(".reveal");
+      if ("IntersectionObserver" in window) {
+        const observador = new IntersectionObserver(
+          (entradas) => {
+            for (const entrada of entradas) {
+              if (entrada.isIntersecting) {
+                entrada.target.classList.add("in");
+                observador.unobserve(entrada.target);
+              }
             }
-          }
-        },
-        { rootMargin: "0px 0px -8% 0px", threshold: 0.08 },
-      );
-      document.querySelectorAll(".entrar").forEach((el) => observador.observe(el));
+          },
+          { rootMargin: "0px 0px -6% 0px", threshold: 0.08 },
+        );
+        piezas.forEach((pieza) => observador.observe(pieza));
+      } else {
+        piezas.forEach((pieza) => pieza.classList.add("in"));
+      }
     </script>
   </body>
 </html>
-
-<style is:global>
-  /* ══ Base ═══════════════════════════════════════════════════════════════ */
-  :root {
-    /* Paleta tomada del logo de Binario Dev Labs: el cuadradito #3b82f6
-       manda, con dos pasos más para los degradés. */
-    --acento: #3b82f6;
-    --acento-claro: #60a5fa;
-    --acento-2: #38bdf8;
-    --acento-hondo: #1d4ed8;
-    --tinta: #06070a;
-    --tinta-2: #0b0e14;
-    --panel: rgba(20, 24, 33, 0.72);
-    --panel-solido: #141821;
-    --borde: rgba(255, 255, 255, 0.08);
-    --borde-fuerte: rgba(255, 255, 255, 0.16);
-    --texto: #f4f6fb;
-    --texto-suave: #9ba6ba;
-    --radio: 20px;
-    --ancho: 1200px;
-    --sombra-acento: 0 24px 70px -24px rgba(59, 130, 246, 0.55);
-  }
-
-  * {
-    box-sizing: border-box;
-  }
-
-  html {
-    scroll-behavior: smooth;
-    scroll-padding-top: 90px;
-  }
-
-  body {
-    margin: 0;
-    background: var(--tinta);
-    color: var(--texto);
-    font-family: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-    font-size: 17px;
-    line-height: 1.65;
-    -webkit-font-smoothing: antialiased;
-    overflow-x: hidden;
-  }
-
-  h1,
-  h2,
-  h3 {
-    font-family: "Sora", "Inter", sans-serif;
-    line-height: 1.08;
-    letter-spacing: -0.03em;
-    margin: 0;
-  }
-
-  h1 {
-    font-size: clamp(2.9rem, 6.4vw, 5rem);
-    font-weight: 800;
-  }
-
-  h2 {
-    font-size: clamp(1.9rem, 3.8vw, 3rem);
-    font-weight: 750;
-    letter-spacing: -0.028em;
-  }
-
-  h3 {
-    font-size: 1.15rem;
-    font-weight: 700;
-  }
-
-  p {
-    margin: 0;
-  }
-
-  a {
-    color: inherit;
-    text-decoration: none;
-  }
-
-  img {
-    max-width: 100%;
-    height: auto;
-    display: block;
-  }
-
-  .contenedor {
-    width: 100%;
-    max-width: var(--ancho);
-    margin: 0 auto;
-    padding: 0 24px;
-  }
-
-  .solo-ancho {
-    display: none;
-  }
-
-  @media (min-width: 760px) {
-    .solo-ancho {
-      display: inline;
-    }
-  }
-
-  /* ══ Fondo con profundidad ══════════════════════════════════════════════ */
-  .fondo {
-    position: fixed;
-    inset: 0;
-    z-index: -1;
-    overflow: hidden;
-    pointer-events: none;
-  }
-
-  .fondo-reticula {
-    position: absolute;
-    inset: 0;
-    background-image: linear-gradient(rgba(255, 255, 255, 0.032) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(255, 255, 255, 0.032) 1px, transparent 1px);
-    background-size: 68px 68px;
-    mask-image: radial-gradient(ellipse 100% 60% at 50% 0%, #000 15%, transparent 75%);
-  }
-
-  .fondo-glow {
-    position: absolute;
-    border-radius: 999px;
-    filter: blur(90px);
-    opacity: 0.5;
-  }
-
-  .glow-1 {
-    width: 760px;
-    height: 560px;
-    top: -220px;
-    right: -140px;
-    background: radial-gradient(circle, rgba(59, 130, 246, 0.55), transparent 70%);
-  }
-
-  .glow-2 {
-    width: 620px;
-    height: 520px;
-    top: 30%;
-    left: -220px;
-    background: radial-gradient(circle, rgba(99, 102, 241, 0.34), transparent 70%);
-    opacity: 0.35;
-  }
-
-  .fondo-grano {
-    position: absolute;
-    inset: 0;
-    opacity: 0.4;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.82' numOctaves='3'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='.045'/%3E%3C/svg%3E");
-  }
-
-  /* ══ Aparición al bajar ═════════════════════════════════════════════════ */
-  .con-js .entrar {
-    opacity: 0;
-    transform: translateY(22px);
-    transition: opacity 0.7s cubic-bezier(0.22, 0.61, 0.36, 1),
-      transform 0.7s cubic-bezier(0.22, 0.61, 0.36, 1);
-    transition-delay: var(--retraso, 0ms);
-  }
-
-  .con-js .entrar.visible {
-    opacity: 1;
-    transform: none;
-  }
-
-  /* ══ Botones ════════════════════════════════════════════════════════════ */
-  .boton {
-    position: relative;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 10px;
-    padding: 13px 24px;
-    border-radius: 999px;
-    font-weight: 650;
-    font-size: 0.95rem;
-    font-family: "Inter", sans-serif;
-    border: 1px solid transparent;
-    cursor: pointer;
-    overflow: hidden;
-    transition: transform 0.18s ease, box-shadow 0.25s ease, background 0.2s ease,
-      border-color 0.2s ease;
-    white-space: nowrap;
-  }
-
-  /* Azul liso, el mismo del logo. Sin degradé y sin mezclar tonos: un color
-     solo es lo que hace que se vea decidido. */
-  .boton-primario {
-    background: var(--acento);
-    color: #ffffff;
-    box-shadow: var(--sombra-acento);
-  }
-
-  .boton-primario:hover {
-    background: var(--acento-claro);
-    transform: translateY(-2px);
-    box-shadow: 0 30px 80px -22px rgba(59, 130, 246, 0.72);
-  }
-
-  .boton-secundario {
-    background: rgba(255, 255, 255, 0.04);
-    color: var(--texto);
-    border-color: var(--borde-fuerte);
-    backdrop-filter: blur(6px);
-  }
-
-  .boton-secundario:hover {
-    background: rgba(255, 255, 255, 0.08);
-    transform: translateY(-2px);
-  }
-
-  .boton-grande {
-    padding: 16px 30px;
-    font-size: 1rem;
-  }
-
-  .boton-chico {
-    padding: 9px 18px;
-    font-size: 0.87rem;
-  }
-
-  .boton-flecha {
-    transition: transform 0.2s ease;
-  }
-
-  .boton:hover .boton-flecha {
-    transform: translateX(3px);
-  }
-
-  .acciones {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 14px;
-    margin-top: 34px;
-  }
-
-  .acciones.centradas {
-    justify-content: center;
-  }
-
-  /* ══ Navegación ═════════════════════════════════════════════════════════ */
-  .nav {
-    position: sticky;
-    top: 0;
-    z-index: 60;
-    background: rgba(6, 7, 10, 0.7);
-    backdrop-filter: blur(16px) saturate(140%);
-    border-bottom: 1px solid transparent;
-    transition: border-color 0.3s ease, background 0.3s ease;
-  }
-
-  .nav.con-fondo {
-    border-bottom-color: var(--borde);
-    background: rgba(6, 7, 10, 0.9);
-  }
-
-  .nav-fila {
-    display: flex;
-    align-items: center;
-    gap: 30px;
-    height: 74px;
-  }
-
-  .marca {
-    display: inline-flex;
-    align-items: center;
-    gap: 11px;
-    font-family: "Sora", sans-serif;
-  }
-
-  .marca-logo {
-    display: block;
-    flex: none;
-  }
-
-  .marca-icono {
-    width: 38px;
-    height: 38px;
-    border-radius: 11px;
-    display: grid;
-    place-items: center;
-    color: #ffffff;
-    background: linear-gradient(135deg, var(--acento-hondo), var(--acento));
-    box-shadow: 0 10px 26px -10px rgba(59, 130, 246, 0.8);
-    flex: none;
-  }
-
-  .marca-icono svg {
-    width: 20px;
-    height: 20px;
-  }
-
-  .marca-icono.chico {
-    width: 30px;
-    height: 30px;
-    border-radius: 9px;
-  }
-
-  .marca-icono.chico svg {
-    width: 16px;
-    height: 16px;
-  }
-
-  .marca-texto {
-    display: flex;
-    flex-direction: column;
-    line-height: 1.12;
-  }
-
-  .marca-texto strong {
-    font-size: 1.14rem;
-    font-weight: 800;
-    letter-spacing: -0.02em;
-  }
-
-  .marca-texto small {
-    font-family: "Inter", sans-serif;
-    font-size: 0.6rem;
-    font-weight: 700;
-    letter-spacing: 0.13em;
-    text-transform: uppercase;
-    color: var(--texto-suave);
-  }
-
-  /* La hamburguesa y el botón del panel son sólo para pantallas chicas. */
-  .nav-burger,
-  .nav-menu-cta {
-    display: none;
-  }
-
-  .nav-links {
-    display: flex;
-    gap: 26px;
-    margin-right: auto;
-    font-size: 0.92rem;
-    color: var(--texto-suave);
-  }
-
-  .nav-links a {
-    position: relative;
-    transition: color 0.2s ease;
-  }
-
-  .nav-links a::after {
-    content: "";
-    position: absolute;
-    left: 0;
-    bottom: -6px;
-    height: 2px;
-    width: 0;
-    background: var(--acento);
-    border-radius: 2px;
-    transition: width 0.25s ease;
-  }
-
-  .nav-links a:hover {
-    color: var(--texto);
-  }
-
-  .nav-links a:hover::after {
-    width: 100%;
-  }
-
-  /* ══ Portada ════════════════════════════════════════════════════════════ */
-  .portada {
-    padding: clamp(56px, 8vw, 104px) 0 0;
-  }
-
-  .portada-fila {
-    display: grid;
-    grid-template-columns: 1.02fr 1fr;
-    gap: 56px;
-    align-items: center;
-  }
-
-  .pastilla {
-    display: inline-flex;
-    align-items: center;
-    gap: 9px;
-    padding: 7px 15px 7px 12px;
-    border-radius: 999px;
-    border: 1px solid var(--borde-fuerte);
-    background: rgba(255, 255, 255, 0.04);
-    font-size: 0.78rem;
-    font-weight: 600;
-    color: var(--texto-suave);
-    margin-bottom: 26px;
-  }
-
-  .pastilla-punto {
-    width: 7px;
-    height: 7px;
-    border-radius: 999px;
-    background: var(--acento);
-    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.18);
-    animation: latir 2.4s ease-in-out infinite;
-  }
-
-  @keyframes latir {
-    0%,
-    100% {
-      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.18);
-    }
-    50% {
-      box-shadow: 0 0 0 7px rgba(59, 130, 246, 0.06);
-    }
-  }
-
-  h1 .destacado {
-    background: linear-gradient(100deg, var(--acento) 10%, var(--acento-2) 60%, var(--acento-claro) 95%);
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
-  }
-
-  h1 .destacado i {
-    font-style: normal;
-    color: var(--acento);
-    -webkit-text-fill-color: var(--acento);
-  }
-
-  .copete {
-    color: var(--texto-suave);
-    font-size: clamp(1.06rem, 1.5vw, 1.24rem);
-    margin-top: 26px;
-    max-width: 33em;
-  }
-
-  .copete strong {
-    color: var(--texto);
-    font-weight: 600;
-  }
-
-  .sellos {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 12px 24px;
-    list-style: none;
-    padding: 0;
-    margin: 34px 0 0;
-    color: var(--texto-suave);
-    font-size: 0.88rem;
-  }
-
-  .sellos li {
-    display: flex;
-    align-items: center;
-    gap: 9px;
-  }
-
-  .sellos li::before {
-    content: "";
-    width: 16px;
-    height: 16px;
-    border-radius: 999px;
-    background: rgba(59, 130, 246, 0.16);
-    border: 1px solid rgba(59, 130, 246, 0.55);
-    flex: none;
-  }
-
-  /* ── Las capturas ─────────────────────────────────────────────────────
-     Sin marco, sin borde, sin sombra y sin redondear las esquinas: las
-     imágenes ya vienen editadas y cualquier adorno nuestro las ensucia. */
-  .captura {
-    display: block;
-    width: 100%;
-  }
-
-  .portada-imagen {
-    position: relative;
-  }
-
-  .flotante {
-    animation: flotar 8s ease-in-out infinite;
-  }
-
-  @keyframes flotar {
-    0%,
-    100% {
-      transform: translateY(0);
-    }
-    50% {
-      transform: translateY(-10px);
-    }
-  }
-
-  /* ══ Secciones ══════════════════════════════════════════════════════════ */
-  .seccion {
-    padding: clamp(76px, 10vw, 130px) 0;
-  }
-
-  .seccion-angosta {
-    padding-top: 0;
-  }
-
-  .seccion-encabezado {
-    max-width: 48em;
-    margin-bottom: 58px;
-  }
-
-  .seccion-encabezado.centrado {
-    text-align: center;
-    margin-left: auto;
-    margin-right: auto;
-  }
-
-  .seccion-encabezado h2 {
-    margin-top: 16px;
-  }
-
-  .kicker {
-    font-size: 0.78rem;
-    font-weight: 700;
-    letter-spacing: 0.16em;
-    text-transform: uppercase;
-    color: var(--texto-suave);
-    display: inline-flex;
-    align-items: center;
-    gap: 10px;
-  }
-
-  .kicker::before {
-    content: "";
-    width: 26px;
-    height: 2px;
-    border-radius: 2px;
-    background: var(--acento);
-  }
-
-  .kicker.acento {
-    color: var(--acento);
-  }
-
-  .kicker.acento::before {
-    background: linear-gradient(90deg, var(--acento), var(--acento-hondo));
-  }
-
-  .seccion-encabezado.centrado .kicker::before {
-    display: none;
-  }
-
-  .bajada {
-    color: var(--texto-suave);
-    font-size: 1.06rem;
-    margin-top: 18px;
-  }
-
-  /* ── Tarjetas ─────────────────────────────────────────────────────────── */
-  .grilla {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-    gap: 22px;
-  }
-
-  .tarjeta {
-    position: relative;
-    border-radius: var(--radio);
-    padding: 30px 26px 32px;
-    background: linear-gradient(180deg, rgba(24, 29, 40, 0.9), rgba(15, 18, 25, 0.9));
-    border: 1px solid var(--borde);
-    overflow: hidden;
-    transition: transform 0.25s ease, border-color 0.25s ease, box-shadow 0.3s ease;
-  }
-
-  .tarjeta::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    border-radius: inherit;
-    padding: 1px;
-    background: linear-gradient(160deg, rgba(59, 130, 246, 0.5), transparent 42%);
-    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-    -webkit-mask-composite: xor;
-    mask-composite: exclude;
-    opacity: 0;
-    transition: opacity 0.3s ease;
-  }
-
-  .tarjeta:hover {
-    transform: translateY(-4px);
-    box-shadow: 0 34px 70px -34px rgba(59, 130, 246, 0.5);
-  }
-
-  .tarjeta:hover::before {
-    opacity: 1;
-  }
-
-  .tarjeta-brillo {
-    position: absolute;
-    width: 220px;
-    height: 220px;
-    right: -80px;
-    top: -90px;
-    background: radial-gradient(circle, rgba(59, 130, 246, 0.22), transparent 70%);
-    filter: blur(22px);
-    opacity: 0;
-    transition: opacity 0.35s ease;
-  }
-
-  .tarjeta:hover .tarjeta-brillo {
-    opacity: 1;
-  }
-
-  .numero {
-    font-family: "Sora", sans-serif;
-    display: block;
-    font-size: 0.82rem;
-    font-weight: 800;
-    letter-spacing: 0.1em;
-    color: var(--acento);
-    margin-bottom: 16px;
-  }
-
-  .tarjeta p {
-    color: var(--texto-suave);
-    font-size: 0.95rem;
-    margin-top: 12px;
-    position: relative;
-  }
-
-  /* ── "Y además" ───────────────────────────────────────────────────────── */
-  .ademas {
-    margin-top: 52px;
-    padding: 34px 30px;
-    border-radius: var(--radio);
-    border: 1px solid var(--borde);
-    background: rgba(255, 255, 255, 0.018);
-  }
-
-  .ademas-titulo {
-    font-size: 0.78rem;
-    font-weight: 700;
-    letter-spacing: 0.16em;
-    text-transform: uppercase;
-    color: var(--texto-suave);
-    margin-bottom: 22px;
-    font-family: "Inter", sans-serif;
-  }
-
-  .ademas-lista {
-    list-style: none;
-    padding: 0;
-    margin: 0;
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-    gap: 14px 34px;
-    color: var(--texto-suave);
-    font-size: 0.95rem;
-  }
-
-  .ademas-lista li {
-    display: flex;
-    gap: 12px;
-    align-items: baseline;
-    transition: color 0.2s ease;
-  }
-
-  .ademas-lista li:hover {
-    color: var(--texto);
-  }
-
-  .ademas-lista li::before {
-    content: "";
-    width: 7px;
-    height: 7px;
-    border-radius: 2px;
-    background: linear-gradient(135deg, var(--acento-hondo), var(--acento));
-    flex: none;
-    transform: translateY(-2px);
-  }
-
-  /* ── Destacadas ───────────────────────────────────────────────────────── */
-  .destacada {
-    position: relative;
-    border-top: 1px solid var(--borde);
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.022), transparent 60%);
-  }
-
-  .destacada-fila {
-    display: grid;
-    grid-template-columns: 1fr 1.08fr;
-    gap: 64px;
-    align-items: center;
-  }
-
-  .destacada.al-reves .destacada-texto {
-    order: 2;
-  }
-
-  .destacada-texto h2 {
-    margin: 14px 0 0;
-  }
-
-  .puntos {
-    list-style: none;
-    padding: 0;
-    margin: 30px 0 0;
-    display: grid;
-    gap: 14px;
-  }
-
-  .puntos li {
-    display: flex;
-    gap: 13px;
-    color: var(--texto-suave);
-    font-size: 0.96rem;
-  }
-
-  .puntos li::before {
-    content: "";
-    flex: none;
-    width: 20px;
-    height: 20px;
-    border-radius: 999px;
-    background: rgba(59, 130, 246, 0.14);
-    border: 1px solid rgba(59, 130, 246, 0.5);
-    transform: translateY(2px);
-    background-image: linear-gradient(135deg, var(--acento-hondo), var(--acento));
-    background-size: 9px 9px;
-    background-position: center;
-    background-repeat: no-repeat;
-    background-origin: content-box;
-    padding: 5px;
-    background-clip: content-box;
-  }
-
-  /* ── Cómo funciona ────────────────────────────────────────────────────── */
-  .pasos {
-    list-style: none;
-    padding: 0;
-    margin: 0;
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-    gap: 26px;
-    counter-reset: paso;
-  }
-
-  .paso {
-    position: relative;
-    padding: 34px 26px 30px;
-    border-radius: var(--radio);
-    border: 1px solid var(--borde);
-    background: linear-gradient(180deg, rgba(24, 29, 40, 0.7), rgba(13, 16, 22, 0.7));
-    overflow: hidden;
-  }
-
-  .paso::after {
-    content: "";
-    position: absolute;
-    left: 0;
-    top: 0;
-    width: 100%;
-    height: 2px;
-    background: linear-gradient(90deg, var(--acento), transparent);
-    opacity: 0.55;
-  }
-
-  .paso-numero {
-    font-family: "Sora", sans-serif;
-    display: grid;
-    place-items: center;
-    width: 44px;
-    height: 44px;
-    border-radius: 14px;
-    font-size: 1.15rem;
-    font-weight: 800;
-    color: #ffffff;
-    background: linear-gradient(135deg, var(--acento-hondo), var(--acento));
-    box-shadow: 0 14px 34px -14px rgba(59, 130, 246, 0.8);
-    margin-bottom: 20px;
-  }
-
-  .paso p {
-    color: var(--texto-suave);
-    font-size: 0.95rem;
-    margin-top: 10px;
-  }
-
-  /* ── Para quién ───────────────────────────────────────────────────────── */
-  .publico {
-    list-style: none;
-    padding: 0;
-    margin: 0;
-    display: flex;
-    flex-wrap: wrap;
-    gap: 12px;
-    justify-content: center;
-  }
-
-  .publico li {
-    padding: 11px 22px;
-    border-radius: 999px;
-    border: 1px solid var(--borde-fuerte);
-    background: rgba(255, 255, 255, 0.035);
-    font-size: 0.95rem;
-    font-weight: 550;
-    transition: transform 0.2s ease, border-color 0.2s ease, color 0.2s ease;
-  }
-
-  .publico li:hover {
-    transform: translateY(-3px);
-    border-color: rgba(59, 130, 246, 0.55);
-    color: var(--acento-claro);
-  }
-
-  /* ── Preguntas ────────────────────────────────────────────────────────── */
-  .preguntas {
-    display: grid;
-    gap: 14px;
-    max-width: 62em;
-  }
-
-  details {
-    border-radius: 16px;
-    border: 1px solid var(--borde);
-    background: rgba(255, 255, 255, 0.022);
-    padding: 20px 24px;
-    transition: border-color 0.25s ease, background 0.25s ease;
-  }
-
-  details[open] {
-    border-color: rgba(59, 130, 246, 0.35);
-    background: rgba(59, 130, 246, 0.045);
-  }
-
-  summary {
-    cursor: pointer;
-    font-weight: 650;
-    font-size: 1.02rem;
-    font-family: "Sora", sans-serif;
-    letter-spacing: -0.01em;
-    list-style: none;
-    display: flex;
-    justify-content: space-between;
-    gap: 18px;
-    align-items: center;
-  }
-
-  summary::-webkit-details-marker {
-    display: none;
-  }
-
-  summary::after {
-    content: "+";
-    color: var(--acento);
-    font-size: 1.5rem;
-    font-weight: 400;
-    line-height: 1;
-    transition: transform 0.25s ease;
-  }
-
-  details[open] summary::after {
-    content: "−";
-  }
-
-  details p {
-    color: var(--texto-suave);
-    margin-top: 14px;
-    font-size: 0.96rem;
-    max-width: 60em;
-  }
-
-  @media (max-width: 980px) {
-  }
-
-  /* ── Cierre ───────────────────────────────────────────────────────────── */
-  .cierre {
-    padding: clamp(40px, 6vw, 80px) 0 clamp(70px, 9vw, 110px);
-  }
-
-  .cierre-caja {
-    position: relative;
-    text-align: center;
-    padding: clamp(48px, 7vw, 80px) clamp(24px, 5vw, 70px);
-    border-radius: 28px;
-    border: 1px solid rgba(59, 130, 246, 0.28);
-    background:
-      radial-gradient(600px 300px at 50% 0%, rgba(59, 130, 246, 0.22), transparent 70%),
-      linear-gradient(180deg, rgba(24, 29, 40, 0.9), rgba(11, 14, 20, 0.95));
-    overflow: hidden;
-  }
-
-  .cierre-caja .kicker {
-    justify-content: center;
-  }
-
-  .cierre-caja h2 {
-    margin-top: 16px;
-  }
-
-  .cierre-caja > p {
-    color: var(--texto-suave);
-    margin-top: 18px;
-    max-width: 40em;
-    margin-left: auto;
-    margin-right: auto;
-  }
-
-  /* ── Pie ──────────────────────────────────────────────────────────────── */
-  .pie {
-    border-top: 1px solid var(--borde);
-    padding: 30px 0;
-    font-size: 0.88rem;
-    color: var(--texto-suave);
-  }
-
-  .pie-fila {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 16px;
-    align-items: center;
-    justify-content: space-between;
-  }
-
-  .pie .marca {
-    color: var(--texto);
-  }
-
-  .pie-empresa {
-    display: inline-flex;
-    align-items: center;
-    gap: 10px;
-    transition: color 0.2s ease;
-  }
-
-  .pie-empresa:hover {
-    color: var(--acento-claro);
-  }
-
-  .pie-empresa img {
-    border-radius: 7px;
-    flex: none;
-  }
-
-  /* ══ Pantallas chicas ═══════════════════════════════════════════════════ */
-  @media (max-width: 980px) {
-    /* Sin JavaScript la navegación NUNCA se esconde: los enlaces quedan a la
-       vista, envueltos. El colapso en panel es una mejora, no un requisito. */
-    .nav-links {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px 18px;
-      margin-right: 0;
-      font-size: 0.84rem;
-    }
-
-    .con-js .nav-links {
-      display: none;
-    }
-
-    .con-js .nav.menu-abierto .nav-links {
-      position: absolute;
-      top: 100%;
-      left: 0;
-      right: 0;
-      display: flex;
-      flex-direction: column;
-      flex-wrap: nowrap;
-      gap: 0;
-      margin: 0;
-      padding: 4px 24px 14px;
-      font-size: 1rem;
-      /* Sólido a propósito: con transparencia se transparentaba el titular de
-         la portada detrás de las opciones. */
-      background: var(--tinta-2);
-      border-bottom: 1px solid var(--borde);
-    }
-
-    .con-js .nav.menu-abierto .nav-links a:not(.nav-menu-cta) {
-      padding: 14px 2px;
-      border-bottom: 1px solid var(--borde);
-    }
-
-    /* El encabezado puede crecer si el JavaScript no corre y los enlaces se envuelven. */
-    .nav-fila {
-      height: auto;
-      min-height: 74px;
-      gap: 12px;
-    }
-
-    /* En mobile el header es logo + hamburguesa: el botón grande no entra y
-       además ya está, igual de visible, en la portada y en el panel. */
-    .nav-fila > .boton {
-      display: none;
-    }
-
-    .nav-burger {
-      margin-left: auto;
-    }
-
-    /* El botón del panel ocupa todo el ancho y no es un enlace de navegación. */
-    .nav-menu-cta {
-      display: flex;
-      justify-content: center;
-      width: 100%;
-      margin-top: 12px;
-    }
-
-    .nav-menu-cta::after {
-      display: none;
-    }
-
-    .nav-burger {
-      display: grid;
-      place-content: center;
-      gap: 5px;
-      width: 44px;
-      height: 44px;
-      padding: 0;
-      border: 1px solid var(--borde-fuerte);
-      border-radius: 12px;
-      background: rgba(255, 255, 255, 0.04);
-      cursor: pointer;
-      transition:
-        border-color 0.2s ease,
-        background 0.2s ease;
-    }
-
-    .nav-burger:focus-visible {
-      outline: 2px solid var(--acento-claro);
-      outline-offset: 3px;
-    }
-
-    .nav-burger-linea {
-      display: block;
-      width: 20px;
-      height: 2px;
-      border-radius: 2px;
-      background: var(--texto);
-      transition:
-        transform 0.25s ease,
-        opacity 0.2s ease;
-    }
-
-    .nav.menu-abierto .nav-burger {
-      border-color: var(--acento);
-      background: rgba(59, 130, 246, 0.16);
-    }
-
-    .nav.menu-abierto .nav-burger-linea:nth-child(1) {
-      transform: translateY(7px) rotate(45deg);
-    }
-
-    .nav.menu-abierto .nav-burger-linea:nth-child(2) {
-      opacity: 0;
-    }
-
-    .nav.menu-abierto .nav-burger-linea:nth-child(3) {
-      transform: translateY(-7px) rotate(-45deg);
-    }
-
-    .marca-texto small {
-      display: none;
-    }
-
-    .portada-fila,
-    .destacada-fila {
-      grid-template-columns: 1fr;
-      gap: 44px;
-    }
-
-    .destacada.al-reves .destacada-texto {
-      order: 0;
-    }
-
-    .chip-a,
-    .chip-b {
-      display: none;
-    }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    html {
-      scroll-behavior: auto;
-    }
-
-    .entrar {
-      opacity: 1;
-      transform: none;
-      transition: none;
-    }
-
-    .flotante,
-    .pastilla-punto {
-      animation: none;
-    }
-
-    .boton:hover,
-    .tarjeta:hover,
-    .publico li:hover {
-      transform: none;
-    }
-  }
-
-  /* En los bloques destacados el texto se alinea ARRIBA, no centrado.
-     La imagen de cada bloque es mucho mas alta (1080x1920 mostrada al ancho de
-     su columna: ~1000px) y centrar el texto lo dejaba a media pantalla, justo
-     donde no lo ves cuando el menu te trae a la seccion con un anclaje. */
-  .destacada-texto {
-    align-self: start;
-  }
-</style>

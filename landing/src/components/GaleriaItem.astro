@@ -3,8 +3,8 @@
  * Miniatura de la galería.
  *
  * Es un enlace real a la imagen completa: sin JavaScript, tocarla abre el PNG
- * en el navegador. Con JavaScript, el visor lo intercepta y la muestra en
- * grande. Nunca queda un elemento que no haga nada.
+ * en el navegador. Con JavaScript, el visor la intercepta y la muestra en
+ * grande.
  */
 import type { ImagenGaleria } from "../lib/galeria";
 
@@ -19,99 +19,101 @@ const { imagen, indice, retraso = 0 } = Astro.props;
 ---
 
 <a
-  class="galeria-item entrar"
+  class="shot reveal"
   href={imagen.src}
   data-galeria-item
   data-indice={indice}
   data-etiqueta={imagen.etiqueta}
-  style={`--retraso:${retraso}ms`}
+  style={`--d:${retraso}ms`}
 >
-  <img
-    class="galeria-miniatura"
-    src={imagen.src}
-    alt={imagen.alt}
-    width="1600"
-    height="1000"
-    loading="lazy"
-    decoding="async"
-  />
-  <span class="galeria-pie">
-    <span class="galeria-etiqueta">{imagen.etiqueta}</span>
-    <span class="galeria-grupo">{imagen.grupo}</span>
+  <span class="shot-media">
+    <img
+      src={imagen.src}
+      alt={imagen.alt}
+      width="1600"
+      height="1000"
+      loading="lazy"
+      decoding="async"
+    />
+  </span>
+  <span class="shot-label">
+    <span class="shot-name">{imagen.etiqueta}</span>
+    <span class="shot-group">{imagen.grupo}</span>
   </span>
 </a>
 
 <style>
-  .galeria-item {
-    display: flex;
-    flex-direction: column;
-    /* Una sola línea: ancho fijo, sin encogerse, con imán al inicio. */
-    flex: 0 0 auto;
-    width: clamp(240px, 30vw, 330px);
-    scroll-snap-align: start;
-    border: 1px solid var(--borde);
-    border-radius: 14px;
-    overflow: hidden;
-    background: var(--panel-solido);
-    text-decoration: none;
-    color: inherit;
-    transition:
-      transform 0.35s cubic-bezier(0.22, 0.61, 0.36, 1),
-      border-color 0.35s ease,
-      box-shadow 0.35s ease;
-  }
-
-  .galeria-item:hover,
-  .galeria-item:focus-visible {
-    transform: translateY(-4px);
-    border-color: var(--borde-fuerte);
-    box-shadow: 0 22px 50px -28px rgba(59, 130, 246, 0.8);
-  }
-
-  .galeria-item:focus-visible {
-    outline: 2px solid var(--acento-claro);
-    outline-offset: 3px;
-  }
-
-  .galeria-miniatura {
+  .shot {
     display: block;
-    width: 100%;
+    color: inherit;
+    text-decoration: none;
+  }
+
+  .shot-media {
+    display: block;
+    overflow: hidden;
     aspect-ratio: 16 / 10;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: #fff;
+    transition:
+      transform 0.25s ease,
+      box-shadow 0.25s ease,
+      border-color 0.25s ease;
+  }
+
+  .shot-media img {
+    width: 100%;
+    height: 100%;
     object-fit: cover;
-    background: var(--tinta);
+    object-position: left top;
+    transition: transform 0.4s cubic-bezier(0.22, 0.61, 0.36, 1);
   }
 
-  .galeria-pie {
+  .shot:hover .shot-media {
+    transform: translateY(-2px);
+    border-color: #cfe0e7;
+    box-shadow: 0 14px 28px -18px rgba(18, 101, 138, 0.4);
+  }
+
+  .shot:hover .shot-media img {
+    transform: scale(1.015);
+  }
+
+  .shot:focus-visible {
+    outline: 2px solid var(--teal);
+    outline-offset: 4px;
+    border-radius: 10px;
+  }
+
+  .shot-label {
     display: flex;
-    align-items: baseline;
+    flex-wrap: wrap;
     justify-content: space-between;
-    gap: 10px;
-    padding: 11px 14px;
-    border-top: 1px solid var(--borde);
+    align-items: baseline;
+    gap: 2px 8px;
+    margin-top: 8px;
+    font-size: var(--t-small);
   }
 
-  .galeria-etiqueta {
-    font-size: 0.9rem;
+  .shot-name {
+    color: var(--ink);
     font-weight: 600;
-    line-height: 1.3;
   }
 
-  .galeria-grupo {
-    font-size: 0.66rem;
-    font-weight: 700;
-    letter-spacing: 0.09em;
-    text-transform: uppercase;
-    color: var(--texto-suave);
-    white-space: nowrap;
+  .shot-group {
+    color: var(--gray);
+    font-size: var(--t-small);
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .galeria-item {
+    .shot-media,
+    .shot-media img {
       transition: none;
     }
 
-    .galeria-item:hover,
-    .galeria-item:focus-visible {
+    .shot:hover .shot-media,
+    .shot:hover .shot-media img {
       transform: none;
     }
   }

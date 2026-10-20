@@ -28,16 +28,21 @@ function tamanoPng(rutaPublica: string): { width: number; height: number } | nul
 
 const SITIO = "AIPOS";
 const TAGLINE = "Gestión Comercial Inteligente";
-const MODULOS = ["Ventas", "Stock", "Compras", "Proveedores", "Inteligencia Artificial"];
 const EMPRESA = "Binario Dev Labs";
-const CLAIM = "Vendé sin internet.";
+const PRECIO_OFFLINE = "$35.000";
+const PRECIO_ONLINE = "$45.000";
+const MENSAJES_IA = 500;
+const LIMITE_USUARIOS = 5;
+const LIMITE_PRODUCTOS = "5.000";
 const WHATSAPP = "https://wa.me/5492665034652";
 const MAIL = "hola@binariodevlabs.com";
 const WEB_EMPRESA = "https://binariodevlabs.com";
+const APP_URL = "https://app.aipos.com.ar";
 
 const beneficios = [
   {
     titulo: "Funciona sin internet",
+    soloOffline: true,
     texto:
       "Se corta la conexión y el sistema sigue igual: vendés, cobrás y cerrás la caja. Todo se guarda en tu equipo, no en la nube de nadie.",
   },
@@ -49,7 +54,7 @@ const beneficios = [
   {
     titulo: "Asistente con IA",
     texto:
-      "Le preguntás en castellano y te responde con tus números: ventas del día, producto que menos rota, quién te debe. Sin armar reportes.",
+      `Le preguntás en castellano y te responde con tus números: ventas del día, producto que menos rota, quién te debe. Sin armar reportes. Incluye ${MENSAJES_IA} mensajes de IA por mes.`,
   },
   {
     titulo: "Caja y arqueo",
@@ -99,7 +104,7 @@ const destacadas = [
     kicker: "Inteligencia artificial",
     titulo: "Le preguntás como a una persona",
     texto:
-      "No hay que armar reportes ni buscar entre menús: escribís lo que querés saber y el asistente lee tus ventas, tu stock y tus gastos. También te avisa solo cuando algo llama la atención.",
+      `No hay que armar reportes ni buscar entre menús: escribís lo que querés saber y el asistente lee tus ventas, tu stock y tus gastos. También te avisa solo cuando algo llama la atención. Incluye ${MENSAJES_IA} mensajes de IA por mes en las dos versiones.`,
     bullets: [
       "«¿Cuánto vendí esta semana?» y te da el número con el desglose",
       "Detecta lo que no rota y quién te debe",
@@ -123,8 +128,8 @@ const destacadas = [
 
 const pasos = [
   {
-    titulo: "Lo instalás",
-    texto: "En tu Windows, como cualquier programa. Sin servidores ni configuraciones raras.",
+    titulo: "Elegís la versión",
+    texto: "Offline en tu computadora o online en la nube. Te ayudamos a elegir según tu comercio.",
   },
   {
     titulo: "Cargás tu catálogo",
@@ -139,8 +144,20 @@ const pasos = [
 
 const preguntas = [
   {
+    q: "¿Qué diferencia hay entre la versión offline y la online?",
+    a: `La offline se instala en tu computadora y funciona sin internet: los datos quedan en tu equipo. La online vive en la nube y se usa desde el navegador, desde cualquier lugar. Las dos incluyen el sistema completo y ${MENSAJES_IA} mensajes de IA por mes.`,
+  },
+  {
+    q: "¿Qué incluye la suscripción?",
+    a: `Las dos incluyen el sistema completo y ${MENSAJES_IA} mensajes de IA por mes. La offline no tiene límites de usuarios ni productos. La online incluye hasta ${LIMITE_USUARIOS} usuarios y ${LIMITE_PRODUCTOS} productos.`,
+  },
+  {
     q: "¿Qué pasa si se corta el internet?",
-    a: "Nada. El sistema está pensado para funcionar sin conexión: vendés, cobrás y cerrás la caja igual. Cuando vuelve, se valida la licencia y listo. No se pierde ninguna venta.",
+    a: "En la versión offline, nada: vendés, cobrás y cerrás la caja igual. Cuando vuelve, se valida la licencia y listo. En la online necesitás conexión para entrar al sistema.",
+  },
+  {
+    q: "¿Los 500 mensajes de IA son por mes?",
+    a: `Sí. Las dos versiones incluyen ${MENSAJES_IA} mensajes de IA por mes; se renuevan cada mes.`,
   },
   {
     q: "¿Tengo que cargar todo mi catálogo de nuevo?",
@@ -148,19 +165,27 @@ const preguntas = [
   },
   {
     q: "¿En qué computadora funciona?",
-    a: "En Windows. Se instala como cualquier programa, sin servidores, y usa la impresora térmica que ya tengas.",
+    a: "La offline funciona en Windows, como cualquier programa, y usa la impresora térmica que ya tengas. La online funciona en cualquier navegador moderno, sin instalar nada.",
   },
   {
     q: "¿Mis datos están seguros?",
-    a: "Tus datos viven en tu computadora, no en la nube. Las copias de seguridad las hacés vos, cuando querés, y te las podés llevar a otra máquina.",
+    a: "En la offline viven en tu computadora, no en la nube; las copias las hacés vos y te las podés llevar a otra máquina. En la online están en la nube, con acceso desde tus equipos.",
   },
   {
     q: "¿Sirve para mi tipo de comercio?",
     a: "Está pensado para comercios que venden en el mostrador: kioscos, almacenes, autoservicios, verdulerías, fiambrerías y distribuidoras. Si vendés por peso, con códigos de barras o con combos, está cubierto.",
   },
   {
+    q: "¿Dónde ingreso a la versión online?",
+    a: "En app.aipos.com.ar, con el usuario y la contraseña que te damos al contratar. Si no te acordás, escribinos.",
+  },
+  {
     q: "¿Puedo probarlo antes?",
     a: "Sí. Pedí una demostración y te mostramos el sistema funcionando con datos reales, sin compromiso.",
+  },
+  {
+    q: "¿Puedo cambiar de una versión a otra?",
+    a: "Consultanos y lo evaluamos según tu comercio.",
   },
 ];
 
@@ -184,17 +209,17 @@ const publico = [
     <link rel="icon" type="image/png" href="/logo-aipos.png" />
     <meta name="generator" content={Astro.generator} />
 
-    <title>{SITIO} — {TAGLINE}</title>
+    <title>{SITIO} — Punto de venta offline y online</title>
     <meta
       name="description"
-      content={`${SITIO} — ${TAGLINE}. ${MODULOS.join(", ")} en un solo sistema. Funciona sin internet y trae un asistente de IA que te responde en castellano.`}
+      content={`${SITIO} — Punto de venta offline y online. El mismo sistema en tu computadora sin internet o en la nube. Desde ${PRECIO_OFFLINE}/mes, con ${MENSAJES_IA} mensajes de IA incluidos.`}
     />
     <link rel="canonical" href="https://aipos.com.ar/" />
     <meta property="og:type" content="website" />
-    <meta property="og:title" content={`${SITIO} — ${TAGLINE}`} />
+    <meta property="og:title" content={`${SITIO} — Punto de venta offline y online`} />
     <meta
       property="og:description"
-      content="Vendé, cobrá y controlá tu comercio aunque se corte la conexión. Con asistente de IA integrado."
+      content={`Elegí la versión offline o la online. Desde ${PRECIO_OFFLINE}/mes, con ${MENSAJES_IA} mensajes de IA incluidos.`}
     />
     <meta property="og:image" content="https://aipos.com.ar/01.png" />
     <meta property="og:site_name" content={SITIO} />
@@ -222,13 +247,14 @@ const publico = [
 
         <nav class="nav-links" aria-label="Secciones">
           <a href="#beneficios">Funciones</a>
-          <a href="#mostrador">El mostrador</a>
-          <a href="#ia">La IA</a>
-          <a href="#informe">Rentabilidad</a>
+          <a href="#precios">Precios</a>
           <a href="#preguntas">Preguntas</a>
         </nav>
 
-        <a class="btn btn-sm nav-cta" href="#demo">Pedí una demo</a>
+        <div class="nav-actions">
+          <a class="nav-login" href={APP_URL}>Ingresar</a>
+          <a class="btn btn-sm nav-cta" href="#demo">Pedí una demo</a>
+        </div>
 
         <details class="nav-menu">
           <summary>
@@ -237,10 +263,9 @@ const publico = [
           </summary>
           <nav class="nav-menu-panel" aria-label="Secciones">
             <a href="#beneficios">Funciones</a>
-            <a href="#mostrador">El mostrador</a>
-            <a href="#ia">La IA</a>
-            <a href="#informe">Rentabilidad</a>
+            <a href="#precios">Precios</a>
             <a href="#preguntas">Preguntas</a>
+            <a href={APP_URL}>Ingresar a la app</a>
             <a class="btn btn-sm" href="#demo">Pedí una demo</a>
           </nav>
         </details>
@@ -254,28 +279,90 @@ const publico = [
         <div class="hero-copy">
           <p class="hero-kicker">Asistente con inteligencia artificial incluido</p>
 
-          <h1>{CLAIM}</h1>
+          <h1>Dos versiones. Un sistema.</h1>
 
           <p class="hero-sub">
-            El sistema completo para tu comercio: ventas, stock, compras, proveedores e informes en
-            un mismo lugar. <strong>Todo en tu computadora</strong>, aunque se caiga la conexión.
+            El mismo punto de venta, en tu computadora sin internet o en la nube desde cualquier
+            lugar. Elegí la versión que necesitás.
           </p>
 
           <div class="hero-actions">
-            <a class="btn" href="#demo">Pedí una demo</a>
-            <a class="btn btn-outline" href="#beneficios">Ver las funciones</a>
+            <a class="btn" href="#precios">Ver versiones y precios</a>
+            <a class="btn btn-outline" href="#demo">Pedí una demo</a>
           </div>
 
           <ul class="hero-facts">
-            <li>Funciona sin conexión</li>
-            <li>Windows</li>
-            <li>Se instala en minutos</li>
+            <li>Offline u online</li>
+            <li>Windows o navegador</li>
+            <li>{MENSAJES_IA} mensajes de IA</li>
           </ul>
         </div>
 
         <div class="hero-media">
           <Browser src="/galeria/app-01-dashboard.png" alt="Pantalla del punto de venta" eager />
         </div>
+        </div>
+      </section>
+
+      <!-- ── Versiones y precios ─────────────────────────────────────────── -->
+      <section class="section section-gray" id="precios">
+        <div class="shell">
+          <div class="section-head">
+            <p class="kicker">Versiones y precios</p>
+            <h2>Elegí cómo querés usar AIPOS</h2>
+            <p class="lead">
+              El mismo punto de venta, en tu computadora o en la nube. Las dos incluyen{" "}
+              {MENSAJES_IA} mensajes de IA por mes.
+            </p>
+          </div>
+
+          <div class="plans">
+            <article class="plan reveal">
+              <p class="plan-label">Offline</p>
+              <h3>En tu computadora</h3>
+              <p class="plan-price">{PRECIO_OFFLINE}</p>
+              <p class="plan-period">por mes</p>
+              <p class="plan-note">
+                En tu Windows, como cualquier programa. Sin servidores ni configuraciones raras.
+              </p>
+              <ul class="plan-list">
+                <li>Sin límites de usuarios ni productos</li>
+                <li>Funciona sin internet</li>
+                <li>{MENSAJES_IA} mensajes de IA</li>
+                <li>Tus datos quedan en tu equipo</li>
+                <li>Se instala en Windows</li>
+              </ul>
+              <a class="btn" href="#demo">Elegir offline</a>
+            </article>
+
+            <article class="plan reveal" style="--d:80ms">
+              <p class="plan-label">Online</p>
+              <h3>En la nube</h3>
+              <p class="plan-price">{PRECIO_ONLINE}</p>
+              <p class="plan-period">por mes</p>
+              <p class="plan-note">Desde el navegador, sin instalar nada.</p>
+              <ul class="plan-list">
+                <li>Acceso desde cualquier lugar</li>
+                <li>Hasta {LIMITE_USUARIOS} usuarios</li>
+                <li>Hasta {LIMITE_PRODUCTOS} productos</li>
+                <li>{MENSAJES_IA} mensajes de IA</li>
+                <li>Tus datos en la nube</li>
+              </ul>
+              <a class="btn" href="#demo">Elegir online</a>
+              <a class="plan-login" href={APP_URL}>¿Ya sos cliente? Ingresar a la app</a>
+            </article>
+          </div>
+
+          <p class="plans-note">Precios en pesos argentinos, por comercio y por mes.</p>
+
+          <div class="plan-help reveal">
+            <h3>¿Cuál me conviene?</h3>
+            <p>
+              Si trabajás en un solo equipo y querés no depender del internet, elegí{" "}
+              <strong>Offline</strong>. Si necesitás entrar desde varios equipos o lugares, elegí{" "}
+              <strong>Online</strong>.
+            </p>
+          </div>
         </div>
       </section>
 
@@ -286,13 +373,15 @@ const publico = [
             <p class="kicker">Qué hace</p>
             <h2>Todo lo que un comercio necesita, en un solo lugar</h2>
             <p class="lead">
-              Sin módulos que se cobran aparte y sin depender de que la conexión aguante.
+              Sin módulos que se cobran aparte. Las dos versiones incluyen el sistema completo; la
+              offline, además, funciona sin internet.
             </p>
           </div>
 
           <div class="features features-two">
             {beneficios.map((b, i) => (
               <article class="feature reveal" style={`--d:${i * 50}ms`}>
+                {b.soloOffline && <span class="feature-tag">Solo offline</span>}
                 <h3>{b.titulo}</h3>
                 <p>{b.texto}</p>
               </article>
@@ -394,8 +483,8 @@ const publico = [
           <p class="kicker">El próximo paso</p>
           <h2>Hablemos de tu comercio</h2>
           <p class="cta-copy">
-            Te contamos qué hace el sistema, cómo se instala y cómo se carga tu catálogo. Si te
-            queda alguna duda, la resolvemos ahí mismo. Sin compromiso.
+            Contanos si querés la versión offline o la online y te mostramos cómo funciona. Sin
+            compromiso.
           </p>
           <div class="cta-actions">
             <a class="btn btn-invert" href={WHATSAPP} target="_blank" rel="noopener"
@@ -403,6 +492,9 @@ const publico = [
             >
             <a class="btn btn-outline-light" href={`mailto:${MAIL}`}>Pedir por mail</a>
           </div>
+          <p class="cta-login">
+            ¿Ya usás la versión online? <a href={APP_URL}>Ingresá a app.aipos.com.ar</a>
+          </p>
         </div>
       </section>
     </main>
@@ -420,6 +512,8 @@ const publico = [
           <h3>Producto</h3>
           <nav class="footer-links" aria-label="Secciones">
             <a href="#beneficios">Funciones</a>
+            <a href="#precios">Precios</a>
+            <a href={APP_URL}>Ingresar</a>
             <a href="#mostrador">El mostrador</a>
             <a href="#ia">La IA</a>
             <a href="#informe">Rentabilidad</a>
@@ -451,6 +545,22 @@ const publico = [
         </span>
       </div>
     </footer>
+
+    <a
+      class="whatsapp-float"
+      href={WHATSAPP}
+      target="_blank"
+      rel="noopener"
+      aria-label="Escribinos por WhatsApp"
+    >
+      <svg class="whatsapp-float-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path
+          fill="currentColor"
+          d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 0 1-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 0 1-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 0 1 2.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0 0 12.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 0 0 5.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 0 0-3.48-8.413Z"
+        />
+      </svg>
+      <span class="whatsapp-float-label" aria-hidden="true">Escribinos por WhatsApp</span>
+    </a>
 
     <script is:inline>
       const menu = document.querySelector(".nav-menu");

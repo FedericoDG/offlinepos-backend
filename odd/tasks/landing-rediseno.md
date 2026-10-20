@@ -127,3 +127,5 @@ Runner: `astro build` + `node <skill>/scripts/inspect.mjs` (Chrome real, 1440/76
   estilo de Pontiun (gradiente del cielo, sombras de los mockups, tarjetas y hairlines, kickers del
   copy, escala tipográfica y gris de cuerpo). Sin errores de consola; sin JS funcionan menú, FAQ y
   visor. Sin commit.
+
+- L22 · La landing pasó a ofrecer **dos versiones**: offline $35.000/mes (sin límites de usuarios ni productos, 500 mensajes de IA, datos locales, Windows) y online $45.000/mes (en la nube, 5 usuarios y 5.000 productos de muestra, 500 mensajes de IA). Se sumaron los accesos a `https://app.aipos.com.ar` (nav, menú móvil, tarjeta online, cierre, pie y FAQ) y un botón flotante de WhatsApp. El usuario pidió commit y push de la landing.

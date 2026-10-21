@@ -362,6 +362,15 @@ label {
 
 .nav-menu-panel .btn {
   margin: 8px 12px 2px;
+  padding: 0 18px;
+  background: var(--teal);
+  color: #fff;
+}
+
+.nav-menu-panel .btn:hover,
+.nav-menu-panel .btn:focus-visible {
+  background: var(--teal-deep);
+  color: #fff;
 }
 
 /* --- botones ------------------------------------------------------------ */

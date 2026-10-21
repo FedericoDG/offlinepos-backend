@@ -12,3 +12,6 @@ deploy/.env
 
 # Salida compilada: se genera al build, no se versiona.
 backend/dist/
+
+# Capturas y reportes del skill de diseno (artefactos, no fuente)
+landing/.taste-skill/

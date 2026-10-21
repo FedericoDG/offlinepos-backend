@@ -75,19 +75,33 @@ app.use(express.urlencoded({ extended: true, limit: '25mb' }));
 // - `/api/health`: el POS desktop valida conectividad contra
 //   `{BACKEND_URL}/health`, y en produccion `BACKEND_URL` ya incluye el
 //   prefijo del API (nginx reescribe `/api-pos-offline/` → `/api/`).
-// Por eso se registra ANTES de los limiters: el POS lo consulta cada 5s y no
+// Por eso se registra ANTES de los limiters: el POS lo consulta seguido y no
 // debe consumir la cuota general.
-const salud = async (_req: express.Request, res: express.Response) => {
+//
+// IMPORTANTE: `salud` NO consulta Postgres. Neon cobra CU-hours por tiempo de
+// compute encendido y solo lo suspende tras 5 minutos sin consultas; un ping
+// cada 30 s desde cada POS mantenia la base despierta todo el dia aunque no
+// hubiera ni una venta. Un chequeo de vida no debe costar computo: responde
+// con lo que ya esta en memoria.
+const salud = (_req: express.Request, res: express.Response) => {
+  res.json({ status: 'ok', env: env.NODE_ENV });
+};
+
+// Readiness: este SI verifica Postgres. Lo usa el deploy y el monitoreo;
+// el POS nunca lo llama (el primer request real ya delata una base caida).
+const saludDB = async (_req: express.Request, res: express.Response) => {
   try {
-    // Verifica que Postgres responda
     await prisma.$queryRaw`SELECT 1`;
     res.json({ status: 'ok', db: 'connected', env: env.NODE_ENV });
   } catch {
     res.status(503).json({ status: 'error', db: 'disconnected', env: env.NODE_ENV });
   }
 };
+
 app.get('/health', salud);
 app.get('/api/health', salud);
+app.get('/health/db', saludDB);
+app.get('/api/health/db', saludDB);
 
 // Aplicar límites antes de las rutas (orden importa).
 app.use('/api/licencias/activar', limiterActivar);

@@ -115,7 +115,7 @@ LEEME
   return 0
 }
 
-PROBE_BACKEND="node -e \"require('http').get('http://127.0.0.1:'+(process.env.PORT||'4000')+'/health',r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))\""
+PROBE_BACKEND="node -e \"require('http').get('http://127.0.0.1:'+(process.env.PORT||'4000')+'/health/db',r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))\""
 PROBE_PANEL="node -e \"require('http').get('http://127.0.0.1:3000/admin',r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))\""
 PROBE_LANDING="wget -qO- http://127.0.0.1/ >/dev/null"
 
@@ -163,8 +163,8 @@ $COMPOSE up -d --remove-orphans --wait --wait-timeout 180
 echo "==> espera de arranque"
 sleep 5
 
-echo "==> health backend (GET /health, ruta verificada en backend/src/index.ts)"
-$COMPOSE exec -T panel-backend node -e "require('http').get('http://127.0.0.1:'+(process.env.PORT||'4000')+'/health',r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))"
+echo "==> health backend (GET /health/db, verifica Postgres; /health es solo liveness)"
+$COMPOSE exec -T panel-backend node -e "require('http').get('http://127.0.0.1:'+(process.env.PORT||'4000')+'/health/db',r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))"
 
 echo "==> health panel (GET /)"
 $COMPOSE exec -T panel-web node -e "require('http').get('http://127.0.0.1:3000/admin',r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))"

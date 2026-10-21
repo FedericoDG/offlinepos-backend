@@ -25,6 +25,7 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 import { fecha } from '@/lib/formato';
+import { copiarTexto } from '@/lib/portapapeles';
 import type { LicenciaListada } from '@/lib/tipos';
 
 /**
@@ -107,13 +108,12 @@ export function CopiarClave({ clave }: { clave: string }) {
       className="size-7"
       title="Copiar clave"
       onClick={async () => {
-        try {
-          await navigator.clipboard.writeText(clave);
-          setCopiada(true);
-          setTimeout(() => setCopiada(false), 1600);
-        } catch {
-          setCopiada(false);
+        if (!(await copiarTexto(clave))) {
+          toast.error('No se pudo copiar la clave. Copiala a mano desde la fila.');
+          return;
         }
+        setCopiada(true);
+        setTimeout(() => setCopiada(false), 1600);
       }}
     >
       {copiada ? <Check className="text-[var(--success)]" /> : <Copy />}

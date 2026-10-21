@@ -264,6 +264,54 @@ prueba('editar un plan avisa que no afecta a los ya contratados',
   /no afecta a las suscripciones ya contratadas/i.test(await textoDe('[role=dialog]')));
 await p.keyboard.press('Escape');
 
+// ============================================== portapapeles sin contexto seguro
+seccion('Claves: copiar sin Clipboard API (HTTP en red local)');
+
+// `navigator.clipboard` solo existe en contextos seguros (HTTPS o localhost).
+// Abierto por HTTP desde otra máquina de la red, el boton tiene que caer al
+// fallback de `execCommand` y copiar igual: antes fallaba en silencio.
+{
+  const ctxSinApi = await navegador.newContext({
+    viewport: { width: 1440, height: 1000 },
+    locale: 'es-AR',
+    permissions: ['clipboard-read', 'clipboard-write'],
+  });
+  await ctxSinApi.addInitScript(() => {
+    Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true });
+  });
+  const q = await ctxSinApi.newPage();
+  await q.goto(`${BASE}/login`);
+  await q.fill('input[name=email]', 'joaquin@binario.com');
+  await q.fill('input[name=password]', '123456');
+  await Promise.all([q.waitForURL('**/dashboard', { timeout: 20000 }), q.click('button[type=submit]')]);
+  await q.goto(`${BASE}/licencias`, { waitUntil: 'networkidle' });
+
+  igual('sin Clipboard API el navegador queda simulado', await q.evaluate(() => typeof navigator.clipboard), 'undefined');
+  prueba('el boton de copiar sigue apareciendo', (await q.locator('button[title="Copiar clave"]').count()) > 0);
+
+  const enmascarada = (await q.locator('tbody tr td:first-child code').first().innerText()).trim();
+  await q.locator('button[title="Copiar clave"]').first().click();
+  await q.waitForTimeout(400);
+  prueba('el clic muestra el tilde de copiado',
+    (await q.locator('button[title="Copiar clave"] svg.text-\\[var\\(--success\\)\\]').count()) > 0);
+  prueba('y no muestra error', (await q.locator('[data-sonner-toast]').count()) === 0);
+
+  // Pegado real: comprueba que el texto llego al portapapeles del sistema.
+  await q.evaluate(() => {
+    const i = document.createElement('input');
+    i.id = 'pegado-prueba';
+    document.body.appendChild(i);
+    i.focus();
+  });
+  await q.keyboard.press('Control+V');
+  await q.waitForTimeout(200);
+  const pegado = await q.inputValue('#pegado-prueba');
+  prueba('lo pegado es la clave completa, no la enmascarada',
+    pegado.startsWith(`${enmascarada.split('-')[0]}-`) && !pegado.includes('•') && pegado.length > enmascarada.length,
+    { pegado, enmascarada });
+  await ctxSinApi.close();
+}
+
 // ====================================================================== pagos
 seccion('Cuando el backend no responde');
 

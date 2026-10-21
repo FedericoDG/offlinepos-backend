@@ -18,6 +18,7 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 import { toast } from 'sonner';
+import { copiarTexto } from '@/lib/portapapeles';
 
 /**
  * Publicación manual de una versión del POS: los instaladores se construyen
@@ -219,13 +220,12 @@ export function CopiarUrl({ url, nombre }: { url: string; nombre: string }) {
       className="size-7"
       title={`Copiar enlace de ${nombre}`}
       onClick={async () => {
-        try {
-          await navigator.clipboard.writeText(url);
-          setCopiada(true);
-          setTimeout(() => setCopiada(false), 1600);
-        } catch {
-          setCopiada(false);
+        if (!(await copiarTexto(url))) {
+          toast.error('No se pudo copiar el enlace. Copialo a mano desde el navegador.');
+          return;
         }
+        setCopiada(true);
+        setTimeout(() => setCopiada(false), 1600);
       }}
     >
       {copiada ? <Check className="text-[var(--success)]" /> : <Copy />}
